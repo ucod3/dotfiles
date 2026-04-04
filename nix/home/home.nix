@@ -5,7 +5,8 @@
   xdg.enable = true;
 
   xdg.configFile = {
-    "git/.gitconfig".source = ../../config/git/.gitconfig;
+    "git/config".source = ../../config/git/config;
+    "git/.gitignore".source = ../../config/git/.gitignore;
 
     "nvim" = {
       source = ../../config/nvim;

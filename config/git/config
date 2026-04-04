@@ -1,0 +1,19 @@
+[user]
+  name = Usman Butt
+  email = usman.butt@outlook.com
+
+[core]
+  excludesfile = ~/.config/git/.gitignore
+  editor = nvim
+
+[init]
+  defaultBranch = main
+
+[merge]
+  tool = nvimdiff
+
+[color]
+  ui = auto
+
+[push]
+  default = simple
