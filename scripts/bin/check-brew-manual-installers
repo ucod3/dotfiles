@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Checking for Homebrew packages requiring manual follow-up..."
+
+if [ "$(id -u)" = "0" ]; then
+  echo "⚠️  This script should not be run as root."
+  echo "Run it as your normal user after darwin-rebuild completes."
+  exit 1
+fi
+
+if ! command -v brew >/dev/null 2>&1; then
+  echo "brew is not installed or not on PATH."
+  exit 1
+fi
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+SKIP_FILE="${DOTFILES_ROOT}/config/homebrew/manual-installer-skip.txt"
+
+brew_prefix="$(brew --prefix)"
+caskroom="$brew_prefix/Caskroom"
+
+if [ ! -d "$caskroom" ]; then
+  echo "No Caskroom found at: $caskroom"
+  exit 0
+fi
+
+read_skip_list() {
+  if [ -f "$SKIP_FILE" ]; then
+    grep -v '^[[:space:]]*#' "$SKIP_FILE" \
+      | sed '/^[[:space:]]*$/d' \
+      | tr -d '\r'
+  fi
+}
+
+should_skip() {
+  local cask="$1"
+  local skip
+
+  while IFS= read -r skip; do
+    [ -n "$skip" ] || continue
+    if [[ "$cask" == "$skip" ]]; then
+      return 0
+    fi
+  done < <(read_skip_list)
+
+  return 1
+}
+
+latest_version_dir() {
+  local cask="$1"
+  local dir="$caskroom/$cask"
+
+  [ -d "$dir" ] || return 1
+
+  find "$dir" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print0 \
+    | xargs -0 stat -f '%m %N' 2>/dev/null \
+    | sort -nr \
+    | awk 'NR==1 { $1=""; sub(/^ /, ""); print; }'
+}
+
+found_manual_installers=false
+
+echo
+echo "🔍 Checking installed casks for manual installer apps..."
+
+installed_casks="$(brew list --cask 2>/dev/null || true)"
+
+if [ -z "$installed_casks" ]; then
+  echo "No installed casks found."
+  exit 0
+fi
+
+while IFS= read -r cask; do
+  [ -n "$cask" ] || continue
+
+  if should_skip "$cask"; then
+    continue
+  fi
+
+  cask_dir="$(latest_version_dir "$cask" || true)"
+  [ -n "${cask_dir:-}" ] || continue
+
+  installer_app="$(find "$cask_dir" -maxdepth 2 -type d \( -name '*Installer.app' -o -name 'Install*.app' \) -print -quit 2>/dev/null || true)"
+installer_pkg="$(find "$cask_dir" -maxdepth 2 -type f -name '*.pkg' -print -quit 2>/dev/null || true)"
+
+  if [ -n "${installer_app:-}" ] || [ -n "${installer_pkg:-}" ]; then
+    found_manual_installers=true
+    echo "⚠️  $cask requires a manual installer step:"
+
+    if [ -n "${installer_app:-}" ]; then
+      echo "    open '$installer_app'"
+    fi
+
+    echo
+  fi
+done <<< "$installed_casks"
+
+if [ "$found_manual_installers" = false ]; then
+  echo "✅ No casks found that require manual installation."
+fi
+
+echo "Recently touched casks (last 24h):"
+find "$caskroom" -name ".metadata" -mtime -1 -exec dirname {} \; 2>/dev/null \
+  | xargs -n1 basename 2>/dev/null \
+  | sort -u || true
+
+echo
+echo "Skipped casks list: $SKIP_FILE"
+echo "Note: this helper catches completed installs that still need a human step."
+echo "It does not resolve broken cask definitions or Homebrew parser errors."

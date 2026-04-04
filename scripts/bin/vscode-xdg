@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Ensures VS Code Insiders uses XDG config directory
+
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_CACHE_HOME="$HOME/.cache"
+exec "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders" "$@"

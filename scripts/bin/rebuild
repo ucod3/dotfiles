@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+cd "$DOTFILES_ROOT"
+
+if command -v brew >/dev/null 2>&1; then
+  brew update
+fi
+
+sudo darwin-rebuild switch --flake .#m4pro
+
+if [ -x "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers" ]; then
+  "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers"
+fi
