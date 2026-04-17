@@ -1,0 +1,8 @@
+title = "dotfiles gitleaks config"
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''config/homebrew/manual-installer-skip.txt''',
+  '''README\.md'''
+]

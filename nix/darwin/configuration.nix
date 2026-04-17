@@ -20,6 +20,7 @@
     };
 
     brews = [
+      "gitleaks"
       "mas"
       "sqlite"
     ];
