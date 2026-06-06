@@ -41,23 +41,20 @@ aliases() {
   if [[ -n "$search" ]]; then
     echo "  (filtered: '$search')"
     echo ""
-    # Search custom modules
     grep -h "^alias" "$modules_dir"/*.zsh 2>/dev/null \
       | grep -i "$search" \
-      | sed "s/alias /  /" | sort
+      | sed "s/^alias /  /" | sort
     echo ""
-    # Also search OMZ git plugin (most used)
-    echo "── Git Plugin Aliases (filtered) ────────────"
-    alias | grep -i "$search" | grep -v "^aliases" | sed "s/^/  /" | head -20
+    echo "── All Active Aliases (filtered) ────────────"
+    alias | grep -i "$search" | grep -v "^aliases\b" | sed "s/^/  /" | head -20
   else
     echo ""
-    # Show all custom aliases grouped by file
     for f in "$modules_dir"/*.zsh; do
-      local section_aliases
-      section_aliases=$(grep "^alias" "$f" 2>/dev/null | sed "s/alias /  /" | sort)
-      if [[ -n "$section_aliases" ]]; then
+      local hits
+      hits=$(grep "^alias" "$f" 2>/dev/null | sed "s/^alias /  /" | sort)
+      if [[ -n "$hits" ]]; then
         echo "  ── $(basename "$f" .zsh) ──"
-        echo "$section_aliases"
+        echo "$hits"
         echo ""
       fi
     done
