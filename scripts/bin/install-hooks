@@ -21,20 +21,35 @@ if [[ ! -d "$HOOKS_DIR" ]]; then
   exit 0
 fi
 
-# Write the pre-commit hook
+# Write the composite pre-commit hook (validate + gitleaks)
 cat > "$HOOKS_DIR/pre-commit" << 'EOF'
 #!/usr/bin/env bash
-# Pre-commit hook: validate dotfiles before every commit
+# Pre-commit hook: syntax validation + secret scanning
 # Installed automatically by rebuild and install.sh
 # To bypass once: git commit --no-verify
+set -euo pipefail
+
 DOTFILES_ROOT="$(git rev-parse --show-toplevel)"
-exec "$DOTFILES_ROOT/scripts/bin/validate" --quick
+
+# ── 1. Syntax & common-mistake validation ──────────────────────────────────
+"$DOTFILES_ROOT/scripts/bin/validate" --quick
+
+# ── 2. Secret scanning (optional — only runs if gitleaks is installed) ──────
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks detect \
+    --source "$DOTFILES_ROOT" \
+    --config "$DOTFILES_ROOT/.gitleaks.toml" \
+    --redact \
+    --no-git
+else
+  echo "  ! gitleaks not installed — secret scan skipped (brew install gitleaks)"
+fi
 EOF
 
 chmod +x "$HOOKS_DIR/pre-commit"
 
 if [[ "$QUIET" == false ]]; then
-  echo "✓ Git pre-commit hook installed"
-  echo "  Validates syntax and common mistakes on every commit"
+  echo "✓ Git pre-commit hook installed (validate + gitleaks)"
+  echo "  Runs syntax checks and secret scanning on every commit"
   echo "  To bypass: git commit --no-verify"
 fi

@@ -4,6 +4,9 @@ set -euo pipefail
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
 cd "$DOTFILES_ROOT"
 
+# shellcheck source=../../lib/log.sh
+source "$DOTFILES_ROOT/lib/log.sh"
+
 # Detect and export user for dynamic configuration
 export USER=$(whoami)
 

@@ -19,22 +19,14 @@ set -euo pipefail
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
 cd "$DOTFILES_ROOT"
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# shellcheck source=../../lib/log.sh
+source "$DOTFILES_ROOT/lib/log.sh"
 
 ERRORS=0
 WARNINGS=0
 QUICK_MODE=false
 
 [[ "${1:-}" == "--quick" ]] && QUICK_MODE=true
-
-pass()    { echo -e "  ${GREEN}✓${NC} $1"; }
-fail()    { echo -e "  ${RED}✗${NC} $1"; ((ERRORS++)) || true; }
-warn()    { echo -e "  ${YELLOW}!${NC} $1"; ((WARNINGS++)) || true; }
-section() { echo -e "\n${BLUE}── $1 ──${NC}"; }
 
 # ── 1. Zsh syntax ──────────────────────────────────────────────────────────
 section "Zsh syntax"

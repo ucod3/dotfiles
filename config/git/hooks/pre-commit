@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
-
-if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "pre-commit: gitleaks not installed, skipping secret scan"
-  exit 0
-fi
-
-gitleaks detect \
-  --source . \
-  --config .gitleaks.toml \
-  --redact \
-  --no-git
+# ──────────────────────────────────────────────────────────────────────────────
+# TEMPLATE — not executed directly.
+# The live hook is installed by: scripts/bin/install-hooks
+# It runs both validate --quick AND gitleaks (if available).
+#
+# To install manually:
+#   ./scripts/bin/install-hooks
+#
+# To bypass a single commit:
+#   git commit --no-verify
+# ──────────────────────────────────────────────────────────────────────────────
+echo "This is a template. Run: ./scripts/bin/install-hooks"
+exit 1
