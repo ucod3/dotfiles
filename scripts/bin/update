@@ -70,9 +70,34 @@ check_dotfiles() {
         log_info "  git clone https://github.com/usmanbutt/dotfiles.git $DOTFILES_ROOT"
         exit 1
     fi
-    
+
     cd "$DOTFILES_ROOT"
     log_success "Found dotfiles at $DOTFILES_ROOT"
+}
+
+# Pre-flight validation — run quick checks before touching anything
+run_preflight() {
+    local validate_bin="$DOTFILES_ROOT/scripts/bin/validate"
+
+    if [[ ! -x "$validate_bin" ]]; then
+        log_warning "validate script not found at $validate_bin — skipping pre-flight"
+        return 0
+    fi
+
+    log_step "Pre-flight: running syntax and safety checks..."
+
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY RUN] Would run: validate --quick"
+        return 0
+    fi
+
+    if "$validate_bin" --quick; then
+        log_success "Pre-flight passed — safe to proceed"
+    else
+        log_error "Pre-flight validation failed. Fix the errors above before running update."
+        log_info "To bypass (not recommended): edit scripts/bin/update and remove run_preflight"
+        exit 1
+    fi
 }
 
 # Check Git status
@@ -270,6 +295,7 @@ main() {
     
     # Run all steps
     check_dotfiles
+    run_preflight
     check_git_status
     update_flake_inputs
     commit_flake_lock

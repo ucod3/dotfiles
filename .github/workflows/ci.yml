@@ -1,0 +1,116 @@
+name: CI
+
+# Run on every push and pull request to main.
+# Tests what is safely testable on a Linux runner:
+#   - Shell script syntax (bash -n via shellcheck)
+#   - Zsh module syntax (zsh -n)
+#   - Nix file parse syntax (nix-instantiate --parse)
+#   - Flake attribute tree evaluation (nix flake show)
+#
+# NOTE: nix flake check and darwin-rebuild are macOS-only and are NOT run here.
+# The full system build is validated locally via: dot validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Syntax & lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Install Nix ───────────────────────────────────────────────────────
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          # Enable flakes and nix-command; no channel needed
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # ── Shell script syntax (bash -n) ─────────────────────────────────────
+      - name: Bash syntax check
+        run: |
+          echo "=== bash -n on all scripts/bin/ scripts ==="
+          failed=0
+          for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update \
+                   scripts/bin/validate scripts/bin/apps scripts/bin/install-hooks \
+                   scripts/bin/scan-secrets scripts/bin/check-brew-manual-installers \
+                   install.sh; do
+            if [[ -f "$f" ]]; then
+              if bash -n "$f" 2>&1; then
+                echo "  OK: $f"
+              else
+                echo "  FAIL: $f"
+                failed=1
+              fi
+            fi
+          done
+          exit $failed
+
+      # ── Shell script lint (shellcheck) ────────────────────────────────────
+      - name: ShellCheck
+        run: |
+          echo "=== shellcheck on all scripts/bin/ scripts ==="
+          # SC1090/1091: can't follow dynamic source paths (lib/log.sh etc.) — expected
+          # SC2148: shebangs present, skip top-of-file check
+          nix shell nixpkgs#shellcheck --command \
+            shellcheck --severity=error \
+              --exclude=SC1090,SC1091 \
+              scripts/bin/dot \
+              scripts/bin/rebuild \
+              scripts/bin/update \
+              scripts/bin/validate \
+              scripts/bin/apps \
+              scripts/bin/install-hooks \
+              scripts/bin/scan-secrets \
+              scripts/bin/check-brew-manual-installers \
+              install.sh
+
+      # ── Zsh module syntax (zsh -n) ────────────────────────────────────────
+      - name: Zsh syntax check
+        run: |
+          echo "=== zsh -n on all config/zsh/modules/*.zsh ==="
+          nix shell nixpkgs#zsh --command bash -c '
+            for f in config/zsh/modules/*.zsh config/zsh/custom.zsh config/zsh/.zshenv; do
+              if [[ -f "$f" ]]; then
+                if zsh -n "$f" 2>&1; then
+                  echo "  OK: $f"
+                else
+                  echo "  FAIL: $f"
+                  exit 1
+                fi
+              fi
+            done
+          '
+
+      # ── Nix file parse syntax ─────────────────────────────────────────────
+      - name: Nix parse check
+        run: |
+          echo "=== nix-instantiate --parse on .nix files ==="
+          failed=0
+          for f in flake.nix nix/home/home.nix hosts/default.nix hosts/Usmans-M4Pro.nix; do
+            if [[ -f "$f" ]]; then
+              if nix-instantiate --parse "$f" > /dev/null 2>&1; then
+                echo "  OK: $f"
+              else
+                echo "  FAIL: $f"
+                nix-instantiate --parse "$f" 2>&1 | sed 's/^/    /'
+                failed=1
+              fi
+            fi
+          done
+          exit $failed
+
+      # ── Flake attribute tree evaluation ───────────────────────────────────
+      # nix flake show evaluates the outputs attribute set without building
+      # any darwin derivations, so it is safe on Linux.
+      - name: Nix flake show
+        run: |
+          echo "=== nix flake show (pure attribute tree evaluation) ==="
+          nix flake show --all-systems 2>&1

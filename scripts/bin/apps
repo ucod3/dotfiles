@@ -40,6 +40,37 @@ count_section() {
     | wc -l | tr -d ' '
 }
 
+# Post-mutation validate — run after every config change
+# Catches Nix syntax errors introduced by add/remove before the user rebuilds.
+# Prints a git rollback hint on failure; does NOT auto-revert (git is the undo).
+validate_after_mutation() {
+  local validate_bin="$DOTFILES_ROOT/scripts/bin/validate"
+
+  if [[ ! -x "$validate_bin" ]]; then
+    return 0  # validate missing — skip silently
+  fi
+
+  echo ""
+  info "Validating config after change..."
+
+  local output exit_code
+  output=$("$validate_bin" --quick 2>&1) && exit_code=0 || exit_code=$?
+
+  # Always print the output so the user sees check results
+  echo "$output"
+
+  if [[ $exit_code -eq 0 ]]; then
+    ok "Config is valid — safe to rebuild"
+  else
+    echo ""
+    err "Config validation failed after mutation."
+    warn "To undo this change, run:"
+    echo "    git checkout -- $CONFIG"
+    echo ""
+    warn "Fix the error above, then run: rebuild"
+  fi
+}
+
 # ── Commands ───────────────────────────────────────────────────────────────
 
 list_section() {
@@ -226,6 +257,8 @@ cmd_add() {
     ok "Added '$name' to brews section"
   fi
 
+  validate_after_mutation
+
   echo ""
   info "Apply the change by running: ${BOLD}rebuild${NC}"
   echo ""
@@ -252,6 +285,8 @@ cmd_remove() {
   # Remove the line containing the app name
   sed -i '' "/\"$name\"/d" "$CONFIG"
   ok "Removed '$name' from config"
+
+  validate_after_mutation
 
   echo ""
   info "Apply the change by running: ${BOLD}rebuild${NC}"
