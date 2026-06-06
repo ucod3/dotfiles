@@ -14,10 +14,9 @@
   };
 
   outputs = { self, nixpkgs, nix-darwin, home-manager, nix-homebrew, ... }@inputs: let
-    hostname = if builtins.getEnv "HOSTNAME" == "" then "m4pro" else builtins.getEnv "HOSTNAME";
     user = if builtins.getEnv "USER" == "" then "usmanbutt" else builtins.getEnv "USER";
   in {
-    darwinConfigurations.${hostname} = nix-darwin.lib.darwinSystem {
+    darwinConfigurations.m4pro = nix-darwin.lib.darwinSystem {
       system = "aarch64-darwin";
       specialArgs = { inherit self inputs user; };
 

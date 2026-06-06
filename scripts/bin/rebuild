@@ -4,15 +4,14 @@ set -euo pipefail
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
 cd "$DOTFILES_ROOT"
 
-# Detect and export hostname and user
-export HOSTNAME=$(hostname -s)
+# Detect and export user for dynamic configuration
 export USER=$(whoami)
 
 if command -v brew >/dev/null 2>&1; then
   brew update
 fi
 
-sudo darwin-rebuild switch --flake .#${HOSTNAME}
+sudo darwin-rebuild switch --flake .#m4pro
 
 if [ -x "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers" ]; then
   "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers"
