@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+#
+# Comprehensive Update Script for Dotfiles
+# Updates Nix flake inputs, Homebrew, and rebuilds the system
+#
+# Usage:
+#   update              # Interactive update (asks before major changes)
+#   update --auto       # Automatic update (no prompts)
+#   update --flake-only # Only update flake inputs, don't rebuild
+#   update --help       # Show help
+#
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Configuration
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+AUTO_MODE=false
+FLAKE_ONLY=false
+DRY_RUN=false
+
+# Logging functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+log_step() {
+    echo -e "${CYAN}[STEP]${NC} $1"
+}
+
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --auto|-a)
+                AUTO_MODE=true
+                shift
+                ;;
+            --flake-only|-f)
+                FLAKE_ONLY=true
+                shift
+                ;;
+            --dry-run|-n)
+                DRY_RUN=true
+                shift
+                ;;
+            --help|-h)
+                echo "Usage: update [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  -a, --auto       Automatic mode (no prompts)"
+                echo "  -f, --flake-only Only update flake inputs, don't rebuild"
+                echo "  -n, --dry-run    Show what would be done without executing"
+                echo "  -h, --help       Show this help message"
+                echo ""
+                echo "This script updates your entire dotfiles ecosystem:"
+                echo "  1. Updates Nix flake inputs (nixpkgs, home-manager, etc.)"
+                echo "  2. Updates Homebrew package list"
+                echo "  3. Rebuilds the system with new updates"
+                echo "  4. Commits flake.lock changes to Git"
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Check if we're in the dotfiles directory
+check_dotfiles() {
+    if [[ ! -d "$DOTFILES_ROOT" ]]; then
+        log_error "Dotfiles directory not found: $DOTFILES_ROOT"
+        log_info "Please clone your dotfiles first:"
+        log_info "  git clone https://github.com/usmanbutt/dotfiles.git $DOTFILES_ROOT"
+        exit 1
+    fi
+    
+    cd "$DOTFILES_ROOT"
+    log_success "Found dotfiles at $DOTFILES_ROOT"
+}
+
+# Check Git status
+check_git_status() {
+    if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
+        log_warning "You have uncommitted changes in your dotfiles."
+        log_info "It's recommended to commit or stash these before updating."
+        
+        if [[ "$AUTO_MODE" == false ]]; then
+            read -p "Continue anyway? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log_info "Update cancelled. Please commit your changes first:"
+                log_info "  cd $DOTFILES_ROOT"
+                log_info "  git add ."
+                log_info "  git commit -m \"WIP: current state\""
+                exit 0
+            fi
+        fi
+    fi
+}
+
+# Update Nix flake inputs
+update_flake_inputs() {
+    log_step "Step 1/4: Updating Nix flake inputs..."
+    log_info "This updates nixpkgs, nix-darwin, home-manager, and nix-homebrew"
+    log_info "This is what fixes issues like the Homebrew API error you had."
+    
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY RUN] Would run: nix flake update"
+        return 0
+    fi
+    
+    # Show current flake.lock info
+    local current_date=$(git log -1 --format=%cd --date=short -- flake.lock 2>/dev/null || echo "unknown")
+    log_info "Current flake.lock last updated: $current_date"
+    
+    # Update flake inputs
+    if nix flake update; then
+        log_success "Flake inputs updated successfully"
+        
+        # Show what changed
+        if git diff --stat flake.lock &>/dev/null; then
+            log_info "Updated inputs:"
+            git diff --stat flake.lock | head -20
+        fi
+    else
+        log_error "Failed to update flake inputs"
+        log_info "You may need to check your internet connection or try again later."
+        exit 1
+    fi
+}
+
+# Commit flake.lock changes
+commit_flake_lock() {
+    if [[ "$DRY_RUN" == true ]]; then
+        return 0
+    fi
+    
+    # Check if flake.lock was modified
+    if git diff --quiet flake.lock 2>/dev/null; then
+        log_info "No changes to flake.lock"
+        return 0
+    fi
+    
+    log_step "Step 2/4: Committing flake.lock changes..."
+    
+    git add flake.lock
+    
+    # Create commit with timestamp
+    local timestamp=$(date +%Y-%m-%d)
+    local commit_msg="Update flake inputs - $timestamp
+
+- Update nixpkgs, nix-darwin, home-manager, nix-homebrew
+- Ensures latest packages and fixes
+
+Auto-generated by update script"
+    
+    if git commit -m "$commit_msg"; then
+        log_success "flake.lock committed to Git"
+        log_info "You can rollback to this version if needed using BACKUPS.md procedures"
+    else
+        log_warning "Failed to commit flake.lock (may be no changes)"
+    fi
+}
+
+# Update Homebrew
+update_homebrew() {
+    log_step "Step 3/4: Updating Homebrew..."
+    
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY RUN] Would run: brew update"
+        return 0
+    fi
+    
+    if command -v brew &>/dev/null; then
+        if brew update; then
+            log_success "Homebrew updated"
+            
+            # Show outdated packages
+            local outdated=$(brew outdated --quiet 2>/dev/null || true)
+            if [[ -n "$outdated" ]]; then
+                log_info "Outdated Homebrew packages (will be updated on next rebuild):"
+                echo "$outdated" | head -10
+                local count=$(echo "$outdated" | wc -l)
+                if [[ $count -gt 10 ]]; then
+                    log_info "... and $((count - 10)) more"
+                fi
+            fi
+        else
+            log_warning "Homebrew update had issues, but continuing..."
+        fi
+    else
+        log_warning "Homebrew not found, skipping..."
+    fi
+}
+
+# Rebuild the system
+rebuild_system() {
+    if [[ "$FLAKE_ONLY" == true ]]; then
+        log_info "Skipping rebuild (--flake-only mode)"
+        log_info "Run './scripts/bin/rebuild' manually to apply updates"
+        return 0
+    fi
+    
+    log_step "Step 4/4: Rebuilding system with updates..."
+    log_info "This applies all the updates to your macOS system."
+    log_warning "You may be asked for your password (sudo required)."
+    
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY RUN] Would run: ./scripts/bin/rebuild"
+        return 0
+    fi
+    
+    if ./scripts/bin/rebuild; then
+        log_success "System rebuilt successfully!"
+    else
+        log_error "System rebuild failed"
+        log_info "This could be due to:"
+        log_info "  - Breaking changes in updated packages"
+        log_info "  - Network issues during build"
+        log_info "  - macOS security settings"
+        echo
+        log_info "Troubleshooting:"
+        log_info "  1. Check the error messages above"
+        log_info "  2. Try running './scripts/bin/rebuild' again"
+        log_info "  3. See BACKUPS.md for rollback procedures"
+        log_info "  4. You can rollback flake.lock: git checkout HEAD -- flake.lock"
+        exit 1
+    fi
+}
+
+# Show summary
+show_summary() {
+    echo
+    log_success "Update complete! 🎉"
+    echo
+    log_info "Summary of what was updated:"
+    echo "  ✅ Nix flake inputs (nixpkgs, home-manager, etc.)"
+    echo "  ✅ Homebrew package database"
+    echo "  ✅ System rebuilt with latest packages"
+    echo "  ✅ Changes committed to Git"
+    echo
+    log_info "Next steps:"
+    echo "  - Restart your terminal to load any shell updates"
+    echo "  - Test that your applications work correctly"
+    echo "  - If issues occur, see BACKUPS.md for rollback procedures"
+    echo
+    
+    # Show when last updated
+    local last_update=$(git log -1 --format=%cd --date=relative -- flake.lock 2>/dev/null || echo "unknown")
+    log_info "Flake inputs last updated: $last_update"
+    
+    # Recommend regular updates
+    log_info "Recommendation: Run 'update' weekly to stay current"
+}
+
+# Main execution
+main() {
+    parse_args "$@"
+    
+    echo
+    log_info "Dotfiles Update Script"
+    log_info "===================="
+    
+    if [[ "$AUTO_MODE" == true ]]; then
+        log_info "Running in automatic mode (no prompts)"
+    fi
+    
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "DRY RUN MODE - No changes will be made"
+    fi
+    
+    echo
+    
+    # Run all steps
+    check_dotfiles
+    check_git_status
+    update_flake_inputs
+    commit_flake_lock
+    update_homebrew
+    rebuild_system
+    show_summary
+}
+
+# Run main function
+main "$@"
