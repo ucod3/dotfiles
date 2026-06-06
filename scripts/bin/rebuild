@@ -7,6 +7,11 @@ cd "$DOTFILES_ROOT"
 # Detect and export user for dynamic configuration
 export USER=$(whoami)
 
+# Always ensure git hooks are installed (safe to run multiple times)
+if [ -x "$DOTFILES_ROOT/scripts/bin/install-hooks" ]; then
+  "$DOTFILES_ROOT/scripts/bin/install-hooks" --quiet
+fi
+
 if command -v brew >/dev/null 2>&1; then
   brew update
 fi

@@ -215,6 +215,8 @@ run_installation() {
     log_info "Step 6/7: Setting up dotfiles repository..."
     backup_existing
     clone_dotfiles
+    # Install git hooks immediately after cloning
+    bash "$DOTFILES_DIR/scripts/bin/install-hooks"
     echo
     
     # Step 7: Run the build

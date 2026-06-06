@@ -1,20 +1,40 @@
 #!/usr/bin/env bash
 #
 # Install git hooks for this repo
-# Run once: ./scripts/bin/install-hooks
+# Called automatically by rebuild and install.sh
+# Safe to run multiple times (idempotent)
+#
+# Usage:
+#   ./scripts/bin/install-hooks           # verbose
+#   ./scripts/bin/install-hooks --quiet   # silent unless error
 #
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+DOTFILES_ROOT="${DOTFILES_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo "$HOME/dotfiles")}"
 HOOKS_DIR="$DOTFILES_ROOT/.git/hooks"
+QUIET=false
 
+[[ "${1:-}" == "--quiet" ]] && QUIET=true
+
+# Nothing to do if not a git repo
+if [[ ! -d "$HOOKS_DIR" ]]; then
+  [[ "$QUIET" == false ]] && echo "Warning: .git/hooks not found, skipping hook installation"
+  exit 0
+fi
+
+# Write the pre-commit hook
 cat > "$HOOKS_DIR/pre-commit" << 'EOF'
 #!/usr/bin/env bash
-# Pre-commit hook: validate before every commit
+# Pre-commit hook: validate dotfiles before every commit
+# Installed automatically by rebuild and install.sh
+# To bypass once: git commit --no-verify
 DOTFILES_ROOT="$(git rev-parse --show-toplevel)"
 exec "$DOTFILES_ROOT/scripts/bin/validate" --quick
 EOF
 
 chmod +x "$HOOKS_DIR/pre-commit"
-echo "✓ Pre-commit hook installed"
-echo "  Every 'git commit' will now run: validate --quick"
-echo "  To bypass once: git commit --no-verify"
+
+if [[ "$QUIET" == false ]]; then
+  echo "✓ Git pre-commit hook installed"
+  echo "  Validates syntax and common mistakes on every commit"
+  echo "  To bypass: git commit --no-verify"
+fi
