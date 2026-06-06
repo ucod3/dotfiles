@@ -96,5 +96,8 @@
   home.packages = with pkgs; [
     pnpm
     python312Packages.pygments
+    lua-language-server
+    pyright
+    typescript-language-server
   ];
 }
