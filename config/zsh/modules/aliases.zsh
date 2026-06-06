@@ -9,3 +9,7 @@ alias change="code-insiders $HOME/dotfiles/config/zsh/custom.zsh"
 alias use-node="pnpm-use-node"
 alias use-nvm="nvm-init && nvm use"
 alias npm-real="real-npm"
+
+# Node.js / pnpm aliases
+alias node-setup="echo 'Run: pnpm env use --global node@lts'"
+alias node-versions="pnpm env list"

@@ -1,5 +1,23 @@
 # Node.js Management
-# NVM Configuration (only loaded on demand)
+# Uses pnpm as the primary package manager with on-demand Node.js installation
+# This approach saves disk space: no global Node.js, no duplicate node_modules
+#
+# Initial Setup:
+#   pnpm comes pre-installed via Nix (no Node.js installed initially)
+#   When you first run pnpm, it will auto-install Node.js LTS
+#
+# Commands:
+#   pnpm-use-node 18     - Install and use Node.js 18 globally via pnpm
+#   pnpm env use --global node@20  - Install Node.js 20
+#   ensure-node 18       - Ensure Node.js 18 is available (auto-installs if needed)
+#
+# Why this approach?
+#   - No need to download node_modules 100 times for 100 projects
+#   - pnpm's content-addressable store shares packages across projects
+#   - Node.js versions managed by pnpm, not system package manager
+#   - Saves significant disk space compared to npm/yarn
+
+# NVM Configuration (only loaded on demand - fallback if needed)
 nvm-init() {
   echo "Loading NVM..."
 
