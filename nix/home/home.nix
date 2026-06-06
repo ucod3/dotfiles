@@ -16,10 +16,8 @@
     "windsurf/config.json".source = ../../config/windsurf/config.json;
     "Code - Insiders/User/settings.json".source = ../../config/vscode/settings.json;
 
-    # Add these later after you copy the real files into the repo.
-    # "zed/settings.json".source = ../../config/zed/settings.json;
-    # "neofetch/config.conf".source = ../../config/neofetch/config.conf;
-    # "ghostty/config".source = ../../config/ghostty/config;
+   # Ghostty terminal configuration (main terminal)
+    "ghostty/config".source = ../../config/ghostty/config;
   };
 
   # Add you-should-use plugin to custom Oh My Zsh plugins
@@ -39,7 +37,11 @@
     signing.format = null;
   };
 
-  programs.neovim.enable = true;
+  programs.neovim = {
+  enable = true;
+  withRuby = false;
+  withPython3 = false;
+};
 
   programs.fzf = {
     enable = true;

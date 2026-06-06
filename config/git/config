@@ -5,6 +5,8 @@
 [core]
   excludesfile = ~/.config/git/.gitignore
   editor = nvim
+  autocrlf = input
+  fsmonitor = true
 
 [init]
   defaultBranch = main
@@ -17,3 +19,15 @@
 
 [push]
   default = simple
+
+[rebase]
+  autoStash = true
+
+[branch]
+  autoSetupRebase = always
+
+[pull]
+  rebase = true
+
+[commit]
+  verbose = true

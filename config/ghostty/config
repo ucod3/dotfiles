@@ -1,0 +1,66 @@
+# Ghostty Terminal Configuration
+# Modern, fast terminal emulator settings for development
+
+# Font configuration
+font-family = JetBrains Mono NF
+font-size = 14
+
+# Window configuration
+window-width = 140
+window-height = 40
+window-padding-x = 8
+window-padding-y = 8
+window-decoration = false
+window-theme = dark
+
+# Cursor configuration
+cursor-style = bar
+cursor-style-blink = false
+cursor-color = #f8f8f2 # light gray
+cursor-color-unfocused = #75715e # dark gray
+
+# Color scheme (Dracula-like)
+foreground = #f8f8f2
+background = #282a36
+
+# Regular colors
+color-0 = #000000  # black
+color-1 = #ff5555  # red
+color-2 = #50fa7b  # green
+color-3 = #f1fa8c  # yellow
+color-4 = #bd93f9  # blue
+color-5 = #ff79c6  # magenta
+color-6 = #8be9fd  # cyan
+color-7 = #f8f8f2  # white
+
+# Bright colors
+color-8 = #6272a4  # bright black
+color-9 = #ff6e6e  # bright red
+color-10 = #69ff94  # bright green
+color-11 = #ffffa5  # bright yellow
+color-12 = #d6acff  # bright blue
+color-13 = #ff92df  # bright magenta
+color-14 = #a4ffff  # bright cyan
+color-15 = #ffffff  # bright white
+
+# Selection colors
+selection-foreground = #282a36
+selection-background = #f8f8f2
+
+# Scrollback
+scrollback-limit = 10000
+
+# Bell
+bell-style = visual
+
+# Confirm before closing with running processes
+confirm-close-surface = false
+
+# Performance
+gpu-acceleration = true
+resize-increment = 1
+
+# Key bindings
+[keybindings]
+ctrl-c = copy_to_clipboard
+ctrl-v = paste_from_clipboard
