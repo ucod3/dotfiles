@@ -7,8 +7,16 @@ cd "$DOTFILES_ROOT"
 # shellcheck source=../../lib/log.sh
 source "$DOTFILES_ROOT/lib/log.sh"
 
-# Detect and export user for dynamic configuration
-export USER=$(whoami)
+# Resolve the flake attribute from the current hostname.
+# The flake attribute key must match `hostname -s` exactly.
+# If hostname resolution fails, fall back to the primary machine name.
+HOSTNAME="$(hostname -s 2>/dev/null || true)"
+if [[ -z "$HOSTNAME" ]]; then
+  HOSTNAME="Usmans-M4Pro"
+  log_warning "Could not resolve hostname — falling back to '$HOSTNAME'"
+fi
+
+log_info "Building configuration for host: $HOSTNAME"
 
 # Always ensure git hooks are installed (safe to run multiple times)
 if [ -x "$DOTFILES_ROOT/scripts/bin/install-hooks" ]; then
@@ -19,7 +27,7 @@ if command -v brew >/dev/null 2>&1; then
   brew update
 fi
 
-sudo darwin-rebuild switch --flake .#m4pro
+sudo darwin-rebuild switch --flake ".#${HOSTNAME}"
 
 if [ -x "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers" ]; then
   "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers"

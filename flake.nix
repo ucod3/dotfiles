@@ -13,35 +13,31 @@
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
   };
 
-  outputs = { self, nixpkgs, nix-darwin, home-manager, nix-homebrew, ... }@inputs: let
-    user = if builtins.getEnv "USER" == "" then "usmanbutt" else builtins.getEnv "USER";
-  in {
-    darwinConfigurations.m4pro = nix-darwin.lib.darwinSystem {
+  outputs = { self, nixpkgs, nix-darwin, home-manager, nix-homebrew, ... }@inputs:
+  let
+    # mkHost — build a darwinSystem from a host file in hosts/<hostname>.nix
+    #
+    # The host file is the single source of truth for:
+    #   - the primary macOS username (user = "...")
+    #   - nix-homebrew and home-manager wiring
+    #   - any machine-specific overrides
+    #
+    # To add a new machine:
+    #   cp hosts/_template.nix hosts/<hostname>.nix   # hostname -s output
+    #   # fill in user = "..."
+    #   darwinConfigurations."<hostname>" = mkHost "<hostname>";
+    mkHost = hostname: nix-darwin.lib.darwinSystem {
       system = "aarch64-darwin";
-      specialArgs = { inherit self inputs user; };
-
-      modules = [
-        ./nix/darwin/configuration.nix
-
-        nix-homebrew.darwinModules.nix-homebrew
-        {
-          nix-homebrew = {
-            enable = true;
-            enableRosetta = true;
-            user = user;
-            autoMigrate = true;
-          };
-        }
-
-        home-manager.darwinModules.home-manager
-        {
-          home-manager.useGlobalPkgs = true;
-          home-manager.useUserPackages = true;
-          home-manager.backupFileExtension = "hm-backup";
-
-          home-manager.users.${user} = import ./nix/home/home.nix;
-        }
-      ];
+      specialArgs = { inherit self inputs; };
+      modules = [ ./hosts/${hostname}.nix ];
+    };
+  in
+  {
+    # ── Registered machines ───────────────────────────────────────────────────
+    # Key  = output of `hostname -s` on the machine (used by rebuild script)
+    # Value = mkHost "<hostname>"
+    darwinConfigurations = {
+      "Usmans-M4Pro" = mkHost "Usmans-M4Pro";
     };
   };
 }

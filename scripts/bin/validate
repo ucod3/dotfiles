@@ -57,7 +57,7 @@ done
 # ── 3. Nix syntax ──────────────────────────────────────────────────────────
 if [[ "$QUICK_MODE" == false ]]; then
   section "Nix syntax"
-  for f in flake.nix nix/home/home.nix nix/darwin/configuration.nix; do
+  for f in flake.nix nix/home/home.nix nix/darwin/configuration.nix hosts/default.nix hosts/Usmans-M4Pro.nix; do
     if [[ -f "$f" ]]; then
       if nix-instantiate --parse "$f" > /dev/null 2>&1; then
         pass "$f"
@@ -118,14 +118,30 @@ else
   fail "custom.zsh may have hardcoded module path"
 fi
 
-# Check rebuild script is not hardcoded to a specific hostname
-if grep -q "darwin-rebuild.*#m4pro" scripts/bin/rebuild 2>/dev/null; then
-  warn "rebuild script uses hardcoded hostname 'm4pro' — fine for personal use, but note for portability"
+# Portability: rebuild must use dynamic hostname, not a hardcoded flake attribute
+if grep -q 'darwin-rebuild.*#m4pro\|darwin-rebuild.*#Usmans-M4Pro' scripts/bin/rebuild 2>/dev/null; then
+  fail "rebuild script has a hardcoded hostname — it must use \"\${HOSTNAME}\" dynamically"
+else
+  pass "rebuild uses dynamic hostname resolution"
+fi
+
+# Purity: getEnv in Nix files defeats flake reproducibility
+if grep -rn 'builtins\.getEnv' flake.nix hosts/ nix/ 2>/dev/null; then
+  fail "builtins.getEnv found in Nix files — this breaks pure evaluation"
+else
+  pass "No builtins.getEnv in Nix files"
+fi
+
+# Portability: flake.nix must delegate to mkHost, not hard-wire a hostname
+if grep -q '"m4pro"' flake.nix 2>/dev/null; then
+  fail "Stale hardcoded 'm4pro' attribute found in flake.nix"
+else
+  pass "flake.nix uses dynamic host matrix"
 fi
 
 # Check for untracked config files that Nix references
 section "Git tracking"
-NIX_SOURCES=$(grep -h "source = \.\." nix/home/home.nix nix/darwin/configuration.nix 2>/dev/null \
+NIX_SOURCES=$(grep -h "source = \.\." nix/home/home.nix hosts/default.nix 2>/dev/null \
   | sed 's/.*source = \.\.\/\.\.\///;s/[";].*//;s/ //g' | sort -u)
 while IFS= read -r src; do
   if [[ -n "$src" ]] && ! git ls-files --error-unmatch "$src" 2>/dev/null; then
@@ -134,7 +150,7 @@ while IFS= read -r src; do
 done <<< "$NIX_SOURCES"
 
 # Check for any untracked files that might be needed
-UNTRACKED=$(git ls-files --others --exclude-standard config/ nix/ scripts/ 2>/dev/null)
+UNTRACKED=$(git ls-files --others --exclude-standard config/ nix/ hosts/ scripts/ lib/ 2>/dev/null)
 if [[ -n "$UNTRACKED" ]]; then
   warn "Untracked files exist (may need 'git add'):"
   echo "$UNTRACKED" | sed 's/^/    /'
