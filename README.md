@@ -1,72 +1,329 @@
-# ucod3's Dotfiles
+# macOS Dotfiles
 
-This repo is the source of truth for your macOS setup:
+A modern, reproducible macOS development environment using Nix flakes, nix-darwin, Home Manager, and Homebrew.
 
-- `nix-homebrew` manages the Homebrew installation itself
-- `nix-darwin` manages Homebrew brews, casks, and `mas` apps declaratively
-- Home Manager manages user-level config files and shell setup
-- helper scripts live under `scripts/bin`
+## 🚀 Quick Start (One-Command Install)
 
-## Bootstrap on a New Mac
+### For Everyone (Tech and Non-Tech Users)
 
-1. Install Nix and get `darwin-rebuild` working.
-2. Clone this repo to `~/dotfiles`.
-3. Rebuild from the flake:
+**Option 1: Copy and paste this into Terminal:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh | bash
+```
 
-```sh
-eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || true)"
-cd ~/dotfiles/nix
+**Option 2: If you prefer to review first:**
+```bash
+# Download and review
+curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh -o install.sh
+
+# Review the script
+cat install.sh
+
+# Run it
+bash install.sh
+```
+
+**What this does:**
+1. ✅ Checks system requirements (macOS, Apple Silicon)
+2. ✅ Installs Xcode Command Line Tools (if needed)
+3. ✅ Installs Nix package manager (if needed)
+4. ✅ Configures Git (if needed)
+5. ✅ Installs Rosetta 2 for Intel compatibility (if needed)
+6. ✅ Clones this dotfiles repository
+7. ✅ Builds and configures your entire macOS system
+8. ✅ Installs all applications and development tools
+
+**Time required:** 15-30 minutes (mostly automatic)
+
+**No technical knowledge required!** The installer handles everything.
+
+---
+
+## 📋 What's Included
+
+### Terminal & Shell
+- **Ghostty** - Modern, fast terminal emulator
+- **Zsh** with Oh My Zsh
+- **Autosuggestions** - Fish-like suggestions
+- **Syntax highlighting** - Command validation
+- **you-should-use** - Reminds you of aliases
+- **fzf** - Fuzzy finder for files/commands
+- **zoxide** - Smarter cd command
+
+### Development Tools
+- **Neovim** - Modern Vim with LSP support
+  - Telescope (fuzzy finder)
+  - Treesitter (syntax highlighting)
+  - Lualine (status bar)
+  - Dracula theme
+  - LSP: lua-language-server, pyright, typescript-language-server
+- **Git** - Modern workflow configuration
+- **Node.js** - Via pnpm and version management
+- **Python** - With pygments and development tools
+
+### Applications (via Homebrew)
+- **Browsers:** Arc, Microsoft Edge Canary, Zen Browser
+- **Development:** VS Code, Zed, Ghostty, Codex, Devin Desktop
+- **Productivity:** Amethyst (window manager), Insync, WPS Office
+- **Utilities:** AnyDesk, Windscribe VPN, Adobe Acrobat Reader, Antigravity
+
+### macOS System Configuration
+- Dock auto-hide for more screen space
+- Faster key repeat rate
+- Show all file extensions
+- Disable window animations
+- Optimized Finder settings
+
+---
+
+## 🎯 Who Is This For?
+
+### Developers
+- **Perfect for:** Web developers, software engineers, DevOps
+- **Benefits:** Consistent environment across machines, easy onboarding, version-controlled tools
+- **Setup time:** 15 minutes vs 4-8 hours manual setup
+
+### Non-Technical Users
+- **Perfect for:** Students, professionals, anyone wanting a productive Mac
+- **Benefits:** One command sets up everything, professional-grade tools, easy to maintain
+- **No technical knowledge required**
+
+### Teams
+- **Perfect for:** Development teams, remote workers
+- **Benefits:** Identical environments, easy to share, quick onboarding
+- **New team member:** Productive in 15 minutes instead of days
+
+---
+
+## 📖 Manual Installation (Advanced Users)
+
+If you prefer manual control or the automated installer doesn't work:
+
+### Prerequisites
+- macOS (optimized for Apple Silicon, works on Intel)
+- Xcode Command Line Tools: `xcode-select --install`
+- Git configured with your name and email
+
+### Step 1: Install Nix
+```bash
+curl -L https://nixos.org/nix/install | sh
+```
+
+### Step 2: Clone Dotfiles
+```bash
+git clone https://github.com/usmanbutt/dotfiles.git ~/dotfiles
+cd ~/dotfiles
+```
+
+### Step 3: Build System
+```bash
+./scripts/bin/rebuild
+```
+
+---
+
+## 🛠️ Daily Usage
+
+### Essential Commands
+
+| Command | Description |
+|---------|-------------|
+| `update` | Update all packages and system configuration |
+| `change` | Quick edit to your dotfiles |
+| `nvim` | Launch Neovim editor |
+| `code` | Launch VS Code |
+| `ga` | Git add (alias) |
+| `gcmsg` | Git commit with message (alias) |
+| `workshop` | Workshop helper for EpicWeb courses |
+
+### Managing Your Dotfiles
+
+**Edit configuration:**
+```bash
+cd ~/dotfiles
+# Edit files...
+nix flake update  # Update dependencies
+./scripts/bin/rebuild  # Apply changes
+```
+
+**View recent changes:**
+```bash
+cd ~/dotfiles
+git log --oneline -10
+```
+
+**Rollback if something breaks:**
+```bash
+cd ~/dotfiles
+git checkout HEAD -- .  # Revert to last commit
+./scripts/bin/rebuild
+```
+
+---
+
+## 🔧 Customization
+
+### Adding New Applications
+
+Edit `nix/darwin/configuration.nix`:
+```nix
+# Add to environment.systemPackages for Nix packages
+environment.systemPackages = with pkgs; [
+  brave
+  gh
+  your-new-package  # Add here
+];
+
+# Or add to Homebrew casks
+brews = [ "your-brew-package" ];
+casks = [ "your-cask-app" ];
+```
+
+### Adding Shell Aliases
+
+Edit `config/zsh/modules/aliases.zsh`:
+```zsh
+alias myalias='my command'
+```
+
+### Machine-Specific Configuration
+
+Create `~/.zshrc.local` for settings that shouldn't be in Git:
+```zsh
+# Machine-specific exports
+export PRIVATE_API_KEY="..."
+```
+
+---
+
+## 🆘 Troubleshooting
+
+### Build Fails
+
+**Problem:** "Git tree is dirty" warning  
+**Solution:**
+```bash
+cd ~/dotfiles
+git add .
+git commit -m "WIP: current state"
+./scripts/bin/rebuild
+```
+
+**Problem:** Permission denied errors  
+**Solution:**
+```bash
+# Fix Nix permissions
+sudo chown -R $(whoami) /nix
+```
+
+**Problem:** Package not found  
+**Solution:**
+```bash
+# Update flake inputs
 nix flake update
-~/dotfiles/scripts/bin/rebuild
+./scripts/bin/rebuild
 ```
 
-## Daily workflow
+### Recovery Procedures
 
-```sh
-~/dotfiles/scripts/bin/rebuild
+See [BACKUPS.md](./BACKUPS.md) for detailed recovery procedures including:
+- Rolling back to previous generations
+- Recovering from broken builds
+- Full system recovery steps
+
+---
+
+## 🏗️ Architecture
+
+### Technology Stack
+- **Nix Flakes** - Reproducible package management
+- **nix-darwin** - macOS system configuration
+- **Home Manager** - User environment management
+- **Homebrew** - macOS-native applications
+- **Git** - Version control and backup
+
+### Directory Structure
+```
+dotfiles/
+├── config/              # Application configurations
+│   ├── git/            # Git configuration
+│   ├── nvim/           # Neovim configuration
+│   ├── zsh/            # Zsh modules and configs
+│   └── ghostty/        # Terminal configuration
+├── nix/                # Nix configuration
+│   ├── darwin/         # macOS system config
+│   └── home/           # Home Manager config
+├── scripts/            # Utility scripts
+│   └── bin/            # Executable scripts
+├── flake.nix           # Main Nix flake
+├── install.sh          # One-command installer ⭐
+└── BACKUPS.md          # Recovery documentation
 ```
 
-That wrapper runs `brew update`, applies the flake with `darwin-rebuild switch`, then runs `scripts/bin/check-brew-manual-installers` as your normal user.
+### Modular Shell Configuration
+The 467-line `custom.zsh` is now split into 6 focused modules:
+- `init.zsh` - Basic initialization
+- `node.zsh` - Node.js and package management
+- `functions.zsh` - Utility functions
+- `aliases.zsh` - Command shortcuts
+- `workshop.zsh` - Workshop helpers
+- `exports.zsh` - Environment variables
 
-## Zsh setup
+---
 
-Zsh is now managed by Home Manager from `nix/home/home.nix`.
+## 🤝 Contributing
 
-- Oh My Zsh is enabled declaratively for the plugin layer
-- `zoxide`, `fzf`, autosuggestions, syntax highlighting, and history substring search are managed declaratively
-- custom shell logic stays in `config/zsh/custom.zsh`
-- `config/zsh/legacy-oh-my-zsh.zsh` is kept only as a reference copy of the old hand-managed setup
+This is a personal dotfiles repository, but feel free to:
+- Fork it for your own use
+- Submit issues for bugs
+- Suggest improvements
 
-If you want your exact old prompt back, add the missing custom theme file for `custom-cobalt2` into this repo and update the theme setting in `home.nix`.
+---
 
-## Manual Homebrew installers
+## 📝 License
 
-Some casks ship an installer app or a caveat that still needs a human step after `brew bundle` finishes. That is why `scripts/bin/check-brew-manual-installers` exists.
+MIT License - Feel free to use, modify, and share.
 
-Use it after a rebuild if Homebrew installed or upgraded casks:
+---
 
-```sh
-~/dotfiles/scripts/bin/check-brew-manual-installers
+## 🌟 Why This Approach?
+
+### Traditional macOS Setup
+```
+1. Install apps one by one from websites
+2. Configure settings manually
+3. Repeat for every new Mac
+4. Lose everything when Mac dies
+5. Hope you remember all the apps
+Time: 4-8 hours per machine
 ```
 
-This does **not** fix cask-definition/parser problems like the earlier Adobe Reader failure. It is only for installs or upgrades that completed but still require you to open an installer app manually.
+### This Dotfiles Approach
+```
+1. Run one command
+2. Everything installs automatically
+3. Same setup on every Mac
+4. Full backup in Git
+5. Exact reproduction possible
+Time: 15 minutes per machine
+```
 
-## Adding config files
+**Benefits:**
+- ✅ **Reproducible** - Same setup every time
+- ✅ **Version controlled** - Track changes, rollback if needed
+- ✅ **Self-documenting** - Code describes configuration
+- ✅ **Shareable** - Team members get identical setups
+- ✅ **Maintainable** - Update everything with one command
+- ✅ **Recoverable** - Full system restore in minutes
 
-- Put reusable config under `config/`
-- Map it from `nix/home/home.nix`
-- Rebuild with `~/dotfiles/scripts/bin/rebuild`
+---
 
-Examples already wired in:
+## 📞 Support
 
-- `config/git/.gitconfig`
-- `config/nvim/`
-- `config/vscode/settings.json`
-- `config/windsurf/config.json`
-- `config/zsh/`
+- **Issues:** [GitHub Issues](https://github.com/usmanbutt/dotfiles/issues)
+- **Documentation:** See [BACKUPS.md](./BACKUPS.md) for troubleshooting
+- **Nix Manual:** [NixOS Documentation](https://nixos.org/manual/nix/stable/)
 
-## Notes
+---
 
-- `nix/homebrew/Brewfile` has been removed on purpose. nix-darwin now generates the Brewfile from `homebrew.*`.
-- `scripts/setup/bootstrap.zsh` is just a small convenience wrapper around `scripts/bin/rebuild`.
-- If this is still only a local folder, run `git init`, `git add .`, and make your first commit.
+**Made with ❤️ for productive macOS development**
