@@ -43,7 +43,7 @@ done
 
 # ── 2. Shell script syntax ─────────────────────────────────────────────────
 section "Shell script syntax"
-for f in scripts/bin/rebuild scripts/bin/update scripts/bin/validate install.sh; do
+for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps install.sh; do
   if [[ -f "$f" ]]; then
     if bash -n "$f" 2>/dev/null; then
       pass "$f"
@@ -57,7 +57,7 @@ done
 # ── 3. Nix syntax ──────────────────────────────────────────────────────────
 if [[ "$QUICK_MODE" == false ]]; then
   section "Nix syntax"
-  for f in flake.nix nix/home/home.nix nix/darwin/configuration.nix hosts/default.nix hosts/Usmans-M4Pro.nix; do
+  for f in flake.nix nix/home/home.nix hosts/default.nix hosts/Usmans-M4Pro.nix; do
     if [[ -f "$f" ]]; then
       if nix-instantiate --parse "$f" > /dev/null 2>&1; then
         pass "$f"

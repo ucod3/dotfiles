@@ -8,13 +8,13 @@
 #   apps search <name>      Search for an app name to use
 #   apps add <name>         Add an app (auto-detects cask vs brew vs nix)
 #   apps remove <name>      Remove an app from config
-#   apps edit               Open configuration.nix directly
+#   apps edit               Open hosts/default.nix directly
 #
 
 set -euo pipefail
 
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
-CONFIG="$DOTFILES_ROOT/nix/darwin/configuration.nix"
+CONFIG="$DOTFILES_ROOT/hosts/default.nix"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -197,7 +197,7 @@ cmd_add() {
   else
     warn "Could not auto-detect package type"
     echo ""
-    echo "  Please add manually to $CONFIG"
+    echo "  Please add manually to hosts/default.nix"
     echo "  Then run: rebuild"
     cmd_edit
     exit 0
@@ -259,7 +259,7 @@ cmd_remove() {
 }
 
 cmd_edit() {
-  info "Opening configuration.nix in your editor..."
+  info "Opening hosts/default.nix in your editor..."
   echo ""
   echo "  Sections:"
   echo "    brews      → CLI tools  (https://formulae.brew.sh/formula/)"
@@ -282,7 +282,7 @@ cmd_help() {
   echo "    apps search <name>    Find the right package name"
   echo "    apps add <name>       Add an app (auto-detects type)"
   echo "    apps remove <name>    Remove an app from config"
-  echo "    apps edit             Open configuration.nix directly"
+  echo "    apps edit             Open hosts/default.nix directly"
   echo ""
   echo -e "  ${BOLD}Examples:${NC}"
   echo "    apps search firefox   → find firefox package name"

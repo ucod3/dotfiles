@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+#
+# dot — unified dotfiles command dispatcher
+#
+# This is the single entry point for all dotfiles management tasks.
+# Every subcommand delegates to the relevant script with zero logic
+# duplication — arguments are forwarded verbatim.
+#
+# Usage:
+#   dot <subcommand> [args...]
+#
+# Subcommands:
+#   rebuild              Rebuild the system (darwin-rebuild switch)
+#   update  [opts]       Update flake inputs, Homebrew, and rebuild
+#   apps    [opts]       Manage installed applications
+#   validate [--quick]   Run syntax and common-mistake checks
+#   secrets              Scan for leaked secrets (requires gitleaks)
+#   hooks                (Re)install git pre-commit hooks
+#   help                 Show this help message
+#
+# Examples:
+#   dot rebuild
+#   dot update --dry-run
+#   dot apps list
+#   dot apps add firefox
+#   dot validate --quick
+#   dot secrets
+#
+
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+BIN="$DOTFILES_ROOT/scripts/bin"
+
+# shellcheck source=../../lib/log.sh
+source "$DOTFILES_ROOT/lib/log.sh"
+
+# ── Subcommand table ──────────────────────────────────────────────────────────
+# Maps subcommand name → script path (relative to BIN).
+# Arguments after the subcommand are forwarded verbatim via "$@".
+
+dispatch() {
+  local cmd="${1:-}"
+  shift || true  # consume subcommand; remaining "$@" are its args
+
+  case "$cmd" in
+
+    rebuild)
+      exec "$BIN/rebuild" "$@"
+      ;;
+
+    update)
+      exec "$BIN/update" "$@"
+      ;;
+
+    apps)
+      exec "$BIN/apps" "$@"
+      ;;
+
+    validate)
+      exec "$BIN/validate" "$@"
+      ;;
+
+    secrets)
+      exec "$BIN/scan-secrets" "$@"
+      ;;
+
+    hooks)
+      exec "$BIN/install-hooks" "$@"
+      ;;
+
+    help|--help|-h|"")
+      cmd_help
+      exit 0
+      ;;
+
+    *)
+      log_error "Unknown subcommand: '$cmd'"
+      echo ""
+      cmd_help
+      exit 1
+      ;;
+  esac
+}
+
+# ── Help text ─────────────────────────────────────────────────────────────────
+
+cmd_help() {
+  echo ""
+  echo -e "${BLUE}dot${NC} — dotfiles management"
+  echo ""
+  echo -e "  ${BLUE}Usage:${NC}  dot <subcommand> [args...]"
+  echo ""
+  echo -e "  ${BLUE}System${NC}"
+  echo "    rebuild              Rebuild macOS system configuration"
+  echo "                         (darwin-rebuild switch --flake .#\$(hostname -s))"
+  echo ""
+  echo -e "  ${BLUE}Updates${NC}"
+  echo "    update               Update everything and rebuild"
+  echo "    update --dry-run     Preview what would be updated"
+  echo "    update --auto        Update without prompts (CI-friendly)"
+  echo "    update --flake-only  Update flake inputs only, skip rebuild"
+  echo ""
+  echo -e "  ${BLUE}Apps${NC}"
+  echo "    apps                 Show installed app counts"
+  echo "    apps list            List all apps by category"
+  echo "    apps search <name>   Find the right package name"
+  echo "    apps add <name>      Add an app (auto-detects type)"
+  echo "    apps remove <name>   Remove an app from config"
+  echo "    apps edit            Open hosts/default.nix in editor"
+  echo ""
+  echo -e "  ${BLUE}Safety${NC}"
+  echo "    validate             Full syntax + common-mistake checks"
+  echo "    validate --quick     Quick checks only (skip slow Nix eval)"
+  echo "    secrets              Scan repository for leaked secrets"
+  echo "    hooks                (Re)install git pre-commit hooks"
+  echo ""
+  echo -e "  ${BLUE}Flags${NC}"
+  echo "    help, --help, -h     Show this help"
+  echo ""
+  echo -e "  ${BLUE}Examples${NC}"
+  echo "    dot rebuild"
+  echo "    dot update --dry-run"
+  echo "    dot apps add firefox"
+  echo "    dot validate --quick"
+  echo ""
+}
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+dispatch "$@"

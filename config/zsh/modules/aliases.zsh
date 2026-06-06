@@ -4,9 +4,15 @@ alias npm="pnpm"
 alias npx="pnpx"
 alias yarn="pnpm"
 alias pn=pnpm
+
+# Unified dotfiles dispatcher (dot <subcommand>)
+# See: dot help   for the full reference
+alias dot='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/dot'
+
+# Convenience shorthands (all delegate to dot internally)
 alias update='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/update'
-alias change='code-insiders ${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/custom.zsh'
 alias apps='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/apps'
+alias change='code-insiders ${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/custom.zsh'
 alias use-node="pnpm-use-node"
 alias use-nvm="nvm-init && nvm use"
 alias npm-real="real-npm"
