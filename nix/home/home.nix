@@ -71,7 +71,9 @@
         "vscode"
         "copypath"
         "copyfile"
-        "common-aliases"
+        # NOTE: common-aliases removed - its global `P` alias conflicts with
+        # omz_urlencode's -P flag in termsupport.zsh, causing the startup error:
+        # "omz_urlencode:5: command not found: pygmentize"
         "you-should-use"
       ];
       theme = "robbyrussell";
