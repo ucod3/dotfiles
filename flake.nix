@@ -13,10 +13,13 @@
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
   };
 
-  outputs = { self, nixpkgs, nix-darwin, home-manager, nix-homebrew, ... }@inputs: {
-    darwinConfigurations.m4pro = nix-darwin.lib.darwinSystem {
+  outputs = { self, nixpkgs, nix-darwin, home-manager, nix-homebrew, ... }@inputs: let
+    hostname = builtins.getEnv "HOSTNAME" or "m4pro";
+    user = builtins.getEnv "USER" or "usmanbutt";
+  in {
+    darwinConfigurations.${hostname} = nix-darwin.lib.darwinSystem {
       system = "aarch64-darwin";
-      specialArgs = { inherit self inputs; };
+      specialArgs = { inherit self inputs user; };
 
       modules = [
         ./nix/darwin/configuration.nix
@@ -26,7 +29,7 @@
           nix-homebrew = {
             enable = true;
             enableRosetta = true;
-            user = "usmanbutt";
+            user = user;
             autoMigrate = true;
           };
         }
@@ -37,7 +40,7 @@
           home-manager.useUserPackages = true;
           home-manager.backupFileExtension = "hm-backup";
 
-          home-manager.users.usmanbutt = import ./nix/home/home.nix;
+          home-manager.users.${user} = import ./nix/home/home.nix;
         }
       ];
     };

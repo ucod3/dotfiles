@@ -1,7 +1,7 @@
-{ config, pkgs, self, ... }:
+{ config, pkgs, self, user, ... }:
 
 {
-  system.primaryUser = "usmanbutt";
+  system.primaryUser = user;
 
   nixpkgs.config.allowUnfree = true;
 
@@ -86,8 +86,8 @@
   system.configurationRevision = self.rev or self.dirtyRev or null;
   system.stateVersion = 6;
 
-  users.users.usmanbutt = {
-    name = "usmanbutt";
-    home = "/Users/usmanbutt";
+  users.users.${user} = {
+    name = user;
+    home = "/Users/${user}";
   };
 }
