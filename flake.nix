@@ -14,8 +14,8 @@
   };
 
   outputs = { self, nixpkgs, nix-darwin, home-manager, nix-homebrew, ... }@inputs: let
-    hostname = builtins.getEnv "HOSTNAME" or "m4pro";
-    user = builtins.getEnv "USER" or "usmanbutt";
+    hostname = if builtins.getEnv "HOSTNAME" == "" then "m4pro" else builtins.getEnv "HOSTNAME";
+    user = if builtins.getEnv "USER" == "" then "usmanbutt" else builtins.getEnv "USER";
   in {
     darwinConfigurations.${hostname} = nix-darwin.lib.darwinSystem {
       system = "aarch64-darwin";

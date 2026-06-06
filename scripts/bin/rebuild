@@ -5,7 +5,7 @@ DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
 cd "$DOTFILES_ROOT"
 
 # Detect and export hostname and user
-export HOSTNAME=$(hostname)
+export HOSTNAME=$(hostname -s)
 export USER=$(whoami)
 
 if command -v brew >/dev/null 2>&1; then
