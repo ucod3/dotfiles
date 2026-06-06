@@ -6,6 +6,7 @@ alias yarn="pnpm"
 alias pn=pnpm
 alias update='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/update'
 alias change='code-insiders ${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/custom.zsh'
+alias apps='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/apps'
 alias use-node="pnpm-use-node"
 alias use-nvm="nvm-init && nvm use"
 alias npm-real="real-npm"

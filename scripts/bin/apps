@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+#
+# apps - Manage applications in your dotfiles
+#
+# Usage:
+#   apps                    Show this help and current app counts
+#   apps list               List all installed apps by category
+#   apps search <name>      Search for an app name to use
+#   apps add <name>         Add an app (auto-detects cask vs brew vs nix)
+#   apps remove <name>      Remove an app from config
+#   apps edit               Open configuration.nix directly
+#
+
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+CONFIG="$DOTFILES_ROOT/nix/darwin/configuration.nix"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+section() { echo -e "\n${BLUE}${BOLD}$1${NC}"; }
+info()    { echo -e "  ${CYAN}→${NC} $1"; }
+ok()      { echo -e "  ${GREEN}✓${NC} $1"; }
+warn()    { echo -e "  ${YELLOW}!${NC} $1"; }
+err()     { echo -e "  ${RED}✗${NC} $1"; }
+
+count_section() {
+  local section="$1"
+  grep -A100 "^    ${section} = \[" "$CONFIG" 2>/dev/null \
+    | grep -m1 -A100 '\[' \
+    | grep '^\s*"' \
+    | wc -l | tr -d ' '
+}
+
+# ── Commands ───────────────────────────────────────────────────────────────
+
+list_section() {
+  # Match only non-comment definition lines: "  brews = [" not "# brews"
+  local key="$1"
+  awk -v key="$key" '
+    /^[^#]*^\s+/ && $0 ~ (key " = \\[") { inside=1; next }
+    inside && /^\s*\]/ { inside=0; next }
+    inside && /^\s*"/ {
+      line=$0
+      gsub(/^\s*"/, "", line)
+      gsub(/".*/, "", line)
+      print "    " line
+    }
+  ' "$CONFIG"
+}
+
+parse_block() {
+  # Extract quoted values from a named block: parse_block "casks" "[" "]"
+  local name="$1" open="${2:-\[}" close="${3:-\]}"
+  python3 - "$CONFIG" "$name" "$open" "$close" << 'PYEOF'
+import sys, re
+cfg, name, open_c, close_c = sys.argv[1:]
+inside = False
+depth = 0
+for line in open(cfg):
+    stripped = line.strip()
+    if not inside:
+        if re.search(r'^\s*' + re.escape(name) + r'\s*=\s*' + re.escape(open_c), line) and not stripped.startswith('#'):
+            inside = True
+            depth = 1
+            continue
+    else:
+        depth += line.count(open_c) - line.count(close_c)
+        if depth <= 0:
+            break
+        m = re.match(r'\s*"([^"]+)"', line)
+        if m:
+            print("    " + m.group(1))
+PYEOF
+}
+
+cmd_list() {
+  section "Installed Apps"
+
+  echo ""
+  echo -e "  ${BOLD}Homebrew Casks${NC} (GUI apps)"
+  parse_block "casks" "[" "]"
+
+  echo ""
+  echo -e "  ${BOLD}Homebrew Brews${NC} (CLI tools)"
+  parse_block "brews" "[" "]"
+
+  echo ""
+  echo -e "  ${BOLD}Mac App Store${NC}"
+  python3 - "$CONFIG" << 'PYEOF'
+import sys, re
+inside = False
+for line in open(sys.argv[1]):
+    if re.search(r'masApps\s*=\s*\{', line):
+        inside = True
+        continue
+    if inside:
+        if re.search(r'^\s*\}', line):
+            break
+        # MAS IDs are large numbers (> 100000)
+        m = re.match(r'\s+([A-Za-z][A-Za-z0-9 ]+)\s*=\s*(\d{6,})\s*;', line)
+        if m:
+            print("    " + m.group(1).strip() + "  (ID: " + m.group(2) + ")")
+PYEOF
+
+  echo ""
+  echo -e "  ${BOLD}Nix Packages${NC} (system)"
+  python3 - "$CONFIG" << 'PYEOF'
+import sys, re
+inside = False
+for line in open(sys.argv[1]):
+    if re.search(r'systemPackages\s*=\s*with\s+pkgs', line):
+        inside = True
+        continue
+    if inside:
+        if re.search(r'^\s*\]', line):
+            break
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#'):
+            name = stripped.split()[0]
+            if re.match(r'^[a-z]', name):
+                print("    " + name)
+PYEOF
+
+  echo ""
+}
+
+cmd_search() {
+  local query="${1:-}"
+  if [[ -z "$query" ]]; then
+    err "Usage: apps search <name>"
+    echo "  Example: apps search firefox"
+    exit 1
+  fi
+
+  section "Search results for: $query"
+
+  echo ""
+  echo -e "  ${BOLD}Homebrew Casks${NC} (GUI apps — use in 'casks' section):"
+  if brew search --cask "$query" 2>/dev/null | head -8 | grep -v '^$'; then
+    true
+  else
+    info "No casks found"
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Homebrew Formulas${NC} (CLI tools — use in 'brews' section):"
+  if brew search --formula "$query" 2>/dev/null | head -8 | grep -v '^$'; then
+    true
+  else
+    info "No formulas found"
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Nix Packages${NC} (use in 'systemPackages' section):"
+  info "Search at: ${CYAN}https://search.nixos.org/packages?query=$query${NC}"
+
+  echo ""
+  echo -e "  ${BOLD}Mac App Store${NC}:"
+  info "Open App Store and search: ${BOLD}$query${NC}"
+  info "Get the ID from the app's URL (number at the end)"
+
+  echo ""
+  info "Once you know the name, run: ${BOLD}apps add <name>${NC}"
+}
+
+cmd_add() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    err "Usage: apps add <name>"
+    echo "  Example: apps add firefox"
+    echo "  Tip: run 'apps search <name>' first to find the correct name"
+    exit 1
+  fi
+
+  section "Adding: $name"
+  echo ""
+
+  # Detect what type it is
+  local is_cask=false
+  local is_brew=false
+
+  if brew info --cask "$name" &>/dev/null; then
+    is_cask=true
+    ok "Found as Homebrew cask (GUI app)"
+  elif brew info "$name" &>/dev/null; then
+    is_brew=true
+    ok "Found as Homebrew formula (CLI tool)"
+  else
+    warn "Could not auto-detect package type"
+    echo ""
+    echo "  Please add manually to $CONFIG"
+    echo "  Then run: rebuild"
+    cmd_edit
+    exit 0
+  fi
+
+  # Check if already present
+  if grep -q "\"$name\"" "$CONFIG" 2>/dev/null; then
+    warn "'$name' is already in your config"
+    exit 0
+  fi
+
+  # Insert into correct section
+  if [[ "$is_cask" == true ]]; then
+    # Add to end of casks section (before the closing bracket)
+    # Find the last cask entry and add after it
+    sed -i '' "/^    casks = \[/,/^    \];/{
+      /^    \];/i\\
+      \"$name\"
+    }" "$CONFIG"
+    ok "Added '$name' to casks section"
+  elif [[ "$is_brew" == true ]]; then
+    sed -i '' "/^    brews = \[/,/^    \];/{
+      /^    \];/i\\
+      \"$name\"
+    }" "$CONFIG"
+    ok "Added '$name' to brews section"
+  fi
+
+  echo ""
+  info "Apply the change by running: ${BOLD}rebuild${NC}"
+  echo ""
+  warn "Or to undo: ${BOLD}apps remove $name${NC}"
+}
+
+cmd_remove() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    err "Usage: apps remove <name>"
+    echo "  Example: apps remove firefox"
+    exit 1
+  fi
+
+  section "Removing: $name"
+  echo ""
+
+  if ! grep -q "\"$name\"" "$CONFIG" 2>/dev/null; then
+    warn "'$name' not found in your config"
+    info "Run 'apps list' to see what's installed"
+    exit 1
+  fi
+
+  # Remove the line containing the app name
+  sed -i '' "/\"$name\"/d" "$CONFIG"
+  ok "Removed '$name' from config"
+
+  echo ""
+  info "Apply the change by running: ${BOLD}rebuild${NC}"
+  info "The app will be uninstalled during rebuild (cleanup = uninstall)"
+}
+
+cmd_edit() {
+  info "Opening configuration.nix in your editor..."
+  echo ""
+  echo "  Sections:"
+  echo "    brews      → CLI tools  (https://formulae.brew.sh/formula/)"
+  echo "    casks      → GUI apps   (https://formulae.brew.sh/cask/)"
+  echo "    masApps    → App Store  (find ID in App Store URL)"
+  echo "    systemPackages → Nix    (https://search.nixos.org/packages)"
+  echo ""
+  echo "  After editing, run: rebuild"
+  echo ""
+  ${EDITOR:-code-insiders} "$CONFIG"
+}
+
+cmd_help() {
+  echo ""
+  echo -e "${BOLD}apps${NC} — Manage your installed applications"
+  echo ""
+  echo -e "  ${BOLD}Commands:${NC}"
+  echo "    apps                  Show this help"
+  echo "    apps list             List all apps by category"
+  echo "    apps search <name>    Find the right package name"
+  echo "    apps add <name>       Add an app (auto-detects type)"
+  echo "    apps remove <name>    Remove an app from config"
+  echo "    apps edit             Open configuration.nix directly"
+  echo ""
+  echo -e "  ${BOLD}Examples:${NC}"
+  echo "    apps search firefox   → find firefox package name"
+  echo "    apps add firefox      → add to config"
+  echo "    apps remove arc       → remove from config"
+  echo "    rebuild               → apply changes"
+  echo ""
+  echo -e "  ${BOLD}Where apps come from:${NC}"
+  printf "    %-22s %s\n" "Homebrew casks" "GUI .app bundles   → formulae.brew.sh/cask"
+  printf "    %-22s %s\n" "Homebrew brews" "CLI tools          → formulae.brew.sh/formula"
+  printf "    %-22s %s\n" "Mac App Store" "Purchased apps     → App Store URL number"
+  printf "    %-22s %s\n" "Nix packages" "Cross-platform     → search.nixos.org"
+  echo ""
+  echo -e "  ${BOLD}Current counts:${NC}"
+
+  local cask_count brew_count nix_count
+  cask_count=$(grep -A200 'casks = \[' "$CONFIG" | grep -m1 -A200 '\[' | grep -c '^\s*"' || true)
+  brew_count=$(grep -A200 'brews = \[' "$CONFIG" | grep -m1 -A200 '\[' | grep -c '^\s*"' || true)
+  nix_count=$(grep -A200 'environment.systemPackages' "$CONFIG" | grep -m1 -A200 '\[' \
+    | grep '^\s*[a-z]' | grep -v '^\s*#' | grep -v -c '\];' || true)
+
+  printf "    %-22s %s\n" "Casks (GUI apps)" "$cask_count apps"
+  printf "    %-22s %s\n" "Brews (CLI tools)" "$brew_count tools"
+  printf "    %-22s %s\n" "Nix packages" "$nix_count packages"
+  echo ""
+}
+
+# ── Main ───────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  list)    cmd_list ;;
+  search)  cmd_search "${2:-}" ;;
+  add)     cmd_add "${2:-}" ;;
+  remove)  cmd_remove "${2:-}" ;;
+  edit)    cmd_edit ;;
+  *)       cmd_help ;;
+esac
