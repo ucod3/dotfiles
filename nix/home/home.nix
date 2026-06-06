@@ -22,6 +22,16 @@
     # "ghostty/config".source = ../../config/ghostty/config;
   };
 
+  # Add you-should-use plugin to custom Oh My Zsh plugins
+  home.file.".oh-my-zsh/custom/plugins/you-should-use" = {
+    source = pkgs.fetchFromGitHub {
+      owner = "MichaelAquilina";
+      repo = "zsh-you-should-use";
+      rev = "master";
+      sha256 = "sha256-1ojmr9+Wg5+X5Dip4sKjP4IKKACMncPQDZ8RtYQSQ80=";
+    };
+  };
+
   programs.git = {
     enable = true;
 
@@ -63,6 +73,7 @@
         "you-should-use"
       ];
       theme = "robbyrussell";
+      custom = "$HOME/.oh-my-zsh/custom";
     };
 
     history = {
@@ -82,5 +93,6 @@
 
   home.packages = with pkgs; [
     pnpm
+    python312Packages.pygments
   ];
 }

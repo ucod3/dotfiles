@@ -37,7 +37,7 @@
       "insync"
       "windscribe"
       "wpsoffice"
-      "windsurf"
+      "devin-desktop"
       "zed"
       "zen"
     ];
