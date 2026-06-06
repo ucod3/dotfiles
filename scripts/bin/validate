@@ -149,7 +149,17 @@ while IFS= read -r src; do
   fi
 done <<< "$NIX_SOURCES"
 
-# Check for any untracked files that might be needed
+# .devin/ rules and skills must always be tracked — untracked files here
+# mean a rule or skill will silently not apply on other machines.
+UNTRACKED_DEVIN=$(git ls-files --others --exclude-standard .devin/ 2>/dev/null)
+if [[ -n "$UNTRACKED_DEVIN" ]]; then
+  fail "Untracked .devin/ files — rules/skills won't apply on other machines (run: git add):"
+  echo "$UNTRACKED_DEVIN" | sed 's/^/    /'
+else
+  pass ".devin/ rules and skills are git-tracked"
+fi
+
+# Check for any untracked files in the broader config directories
 UNTRACKED=$(git ls-files --others --exclude-standard config/ nix/ hosts/ scripts/ lib/ 2>/dev/null)
 if [[ -n "$UNTRACKED" ]]; then
   warn "Untracked files exist (may need 'git add'):"
