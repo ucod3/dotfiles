@@ -1,6 +1,7 @@
 [user]
-  name = Usman Butt
-  email = usman.butt@outlook.com
+  # Set per-machine: git config --global user.name "Your Name"
+  #                  git config --global user.email "your@email.com"
+  # Or set here for a personal dotfiles fork
 
 [core]
   excludesfile = ~/.config/git/.gitignore

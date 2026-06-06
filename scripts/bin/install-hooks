@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# Install git hooks for this repo
+# Run once: ./scripts/bin/install-hooks
+#
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+HOOKS_DIR="$DOTFILES_ROOT/.git/hooks"
+
+cat > "$HOOKS_DIR/pre-commit" << 'EOF'
+#!/usr/bin/env bash
+# Pre-commit hook: validate before every commit
+DOTFILES_ROOT="$(git rev-parse --show-toplevel)"
+exec "$DOTFILES_ROOT/scripts/bin/validate" --quick
+EOF
+
+chmod +x "$HOOKS_DIR/pre-commit"
+echo "✓ Pre-commit hook installed"
+echo "  Every 'git commit' will now run: validate --quick"
+echo "  To bypass once: git commit --no-verify"

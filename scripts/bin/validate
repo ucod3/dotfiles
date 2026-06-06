@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+#
+# Validation script - run before every commit and rebuild
+# Catches errors BEFORE they reach the system
+#
+# Checks:
+#   1. Nix syntax  - flake.nix, home.nix, configuration.nix
+#   2. Zsh syntax  - all .zsh modules
+#   3. Shell scripts - rebuild, update, install.sh
+#   4. Common mistakes - hardcoded emails, vim.loop, broken paths
+#
+# Usage:
+#   ./scripts/bin/validate          # run all checks
+#   ./scripts/bin/validate --quick  # skip slow nix checks
+#
+
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+cd "$DOTFILES_ROOT"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+ERRORS=0
+WARNINGS=0
+QUICK_MODE=false
+
+[[ "${1:-}" == "--quick" ]] && QUICK_MODE=true
+
+pass()    { echo -e "  ${GREEN}✓${NC} $1"; }
+fail()    { echo -e "  ${RED}✗${NC} $1"; ((ERRORS++)) || true; }
+warn()    { echo -e "  ${YELLOW}!${NC} $1"; ((WARNINGS++)) || true; }
+section() { echo -e "\n${BLUE}── $1 ──${NC}"; }
+
+# ── 1. Zsh syntax ──────────────────────────────────────────────────────────
+section "Zsh syntax"
+for f in config/zsh/modules/*.zsh config/zsh/custom.zsh config/zsh/.zshenv; do
+  if [[ -f "$f" ]]; then
+    if zsh -n "$f" 2>/dev/null; then
+      pass "$f"
+    else
+      fail "$f — syntax error:"
+      zsh -n "$f" 2>&1 | sed 's/^/    /'
+    fi
+  fi
+done
+
+# ── 2. Shell script syntax ─────────────────────────────────────────────────
+section "Shell script syntax"
+for f in scripts/bin/rebuild scripts/bin/update scripts/bin/validate install.sh; do
+  if [[ -f "$f" ]]; then
+    if bash -n "$f" 2>/dev/null; then
+      pass "$f"
+    else
+      fail "$f — syntax error:"
+      bash -n "$f" 2>&1 | sed 's/^/    /'
+    fi
+  fi
+done
+
+# ── 3. Nix syntax ──────────────────────────────────────────────────────────
+if [[ "$QUICK_MODE" == false ]]; then
+  section "Nix syntax"
+  for f in flake.nix nix/home/home.nix nix/darwin/configuration.nix; do
+    if [[ -f "$f" ]]; then
+      if nix-instantiate --parse "$f" > /dev/null 2>&1; then
+        pass "$f"
+      else
+        fail "$f — syntax error:"
+        nix-instantiate --parse "$f" 2>&1 | sed 's/^/    /'
+      fi
+    fi
+  done
+fi
+
+# ── 4. Nix flake check ─────────────────────────────────────────────────────
+if [[ "$QUICK_MODE" == false ]]; then
+  section "Nix flake check"
+  if nix flake check 2>/dev/null; then
+    pass "flake.nix is valid"
+  else
+    # flake check can fail for non-syntax reasons on darwin, treat as warning
+    warn "nix flake check had issues (may be non-critical on macOS)"
+  fi
+fi
+
+# ── 5. Common mistakes ─────────────────────────────────────────────────────
+section "Common mistakes"
+
+# Check for deprecated vim.loop (should use vim.uv)
+if grep -r "vim\.loop\." config/nvim/ 2>/dev/null | grep -v "vim.uv or vim.loop"; then
+  fail "Deprecated vim.loop found in nvim config (use vim.uv or (vim.uv or vim.loop))"
+else
+  pass "No deprecated vim.loop usage"
+fi
+
+# Check for hardcoded personal email in tracked files
+if git diff --cached --name-only | xargs grep -l "usman\.butt@outlook\.com" 2>/dev/null | grep -v "git/config"; then
+  fail "Personal email found in staged files"
+else
+  pass "No hardcoded personal email in staged files"
+fi
+
+# Check for double-quoted $HOME in aliases (expands at source time, not run time)
+if grep -n 'alias.*=".*\$HOME' config/zsh/modules/aliases.zsh 2>/dev/null; then
+  warn "Double-quoted \$HOME in aliases — these expand at source time. Use single quotes."
+else
+  pass "Alias quoting is correct"
+fi
+
+# Check module paths reference DOTFILES_ROOT not hardcoded paths
+if grep -n "/Users/usmanbutt" config/zsh/modules/*.zsh config/zsh/custom.zsh 2>/dev/null; then
+  fail "Hardcoded /Users/usmanbutt path found in zsh modules"
+else
+  pass "No hardcoded home paths in zsh modules"
+fi
+
+# Check that modules directory path in custom.zsh is dynamic
+if grep -q 'DOTFILES_ROOT\|HOME.*dotfiles' config/zsh/custom.zsh 2>/dev/null; then
+  pass "Module path in custom.zsh is dynamic"
+else
+  fail "custom.zsh may have hardcoded module path"
+fi
+
+# Check rebuild script is not hardcoded to a specific hostname
+if grep -q "darwin-rebuild.*#m4pro" scripts/bin/rebuild 2>/dev/null; then
+  warn "rebuild script uses hardcoded hostname 'm4pro' — fine for personal use, but note for portability"
+fi
+
+# Check for untracked config files that Nix references
+section "Git tracking"
+NIX_SOURCES=$(grep -h "source = \.\." nix/home/home.nix nix/darwin/configuration.nix 2>/dev/null \
+  | sed 's/.*source = \.\.\/\.\.\///;s/[";].*//;s/ //g' | sort -u)
+while IFS= read -r src; do
+  if [[ -n "$src" ]] && ! git ls-files --error-unmatch "$src" 2>/dev/null; then
+    fail "Nix references '$src' but it's not tracked by git (run: git add $src)"
+  fi
+done <<< "$NIX_SOURCES"
+
+# Check for any untracked files that might be needed
+UNTRACKED=$(git ls-files --others --exclude-standard config/ nix/ scripts/ 2>/dev/null)
+if [[ -n "$UNTRACKED" ]]; then
+  warn "Untracked files exist (may need 'git add'):"
+  echo "$UNTRACKED" | sed 's/^/    /'
+else
+  pass "All config files are git-tracked"
+fi
+
+# ── Summary ────────────────────────────────────────────────────────────────
+echo ""
+echo "─────────────────────────────────────────────"
+if [[ $ERRORS -eq 0 && $WARNINGS -eq 0 ]]; then
+  echo -e "${GREEN}All checks passed!${NC} Safe to commit and rebuild."
+elif [[ $ERRORS -eq 0 ]]; then
+  echo -e "${YELLOW}Passed with $WARNINGS warning(s).${NC} Review warnings before proceeding."
+else
+  echo -e "${RED}$ERRORS error(s), $WARNINGS warning(s).${NC} Fix errors before committing."
+  exit 1
+fi
+echo ""
