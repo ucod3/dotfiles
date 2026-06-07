@@ -96,7 +96,20 @@ ensure-node() {
 
   if ! command -v node >/dev/null 2>&1; then
     echo "Node.js not found. Installing Node.js $required_version..."
+    # Ensure PNPM_HOME/bin is in PATH before invoking pnpm env use,
+    # then re-source it afterward so the newly installed node is findable.
+    export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+    case ":$PATH:" in
+      *":$PNPM_HOME/bin:"*) ;;
+      *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+    esac
     command pnpm env use --global node@"$required_version"
+    # Re-export PATH so the node binary pnpm just installed is visible
+    case ":$PATH:" in
+      *":$PNPM_HOME/bin:"*) ;;
+      *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+    esac
+    hash -r 2>/dev/null || true
 
     if ! command -v node >/dev/null 2>&1; then
       echo "❌ Failed to install Node.js. Please install it manually with:"
@@ -116,6 +129,7 @@ ensure-node() {
       echo "⚠️ Current Node.js v$current_version is older than required v$required_version"
       echo "Installing Node.js $required_version..."
       command pnpm env use --global node@"$required_version"
+      hash -r 2>/dev/null || true
       echo "✅ Node.js $(node -v) installed successfully"
     else
       echo "✅ Current Node.js $(node -v) meets requirements (v$required_version or newer)"
