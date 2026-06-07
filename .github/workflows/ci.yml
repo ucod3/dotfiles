@@ -114,3 +114,13 @@ jobs:
         run: |
           echo "=== nix flake show (pure attribute tree evaluation) ==="
           nix flake show --all-systems 2>&1
+
+      # ── Unit tests (bats) ───────────────────────────────────────────────────
+      - name: Bats unit tests
+        run: |
+          echo "=== bats test suite ==="
+          if [[ -d "tests" ]]; then
+            nix shell nixpkgs#bats --command bats tests/
+          else
+            echo "No tests/ directory found — skipping"
+          fi

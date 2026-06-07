@@ -98,4 +98,4 @@ When resolving the current machine's identity for Nix/Darwin rebuilds:
 ## 📝 Configuration Management Note
 This file is symlinked from `~/dotfiles/config/windsurf/global_rules.md`.
 All modifications are automatically tracked in the dotfiles repository.
-Last verified: $(date +%Y-%m-%d)
+Last verified: 2025-01-18

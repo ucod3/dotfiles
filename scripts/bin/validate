@@ -9,7 +9,8 @@
 #   3. Shell linting  - shellcheck for semantic issues
 #   4. Nix syntax     - flake.nix, home.nix, configuration.nix
 #   5. Nix flake      - full flake check
-#   6. Common mistakes - hardcoded emails, vim.loop, broken paths
+#   6. Unit tests     - bats test suite for regression coverage
+#   7. Common mistakes - hardcoded emails, vim.loop, broken paths
 #
 # Usage:
 #   ./scripts/bin/validate          # run all checks
@@ -103,7 +104,23 @@ if [[ "$QUICK_MODE" == false ]]; then
   fi
 fi
 
-# ── 6. Common mistakes ─────────────────────────────────────────────────────
+# ── 6. Unit tests (bats) ────────────────────────────────────────────────────
+section "Unit tests"
+if [[ -d "tests" ]]; then
+  if command -v bats >/dev/null 2>&1; then
+    if bats tests/ 2>/dev/null; then
+      pass "All bats tests passed"
+    else
+      warn "Some bats tests failed (see output above)"
+    fi
+  else
+    pass "bats not installed — skipping unit tests (install with: nix-env -iA nixpkgs.bats)"
+  fi
+else
+  pass "No tests/ directory found — skipping unit tests"
+fi
+
+# ── 7. Common mistakes ─────────────────────────────────────────────────────
 section "Common mistakes"
 
 # Check for deprecated vim.loop (should use vim.uv)

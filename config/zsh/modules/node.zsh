@@ -58,6 +58,12 @@ pnpm-use-node() {
 
   echo "Setting up Node.js $version using pnpm..."
   _pnpm_install_node "$version"
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "❌ Failed to install Node.js $version. Please check the error above."
+    return 1
+  fi
+
   echo "Node.js $(node -v) activated"
 }
 
@@ -88,12 +94,12 @@ detect-node-version() {
     return
   fi
 
-  if [[ "$node_version" == ">="* ]]; then
-    echo "$node_version" | grep -o '[0-9]\{1,2\}'
-  elif [[ "$node_version" == "^"* || "$node_version" == "~"* ]]; then
-    echo "$node_version" | grep -o '[0-9]\{1,2\}'
+  # Extract major version number only (first numeric match)
+  if [[ "$node_version" == ">="* || "$node_version" == "^"* || "$node_version" == "~"* ]]; then
+    echo "$node_version" | grep -o '[0-9]\{1,2\}' | head -1
   else
-    echo "$node_version"
+    # For raw semver like "20.11.0", extract just the major version
+    echo "$node_version" | cut -d'.' -f1 | grep -o '[0-9]\{1,2\}' | head -1
   fi
 }
 
@@ -149,11 +155,13 @@ pnpm() {
     return $?
   fi
 
-  ensure-node && command pnpm "$@"
+  ensure-node || return $?
+  command pnpm "$@"
 }
 
 pnpx() {
-  ensure-node && command pnpx "$@"
+  ensure-node || return $?
+  command pnpx "$@"
 }
 
 mkdir -p "$XDG_DATA_HOME/pnpm/global"

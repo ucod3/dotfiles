@@ -109,5 +109,6 @@
     pyright
     typescript-language-server
     shellcheck  # Static analysis for shell scripts (used by validate)
+    bats      # Bash Automated Testing System for dotfiles test suite
   ];
 }

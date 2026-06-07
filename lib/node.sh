@@ -35,7 +35,7 @@ _find_node() {
     fi
   done
 
-  echo "Node.js not found. Install it with: pnpm env use --global node@lts" >&2
+  echo "Node.js not found. Install it with: pnpm runtime set node lts -g" >&2
   return 1
 }
 
