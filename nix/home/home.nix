@@ -108,5 +108,6 @@
     lua-language-server
     pyright
     typescript-language-server
+    shellcheck  # Static analysis for shell scripts (used by validate)
   ];
 }

@@ -4,10 +4,12 @@
 # Catches errors BEFORE they reach the system
 #
 # Checks:
-#   1. Nix syntax  - flake.nix, home.nix, configuration.nix
-#   2. Zsh syntax  - all .zsh modules
-#   3. Shell scripts - rebuild, update, install.sh
-#   4. Common mistakes - hardcoded emails, vim.loop, broken paths
+#   1. Zsh syntax     - all .zsh modules
+#   2. Bash syntax    - scripts via bash -n
+#   3. Shell linting  - shellcheck for semantic issues
+#   4. Nix syntax     - flake.nix, home.nix, configuration.nix
+#   5. Nix flake      - full flake check
+#   6. Common mistakes - hardcoded emails, vim.loop, broken paths
 #
 # Usage:
 #   ./scripts/bin/validate          # run all checks
@@ -56,7 +58,26 @@ for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/vali
   fi
 done
 
-# ── 3. Nix syntax ──────────────────────────────────────────────────────────
+# ── 3. Shell script linting (shellcheck) ────────────────────────────────────
+section "Shell script linting"
+if command -v shellcheck >/dev/null 2>&1; then
+  for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps install.sh; do
+    if [[ -f "$f" ]]; then
+      # Run shellcheck with specific exclusions for this codebase
+      # SC1090: Can't follow non-constant source (we use dynamic paths)
+      # SC1091: Not following sourced file (we check syntax separately)
+      if shellcheck --shell=bash --severity=warning --exclude=SC1090,SC1091 "$f" 2>/dev/null; then
+        pass "$f"
+      else
+        warn "$f — shellcheck issues found (see above)"
+      fi
+    fi
+  done
+else
+  pass "shellcheck not installed — skipping (install with: nix-env -iA nixpkgs.shellcheck)"
+fi
+
+# ── 4. Nix syntax ──────────────────────────────────────────────────────────
 if [[ "$QUICK_MODE" == false ]]; then
   section "Nix syntax"
   for f in flake.nix nix/home/home.nix hosts/default.nix; do
@@ -71,7 +92,7 @@ if [[ "$QUICK_MODE" == false ]]; then
   done
 fi
 
-# ── 4. Nix flake check ─────────────────────────────────────────────────────
+# ── 5. Nix flake check ─────────────────────────────────────────────────────
 if [[ "$QUICK_MODE" == false ]]; then
   section "Nix flake check"
   if nix flake check 2>/dev/null; then
@@ -82,7 +103,7 @@ if [[ "$QUICK_MODE" == false ]]; then
   fi
 fi
 
-# ── 5. Common mistakes ─────────────────────────────────────────────────────
+# ── 6. Common mistakes ─────────────────────────────────────────────────────
 section "Common mistakes"
 
 # Check for deprecated vim.loop (should use vim.uv)
