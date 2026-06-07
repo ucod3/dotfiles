@@ -8,13 +8,13 @@ A modern, reproducible macOS development environment using Nix flakes, nix-darwi
 
 **Option 1: Copy and paste this into Terminal:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh | bash
 ```
 
 **Option 2: If you prefer to review first:**
 ```bash
 # Download and review
-curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh -o install.sh
 
 # Review the script
 cat install.sh
@@ -111,7 +111,7 @@ curl -L https://nixos.org/nix/install | sh
 
 ### Step 2: Clone Dotfiles
 ```bash
-git clone https://github.com/usmanbutt/dotfiles.git ~/dotfiles
+git clone https://github.com/ucod3/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 ```
 
@@ -365,7 +365,7 @@ Time: 15 minutes per machine
 
 ## 📞 Support
 
-- **Issues:** [GitHub Issues](https://github.com/usmanbutt/dotfiles/issues)
+- **Issues:** [GitHub Issues](https://github.com/ucod3/dotfiles/issues)
 - **Documentation:** See [BACKUPS.md](./BACKUPS.md) for troubleshooting
 - **Nix Manual:** [NixOS Documentation](https://nixos.org/manual/nix/stable/)
 

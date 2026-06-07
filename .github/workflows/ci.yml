@@ -94,7 +94,7 @@ jobs:
         run: |
           echo "=== nix-instantiate --parse on .nix files ==="
           failed=0
-          for f in flake.nix nix/home/home.nix hosts/default.nix hosts/Usmans-M4Pro.nix; do
+          for f in flake.nix nix/home/home.nix hosts/default.nix; do
             if [[ -f "$f" ]]; then
               if nix-instantiate --parse "$f" > /dev/null 2>&1; then
                 echo "  OK: $f"

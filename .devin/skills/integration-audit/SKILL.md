@@ -35,7 +35,7 @@ grep -q "dotenv-init" "${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/modules/utils
 **Check for hardcoded fallbacks in generic scripts:**
 ```bash
 # Search for hardcoded hostname fallbacks outside host configs
-grep -r "Usmans-M4Pro\|fallback.*hostname" "${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/" 2>/dev/null && echo "✗ Hardcoded hostname fallback detected" || echo "✓ No hardcoded hostnames in scripts"
+grep -r "Usmans-M4Pro\|My-Mac-\|fallback.*hostname" "${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/" 2>/dev/null && echo "✗ Hardcoded hostname fallback detected" || echo "✓ No hardcoded hostnames in scripts"
 ```
 
 **Verify hosts/ directory pattern:**

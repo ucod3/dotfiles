@@ -38,10 +38,16 @@
   };
 
   programs.neovim = {
-  enable = true;
-  withRuby = false;
-  withPython3 = false;
-};
+    enable = true;
+    withRuby = false;
+    withPython3 = false;
+
+    # Runtime dependencies for Telescope and other plugins
+    extraPackages = with pkgs; [
+      ripgrep # Required for Telescope live_grep
+      fd      # Required for Telescope file finder
+    ];
+  };
 
   programs.fzf = {
     enable = true;

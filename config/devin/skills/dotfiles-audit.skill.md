@@ -23,7 +23,7 @@ if [[ -d "$HOME/dotfiles" ]]; then
   cd "$HOME/dotfiles" && git log --oneline -1
 else
   echo "❌ Dotfiles not found at $HOME/dotfiles"
-  echo "   Install with: curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh | bash"
+  echo "   Install with: curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh | bash"
   exit 1
 fi
 ```

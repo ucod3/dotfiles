@@ -4,9 +4,9 @@
 # Makes setup accessible to both tech and non-tech users
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh | bash
 #   # OR
-#   bash <(curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh)
 #
 
 set -euo pipefail
@@ -19,7 +19,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_URL="https://github.com/usmanbutt/dotfiles.git"
+REPO_URL="https://github.com/ucod3/dotfiles.git"
 DOTFILES_DIR="${HOME}/dotfiles"
 BACKUP_DIR="${HOME}/dotfiles.backup.$(date +%Y%m%d_%H%M%S)"
 

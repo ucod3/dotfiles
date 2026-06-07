@@ -67,7 +67,7 @@ check_dotfiles() {
     if [[ ! -d "$DOTFILES_ROOT" ]]; then
         log_error "Dotfiles directory not found: $DOTFILES_ROOT"
         log_info "Please clone your dotfiles first:"
-        log_info "  git clone https://github.com/usmanbutt/dotfiles.git $DOTFILES_ROOT"
+        log_info "  git clone https://github.com/ucod3/dotfiles.git $DOTFILES_ROOT"
         exit 1
     fi
 

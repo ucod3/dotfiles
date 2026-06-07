@@ -104,7 +104,7 @@ cd ~/dotfiles
 nix flake check
 
 # Test build without applying
-nix build .#homeConfigurations.usmanbutt.activationPackage --dry-run
+nix build .#homeConfigurations.user.activationPackage --dry-run
 
 # Test in a Nix container (Linux only, not macOS features)
 docker run -it -v ~/dotfiles:/dotfiles nixos/nix:latest
@@ -133,7 +133,7 @@ nix flake check
    - Choose external drive
 4. **Run install script:**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh | bash
    ```
 5. **Test everything:**
    - Open applications
@@ -163,7 +163,7 @@ sudo sysadminctl -addUser testuser -fullName "Test User" -password "testpass123"
 su - testuser
 
 # Install dotfiles
-curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh | bash
 
 # Test everything
 # When done, switch back to your main user and delete test user
@@ -209,7 +209,7 @@ ls -la result/
 cd ~/dotfiles
 
 # Check home-manager config
-home-manager build --flake .#usmanbutt
+home-manager build --flake .#user
 
 # View generation diff
 home-manager generations
@@ -340,7 +340,7 @@ Before publishing changes for others to use:
    ```bash
    sudo sysadminctl -addUser tester -fullName "Test" -password "test123"
    su - tester
-   bash <(curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh)
+   bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh)
    ```
 
 4. **Review the script line by line:**
@@ -361,7 +361,7 @@ If a non-tech user wants to test without committing:
 
 ```bash
 # Download and review first
-curl -fsSL https://raw.githubusercontent.com/usmanbutt/dotfiles/main/install.sh -o /tmp/test-install.sh
+curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh -o /tmp/test-install.sh
 
 # Review it
 cat /tmp/test-install.sh

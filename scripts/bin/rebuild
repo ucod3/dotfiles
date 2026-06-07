@@ -9,26 +9,20 @@ source "$DOTFILES_ROOT/lib/log.sh"
 
 # Resolve the flake attribute from the current hostname.
 # The flake attribute key must match `hostname -s` exactly.
-# If hostname resolution fails, derive fallback from registered hosts in flake.nix
 HOSTNAME="$(hostname -s 2>/dev/null || true)"
-if [[ -z "$HOSTNAME" ]]; then
-  # Derive fallback from available host configurations (never hardcode in generic scripts)
-  # This aligns with global_rules.md: "Fallback values must be declared in the host's
-  # configuration file, never inline in generic scripts"
-  if [[ -f "./hosts/default.nix" ]]; then
+
+# Check if the resolved hostname is explicitly defined in flake.nix darwinConfigurations.
+# If not, fall back to the generic "default" configuration for clone-and-run compatibility.
+if [[ -n "$HOSTNAME" && -f "./flake.nix" ]]; then
+  if ! grep -q "\"${HOSTNAME}\" = mkHost" ./flake.nix 2>/dev/null; then
+    log_warning "Hostname '${HOSTNAME}' not explicitly mapped in flake.nix darwinConfigurations."
+    log_info "Falling back to the generic 'default' system configuration profile."
     HOSTNAME="default"
-  elif [[ -f "./flake.nix" ]]; then
-    # Extract first host from darwinConfigurations in flake.nix
-    HOSTNAME=$(grep -o '"[^"]*" = mkHost' ./flake.nix | head -1 | sed 's/"\(.*\)" = mkHost/\1/')
   fi
-
-  if [[ -z "$HOSTNAME" ]]; then
-    log_error "Could not resolve hostname and no fallback available in hosts/"
-    log_error "Please ensure a host config exists in hosts/<hostname>.nix"
-    exit 1
-  fi
-
-  log_warning "Could not resolve hostname — falling back to '$HOSTNAME' (from flake.nix hosts)"
+elif [[ -z "$HOSTNAME" ]]; then
+  log_warning "Could not resolve hostname from system."
+  log_info "Falling back to the generic 'default' system configuration profile."
+  HOSTNAME="default"
 fi
 
 log_info "Building configuration for host: $HOSTNAME"

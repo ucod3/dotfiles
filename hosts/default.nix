@@ -103,8 +103,8 @@
     brave      # Browser (via Nix)
     gh         # GitHub CLI
     mkalias    # Create macOS aliases for Nix apps
-    neovim     # Editor
     raycast    # Spotlight replacement
+    # neovim removed - installed via Home Manager to prevent duplication
   ];
 
   nix.settings = {

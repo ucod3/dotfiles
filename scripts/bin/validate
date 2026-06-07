@@ -57,7 +57,7 @@ done
 # ── 3. Nix syntax ──────────────────────────────────────────────────────────
 if [[ "$QUICK_MODE" == false ]]; then
   section "Nix syntax"
-  for f in flake.nix nix/home/home.nix hosts/default.nix hosts/Usmans-M4Pro.nix; do
+  for f in flake.nix nix/home/home.nix hosts/default.nix; do
     if [[ -f "$f" ]]; then
       if nix-instantiate --parse "$f" > /dev/null 2>&1; then
         pass "$f"
@@ -90,11 +90,11 @@ else
   pass "No deprecated vim.loop usage"
 fi
 
-# Check for hardcoded personal email in tracked files
-if git diff --cached --name-only | xargs grep -l "usman\.butt@outlook\.com" 2>/dev/null | grep -v "git/config"; then
-  fail "Personal email found in staged files"
+# Check for hardcoded personal emails in tracked files (customize regex for your domain)
+if git diff --cached --name-only | xargs grep -lE "[a-z]+\.[a-z]+@[a-z]+\.(com|org|net|io)" 2>/dev/null | grep -v "git/config"; then
+  warn "Email addresses found in staged files — verify these are intentional"
 else
-  pass "No hardcoded personal email in staged files"
+  pass "No email addresses in staged files"
 fi
 
 # Check for double-quoted $HOME in aliases (expands at source time, not run time)
@@ -105,8 +105,8 @@ else
 fi
 
 # Check module paths reference DOTFILES_ROOT not hardcoded paths
-if grep -n "/Users/usmanbutt" config/zsh/modules/*.zsh config/zsh/custom.zsh 2>/dev/null; then
-  fail "Hardcoded /Users/usmanbutt path found in zsh modules"
+if grep -n "/Users/[a-z]" config/zsh/modules/*.zsh config/zsh/custom.zsh 2>/dev/null | grep -v "DOTFILES_ROOT\|HOME"; then
+  fail "Hardcoded /Users/ path found in zsh modules — use DOTFILES_ROOT instead"
 else
   pass "No hardcoded home paths in zsh modules"
 fi
@@ -119,7 +119,7 @@ else
 fi
 
 # Portability: rebuild must use dynamic hostname, not a hardcoded flake attribute
-if grep -q 'darwin-rebuild.*#m4pro\|darwin-rebuild.*#Usmans-M4Pro' scripts/bin/rebuild 2>/dev/null; then
+if grep -qE 'darwin-rebuild.*#(m4pro|Usmans-M4Pro|My-MacBook|HardcodedHost)' scripts/bin/rebuild 2>/dev/null; then
   fail "rebuild script has a hardcoded hostname — it must use \"\${HOSTNAME}\" dynamically"
 else
   pass "rebuild uses dynamic hostname resolution"
