@@ -67,3 +67,50 @@ aliases() {
   echo "─────────────────────────────────────────────"
   echo ""
 }
+
+# dotenv-init — scaffold a new .envrc for local project overrides
+# Usage: dotenv-init [template]
+# Templates: node (default), api, db
+#
+# This implements the Bucket 2 Cross-Boundary rule from global_rules.md:
+# "Keep project-specific env vars out of core dotfiles; use direnv + .envrc"
+dotenv-init() {
+  local template="${1:-node}"
+
+  if [[ -f "./.envrc" ]]; then
+    echo "⚠️  .envrc already exists. Edit manually or run: rm .envrc && dotenv-init $template"
+    return 1
+  fi
+
+  case "$template" in
+    node)
+      cat > ./.envrc << 'EOF'
+# Node.js project environment
+export NODE_ENV=development
+export PORT=3000
+EOF
+      ;;
+    api)
+      cat > ./.envrc << 'EOF'
+# API client environment
+export API_BASE_URL=http://localhost:3000
+export API_KEY=changeme_in_envrc
+EOF
+      ;;
+    db)
+      cat > ./.envrc << 'EOF'
+# Database environment
+export DATABASE_URL=postgres://localhost:5432/mydb
+export POSTGRES_USER=$USER
+EOF
+      ;;
+    *)
+      echo "Unknown template: $template"
+      echo "Available: node, api, db"
+      return 1
+      ;;
+  esac
+
+  echo "✅ Created .envrc with $template template"
+  echo "Review the file, then run: direnv allow"
+}
