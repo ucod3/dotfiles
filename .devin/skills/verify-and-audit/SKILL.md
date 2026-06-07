@@ -1,6 +1,9 @@
 ---
 name: verify-and-audit
 description: Use this skill automatically whenever a code modification, refactor, or feature implementation phase is completed to run local tests and ensure system stability.
+triggers:
+  - user
+  - model
 ---
 
 ### Verification Routine

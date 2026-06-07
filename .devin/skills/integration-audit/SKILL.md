@@ -1,6 +1,9 @@
 ---
 name: integration-audit
 description: Automatically audit alignment between global_rules.md references and dotfiles implementations. Run this whenever global rules are updated or dotfiles structures change.
+triggers:
+  - user
+  - model
 ---
 
 ### Integration Audit Routine
