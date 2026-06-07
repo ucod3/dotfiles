@@ -8,7 +8,7 @@
 #
 # Commands:
 #   pnpm-use-node 18     - Install and use Node.js 18 globally via pnpm
-#   pnpm env use --global node@20  - Install Node.js 20
+#   pnpm runtime set node 20 -g  - Install Node.js 20 (pnpm 11+)
 #   ensure-node 18       - Ensure Node.js 18 is available (auto-installs if needed)
 #
 # Why this approach?
@@ -16,6 +16,20 @@
 #   - pnpm's content-addressable store shares packages across projects
 #   - Node.js versions managed by pnpm, not system package manager
 #   - Saves significant disk space compared to npm/yarn
+
+# Ensure PNPM_HOME/bin is in PATH (idempotent — safe to re-source)
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+case ":$PATH:" in
+  *":$PNPM_HOME/bin:"*) ;;
+  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+esac
+
+# Install a Node.js version via pnpm (pnpm 11+ API)
+_pnpm_install_node() {
+  local version="$1"
+  command pnpm runtime set node "$version" -g
+  hash -r 2>/dev/null || true
+}
 
 # NVM Configuration (only loaded on demand - fallback if needed)
 nvm-init() {
@@ -41,8 +55,8 @@ pnpm-use-node() {
     return 1
   fi
 
-  echo "Setting up Node.js $version using PNPM..."
-  command pnpm env use --global node@"$version"
+  echo "Setting up Node.js $version using pnpm..."
+  _pnpm_install_node "$version"
   echo "Node.js $(node -v) activated"
 }
 
@@ -96,24 +110,11 @@ ensure-node() {
 
   if ! command -v node >/dev/null 2>&1; then
     echo "Node.js not found. Installing Node.js $required_version..."
-    # Ensure PNPM_HOME/bin is in PATH before invoking pnpm env use,
-    # then re-source it afterward so the newly installed node is findable.
-    export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-    case ":$PATH:" in
-      *":$PNPM_HOME/bin:"*) ;;
-      *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-    esac
-    command pnpm env use --global node@"$required_version"
-    # Re-export PATH so the node binary pnpm just installed is visible
-    case ":$PATH:" in
-      *":$PNPM_HOME/bin:"*) ;;
-      *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-    esac
-    hash -r 2>/dev/null || true
+    _pnpm_install_node "$required_version"
 
     if ! command -v node >/dev/null 2>&1; then
       echo "❌ Failed to install Node.js. Please install it manually with:"
-      echo "pnpm env use --global node@$required_version"
+      echo "pnpm runtime set node $required_version -g"
       return 1
     fi
 
@@ -128,8 +129,7 @@ ensure-node() {
     if [[ "$current_version" -lt "$required_version" ]]; then
       echo "⚠️ Current Node.js v$current_version is older than required v$required_version"
       echo "Installing Node.js $required_version..."
-      command pnpm env use --global node@"$required_version"
-      hash -r 2>/dev/null || true
+      _pnpm_install_node "$required_version"
       echo "✅ Node.js $(node -v) installed successfully"
     else
       echo "✅ Current Node.js $(node -v) meets requirements (v$required_version or newer)"
@@ -142,7 +142,8 @@ ensure-node() {
 }
 
 pnpm() {
-  if [ "$1" = "env" ]; then
+  # Pass through subcommands that manage pnpm itself or its runtime
+  if [[ "$1" == "env" || "$1" == "runtime" || "$1" == "setup" ]]; then
     command pnpm "$@"
     return $?
   fi
