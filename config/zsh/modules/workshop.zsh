@@ -170,6 +170,36 @@ EOW
   fi
 }
 
+_detect_npm_project() {
+  [[ -o interactive ]] || return
+
+  # Only fire once per directory
+  [[ "${_NPM_DETECT_DIR:-}" == "$PWD" ]] && return
+  export _NPM_DETECT_DIR="$PWD"
+
+  # Must have package.json
+  [[ -f "./package.json" ]] || return
+
+  # Skip if pnpm-lock.yaml already exists — already migrated
+  [[ -f "./pnpm-lock.yaml" ]] && return
+
+  # Skip EpicWeb projects — epic-detect handles those
+  grep -q '"epicshop"' "./package.json" 2>/dev/null && return
+
+  # Only flag if package-lock.json exists (confirms npm is managing this)
+  [[ -f "./package-lock.json" ]] || return
+
+  echo ""
+  echo "📦 npm project detected (package-lock.json found, no pnpm-lock.yaml)."
+  echo "   To migrate to pnpm:"
+  echo "     pnpm import          # convert package-lock.json → pnpm-lock.yaml"
+  echo "     rm package-lock.json # remove the npm lockfile"
+  echo "     pnpm install         # verify everything resolves"
+  echo ""
+}
+
 autoload -U add-zsh-hook
 add-zsh-hook chpwd epic-detect
+add-zsh-hook chpwd _detect_npm_project
 epic-detect
+_detect_npm_project
