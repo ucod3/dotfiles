@@ -252,19 +252,22 @@ cmd_add() {
     exit 0
   fi
 
-  # Insert into correct section
+  # Insert into correct section (escape name for sed safety)
+  local escaped_name
+  escaped_name=$(sed_escape "$name")
+
   if [[ "$is_cask" == true ]]; then
     # Add to end of casks section (before the closing bracket)
     # Find the last cask entry and add after it
     sed -i '' "/^    casks = \[/,/^    \];/{
       /^    \];/i\\
-      \"$name\"
+      \"${escaped_name}\"
     }" "$CONFIG"
     ok "Added '$name' to casks section"
   elif [[ "$is_brew" == true ]]; then
     sed -i '' "/^    brews = \[/,/^    \];/{
       /^    \];/i\\
-      \"$name\"
+      \"${escaped_name}\"
     }" "$CONFIG"
     ok "Added '$name' to brews section"
   fi
