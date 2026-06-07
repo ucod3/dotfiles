@@ -271,7 +271,39 @@ The 467-line `custom.zsh` is now split into 6 focused modules:
 
 ---
 
-## 🤝 Contributing
+## � AI Assistant Configuration (Devin CLI)
+
+This dotfiles repository includes comprehensive configuration for the [Devin CLI](https://cli.devin.ai/) AI assistant:
+
+### What's Included
+
+- **Global Rules** (`config/windsurf/global_rules.md.backup`) — Workspace lifecycle & compliance engine
+- **Global Skills** (`config/devin/skills/`) — Cross-workspace verification tools
+- **Local Rules** (`.devin/rules/`) — Dotfiles-specific guardrails
+- **Local Skills** (`.devin/skills/`) — Dotfiles verification and audit routines
+
+### Key Features
+
+- **Cross-Boundary Bucketing** — Automatically route fixes to dotfiles (global) or local `.envrc` (project)
+- **Lifecycle Detection** — Auto-detect Epic Web workshops, npm projects, production environments
+- **Proactive Verification** — Skills run automatically to ensure code quality
+- **Strict Compliance** — Git & Nix tree awareness, rollback procedures, purity checks
+
+### Setup After Dotfiles Install
+
+```bash
+# Setup global Devin configuration
+mkdir -p ~/.codeium/windsurf/memories
+mkdir -p ~/.config/devin/skills/dotfiles-audit
+cp ~/dotfiles/config/windsurf/global_rules.md.backup ~/.codeium/windsurf/memories/global_rules.md
+ln -sf ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md ~/.config/devin/skills/dotfiles-audit/SKILL.md
+```
+
+See [docs/DEVIN_SETUP.md](./docs/DEVIN_SETUP.md) for complete setup and troubleshooting.
+
+---
+
+## �🤝 Contributing
 
 This is a personal dotfiles repository, but feel free to:
 - Fork it for your own use
