@@ -4,7 +4,7 @@ description: Use this skill automatically whenever a code modification, refactor
 ---
 
 ### Verification Routine
-1. Run Static Analysis: Open the terminal and execute `bash scripts/bin/validate` from the workspace root. Ensure it returns 0 errors.
+1. Run Static Analysis: Open the terminal and execute `scripts/bin/validate` from the workspace root. Ensure it returns 0 errors.
 2. Test Sourcing: Run a quick dry-run subshell to verify that all newly modified or decoupled zsh modules source without stderr noise.
 3. Check Composite Hook: Ensure that `.git/hooks/pre-commit` correctly chains syntax validation and secret scanning functions seamlessly.
 
