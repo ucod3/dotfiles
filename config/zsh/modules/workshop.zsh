@@ -151,7 +151,10 @@ NODE_VERSION=$detected_version
 # Compatibility mode (npm or pnpm)
 PACKAGE_MANAGER=npm
 EOW
-        echo ".workshop.env" >> ./.gitignore 2>/dev/null
+        # Add to .gitignore only if not already present
+        if ! grep -q "^\.workshop\.env$" ./.gitignore 2>/dev/null; then
+          echo ".workshop.env" >> ./.gitignore 2>/dev/null
+        fi
         echo "Created .workshop.env configuration file (added to .gitignore)"
       fi
 

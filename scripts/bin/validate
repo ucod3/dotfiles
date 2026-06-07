@@ -16,14 +16,16 @@
 
 set -euo pipefail
 
+# Declare counters BEFORE sourcing lib/log.sh (which uses them)
+ERRORS=0
+WARNINGS=0
+
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
 cd "$DOTFILES_ROOT"
 
 # shellcheck source=../../lib/log.sh
 source "$DOTFILES_ROOT/lib/log.sh"
 
-ERRORS=0
-WARNINGS=0
 QUICK_MODE=false
 
 [[ "${1:-}" == "--quick" ]] && QUICK_MODE=true
@@ -91,10 +93,15 @@ else
 fi
 
 # Check for hardcoded personal emails in tracked files (customize regex for your domain)
-if git diff --cached --name-only | xargs grep -lE "[a-z]+\.[a-z]+@[a-z]+\.(com|org|net|io)" 2>/dev/null | grep -v "git/config"; then
-  warn "Email addresses found in staged files — verify these are intentional"
+staged_files=$(git diff --cached --name-only 2>/dev/null)
+if [[ -n "$staged_files" ]]; then
+  if echo "$staged_files" | xargs grep -lE "[a-z]+\.[a-z]+@[a-z]+\.(com|org|net|io)" 2>/dev/null | grep -v "git/config"; then
+    warn "Email addresses found in staged files — verify these are intentional"
+  else
+    pass "No email addresses in staged files"
+  fi
 else
-  pass "No email addresses in staged files"
+  pass "No staged files to check"
 fi
 
 # Check for double-quoted $HOME in aliases (expands at source time, not run time)

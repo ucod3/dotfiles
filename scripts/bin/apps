@@ -32,6 +32,11 @@ ok()      { echo -e "  ${GREEN}✓${NC} $1"; }
 warn()    { echo -e "  ${YELLOW}!${NC} $1"; }
 err()     { echo -e "  ${RED}✗${NC} $1"; }
 
+# Escape special regex characters for sed
+sed_escape() {
+  printf '%s' "$1" | sed 's/[.\\*^$\[\]/]/\\&/g'
+}
+
 count_section() {
   local section="$1"
   grep -A100 "^    ${section} = \[" "$CONFIG" 2>/dev/null \
@@ -212,6 +217,13 @@ cmd_add() {
     exit 1
   fi
 
+  # Validate package name against safe characters
+  if [[ ! "$name" =~ ^[a-zA-Z0-9@._-]+$ ]]; then
+    err "Invalid package name: '$name'"
+    info "Package names must contain only: letters, numbers, @, ., _, -"
+    exit 1
+  fi
+
   section "Adding: $name"
   echo ""
 
@@ -282,8 +294,10 @@ cmd_remove() {
     exit 1
   fi
 
-  # Remove the line containing the app name
-  sed -i '' "/\"$name\"/d" "$CONFIG"
+  # Remove the line containing the app name (escape special regex chars)
+  local escaped_name
+  escaped_name=$(sed_escape "$name")
+  sed -i '' "/\"${escaped_name}\"/d" "$CONFIG"
   ok "Removed '$name' from config"
 
   validate_after_mutation

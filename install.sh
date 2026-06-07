@@ -91,8 +91,8 @@ check_nix() {
     log_info "Installing Nix package manager..."
     log_info "This is the foundation of your reproducible macOS setup."
     
-    # Install Nix using the official installer
-    curl -L https://nixos.org/nix/install | sh
+    # Install Nix using the official installer with safety flags
+    curl -fsSL --proto '=https' --tlsv1.2 https://nixos.org/nix/install | sh
     
     # Source nix for current session
     if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
@@ -274,7 +274,9 @@ show_post_install_info() {
     echo
     
     log_info "Your dotfiles location: $DOTFILES_DIR"
-    log_info "Backup location: $BACKUP_DIR (if applicable)"
+    if [[ -d "$BACKUP_DIR" ]]; then
+        log_info "Backup location: $BACKUP_DIR"
+    fi
     echo
     
     log_success "Happy coding! 🚀"
@@ -282,15 +284,23 @@ show_post_install_info() {
 
 # Handle errors gracefully
 cleanup_on_error() {
+    # Disable trap to prevent recursion
+    trap - ERR
+
     log_error "Installation interrupted."
-    
+
     if [[ -d "$DOTFILES_DIR" ]] && [[ -d "$BACKUP_DIR" ]]; then
-        log_info "Would you like to restore the backup? (y/N)"
-        read -r
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            rm -rf "$DOTFILES_DIR"
-            mv "$BACKUP_DIR" "$DOTFILES_DIR"
-            log_success "Backup restored."
+        # Only prompt if stdin is a terminal (not piped)
+        if [[ -t 0 ]]; then
+            log_info "Would you like to restore the backup? (y/N)"
+            read -r
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                rm -rf "$DOTFILES_DIR"
+                mv "$BACKUP_DIR" "$DOTFILES_DIR"
+                log_success "Backup restored."
+            fi
+        else
+            log_info "Backup available at: $BACKUP_DIR"
         fi
     fi
 }

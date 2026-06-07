@@ -28,7 +28,8 @@ esac
 _pnpm_install_node() {
   local version="$1"
   command pnpm runtime set node "$version" -g
-  hash -r 2>/dev/null || true
+  # Rehash command hash table in zsh (hash -r is for bash)
+  rehash 2>/dev/null || hash -r 2>/dev/null || true
 }
 
 # NVM Configuration (only loaded on demand - fallback if needed)

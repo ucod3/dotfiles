@@ -258,7 +258,11 @@ show_summary() {
     log_info "Summary of what was updated:"
     echo "  ✅ Nix flake inputs (nixpkgs, home-manager, etc.)"
     echo "  ✅ Homebrew package database"
-    echo "  ✅ System rebuilt with latest packages"
+    if [[ "${FLAKE_ONLY:-false}" == true ]]; then
+        echo "  ⏭️  System rebuild skipped (--flake-only mode)"
+    else
+        echo "  ✅ System rebuilt with latest packages"
+    fi
     echo "  ✅ Changes committed to Git"
     echo
     log_info "Next steps:"

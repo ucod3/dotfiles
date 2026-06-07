@@ -25,7 +25,8 @@
     source = pkgs.fetchFromGitHub {
       owner = "MichaelAquilina";
       repo = "zsh-you-should-use";
-      rev = "master";
+      # Pin to specific commit instead of mutable branch
+      rev = "f13d38f7bd98231386ad2c950b6dfbf5784d9f0d";
       sha256 = "sha256-1ojmr9+Wg5+X5Dip4sKjP4IKKACMncPQDZ8RtYQSQ80=";
     };
   };
@@ -67,8 +68,8 @@
     syntaxHighlighting.enable = true;
     historySubstringSearch.enable = true;
 
-    # Silence the dotDir warning and keep current behavior.
-    dotDir = config.home.homeDirectory;
+    # dotDir is relative to home directory (empty = $HOME)
+    dotDir = "";
 
     oh-my-zsh = {
       enable = true;
