@@ -277,32 +277,40 @@ This dotfiles repository includes comprehensive configuration for the [Devin CLI
 
 ### What's Included
 
-- **Global Rules** (`config/windsurf/global_rules.md`) — Workspace lifecycle & compliance engine  
-  *(symlinked from dotfiles — all IDE edits auto-tracked in git)*
-- **Global Skills** (`config/devin/skills/`) — Cross-workspace verification tools  
-  *(symlinked from dotfiles — changes auto-tracked)*
-- **Local Rules** (`.devin/rules/`) — Dotfiles-specific guardrails
-- **Local Skills** (`.devin/skills/`) — Dotfiles verification and audit routines
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **Global Rules** | `config/windsurf/global_rules.md` | Workspace lifecycle & compliance engine  |
+| **Global Skills** | `config/devin/skills/` | Cross-workspace verification tools  |
+| **MCP Config** | `config/devin/mcp/` | Model Context Protocol server definitions |
+| **Local Rules** | `.devin/rules/` | Dotfiles-specific guardrails |
+| **Local Skills** | `.devin/skills/` | Dotfiles verification and audit routines |
+
+All global configuration is **symlinked** from dotfiles — edit via IDE, changes auto-tracked in git.
 
 ### Key Features
 
 - **Cross-Boundary Bucketing** — Automatically route fixes to dotfiles (global) or local `.envrc` (project)
 - **Lifecycle Detection** — Auto-detect Epic Web workshops, npm projects, production environments
 - **Proactive Verification** — Skills run automatically to ensure code quality
-- **Edit via IDE → Auto-tracked** — Global rules/skills are symlinked; changes commit to git automatically
+- **Edit via IDE → Auto-tracked** — All changes through symlinks commit to git automatically
 - **Strict Compliance** — Git & Nix tree awareness, rollback procedures, purity checks
 
 ### Setup After Dotfiles Install
 
 ```bash
-# Symlink global Devin configuration (source of truth is dotfiles)
-mkdir -p ~/.codeium/windsurf/memories
-mkdir -p ~/.config/devin/skills/dotfiles-audit
+# One-command setup of all Devin global configuration
+mkdir -p ~/.codeium/windsurf/memories ~/.config/devin/skills
+cd ~/dotfiles/config/devin/skills && for f in *.skill.md; do mkdir -p ~/.config/devin/skills/${f%.skill.md}; ln -sf ~/dotfiles/config/devin/skills/$f ~/.config/devin/skills/${f%.skill.md}/SKILL.md; done
 ln -sf ~/dotfiles/config/windsurf/global_rules.md ~/.codeium/windsurf/memories/global_rules.md
-ln -sf ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md ~/.config/devin/skills/dotfiles-audit/SKILL.md
+ln -sf ~/dotfiles/config/devin/mcp/mcp_config.json ~/.codeium/windsurf/mcp_config.json
 ```
 
-**How it works:** When you edit global rules via the IDE, changes are written through the symlink to the dotfiles repo. Simply commit and push to sync across machines.
+Or use the setup script:
+```bash
+bash ~/dotfiles/docs/setup-devin-global.sh
+```
+
+**How it works:** When you edit global rules, skills, or MCP config via the IDE, changes write through symlinks to the dotfiles repo. Simply `git commit` and `git push` to sync across machines.
 
 See [docs/DEVIN_SETUP.md](./docs/DEVIN_SETUP.md) for complete setup, workflow, and troubleshooting.
 

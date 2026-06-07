@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "epicshop": {
+      "command": "npx",
+      "args": ["-y", "@epic-web/workshop-mcp"]
+    }
+  }
+}
