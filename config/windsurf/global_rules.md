@@ -92,3 +92,10 @@ When resolving the current machine's identity for Nix/Darwin rebuilds:
 - **Team Coordination Protocols:** All modifications must conform to the project's Pull Request templates, documentation schemas, and branching conventions.
 - **Changelogs & Documentation Standards:** Automatically document structural updates. Maintain clean, comprehensive inline architecture notations, update public API definitions, and append records cleanly to an authoritative `CHANGELOG.md`.
 - **Requirement Verification & Feature Flag Management:** Cross-verify execution changes against the stated business requirements. New, high-risk, or breaking functional blocks must be isolated behind feature flags or runtime toggles to enable controlled rollouts, A/B testing, and risk-free experimentation.
+
+---
+
+## 📝 Configuration Management Note
+This file is symlinked from `~/dotfiles/config/windsurf/global_rules.md`.
+All modifications are automatically tracked in the dotfiles repository.
+Last verified: $(date +%Y-%m-%d)

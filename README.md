@@ -277,8 +277,10 @@ This dotfiles repository includes comprehensive configuration for the [Devin CLI
 
 ### What's Included
 
-- **Global Rules** (`config/windsurf/global_rules.md.backup`) — Workspace lifecycle & compliance engine
-- **Global Skills** (`config/devin/skills/`) — Cross-workspace verification tools
+- **Global Rules** (`config/windsurf/global_rules.md`) — Workspace lifecycle & compliance engine  
+  *(symlinked from dotfiles — all IDE edits auto-tracked in git)*
+- **Global Skills** (`config/devin/skills/`) — Cross-workspace verification tools  
+  *(symlinked from dotfiles — changes auto-tracked)*
 - **Local Rules** (`.devin/rules/`) — Dotfiles-specific guardrails
 - **Local Skills** (`.devin/skills/`) — Dotfiles verification and audit routines
 
@@ -287,19 +289,22 @@ This dotfiles repository includes comprehensive configuration for the [Devin CLI
 - **Cross-Boundary Bucketing** — Automatically route fixes to dotfiles (global) or local `.envrc` (project)
 - **Lifecycle Detection** — Auto-detect Epic Web workshops, npm projects, production environments
 - **Proactive Verification** — Skills run automatically to ensure code quality
+- **Edit via IDE → Auto-tracked** — Global rules/skills are symlinked; changes commit to git automatically
 - **Strict Compliance** — Git & Nix tree awareness, rollback procedures, purity checks
 
 ### Setup After Dotfiles Install
 
 ```bash
-# Setup global Devin configuration
+# Symlink global Devin configuration (source of truth is dotfiles)
 mkdir -p ~/.codeium/windsurf/memories
 mkdir -p ~/.config/devin/skills/dotfiles-audit
-cp ~/dotfiles/config/windsurf/global_rules.md.backup ~/.codeium/windsurf/memories/global_rules.md
+ln -sf ~/dotfiles/config/windsurf/global_rules.md ~/.codeium/windsurf/memories/global_rules.md
 ln -sf ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md ~/.config/devin/skills/dotfiles-audit/SKILL.md
 ```
 
-See [docs/DEVIN_SETUP.md](./docs/DEVIN_SETUP.md) for complete setup and troubleshooting.
+**How it works:** When you edit global rules via the IDE, changes are written through the symlink to the dotfiles repo. Simply commit and push to sync across machines.
+
+See [docs/DEVIN_SETUP.md](./docs/DEVIN_SETUP.md) for complete setup, workflow, and troubleshooting.
 
 ---
 

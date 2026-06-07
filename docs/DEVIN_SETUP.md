@@ -4,43 +4,65 @@ This document describes how to recreate the global Devin CLI configuration (rule
 
 ## Overview
 
-The dotfiles repository contains **local** Devin configuration (`.devin/rules/` and `.devin/skills/`) that is project-specific and committed to git.
+The dotfiles repository now contains **both local AND global** Devin configuration:
 
-However, **global** Devin configuration lives outside the dotfiles repo and must be set up separately:
+| Type | Location | Source of Truth | Git Tracked |
+|------|----------|-------------------|-------------|
+| **Global Rules** | `~/.codeium/windsurf/memories/global_rules.md` → `~/dotfiles/config/windsurf/global_rules.md` | **Dotfiles** | ✅ Yes |
+| **Global Skills** | `~/.config/devin/skills/` → `~/dotfiles/config/devin/skills/` | **Dotfiles** | ✅ Yes (via symlink) |
+| **Local Rules** | `~/dotfiles/.devin/rules/` | Dotfiles | ✅ Yes |
+| **Local Skills** | `~/dotfiles/.devin/skills/` | Dotfiles | ✅ Yes |
 
-| Type | Location | Purpose |
-|------|----------|---------|
-| **Global Rules** | `~/.codeium/windsurf/memories/global_rules.md` | Apply to all workspaces |
-| **Global Skills** | `~/.config/devin/skills/` | Available in every project |
-| **Local Rules** | `~/dotfiles/.devin/rules/` | Dotfiles-specific implementation |
-| **Local Skills** | `~/dotfiles/.devin/skills/` | Dotfiles-specific verification |
+**Key advantage:** When you edit global rules via the IDE, changes are automatically written to the dotfiles repository (via symlink). No manual sync needed!
 
 ---
 
 ## 1. Global Rules Setup
 
-### Location
+### How It Works
+
 ```
-~/.codeium/windsurf/memories/global_rules.md
+┌─────────────────────────────────────────────────────────┐
+│  IDE reads/writes here                                  │
+│  ~/.codeium/windsurf/memories/global_rules.md           │
+│         ↑                                               │
+│    (symlink)                                            │
+│         ↓                                               │
+│  Source of truth (git-tracked)                          │
+│  ~/dotfiles/config/windsurf/global_rules.md            │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Purpose
-The Global Workspace Architect, Lifecycle & Enterprise Compliance Engine. These rules govern how the agent operates across all your projects.
+### Setup Steps (New Machine)
 
-### Setup Steps
-
-1. **Copy from dotfiles backup:**
+1. **Create symlink from IDE location to dotfiles:**
    ```bash
    mkdir -p ~/.codeium/windsurf/memories
-   cp ~/dotfiles/config/windsurf/global_rules.md.backup ~/.codeium/windsurf/memories/global_rules.md
+   ln -sf ~/dotfiles/config/windsurf/global_rules.md ~/.codeium/windsurf/memories/global_rules.md
    ```
 
-2. **Verify installation:**
+2. **Verify the symlink:**
    ```bash
    ls -la ~/.codeium/windsurf/memories/global_rules.md
+   # Should show: -> /Users/you/dotfiles/config/windsurf/global_rules.md
    ```
 
-3. **Restart Windsurf** to load the new rules.
+3. **Restart Windsurf** to load the rules.
+
+### Editing Global Rules
+
+Simply edit via the IDE as normal. Because of the symlink:
+- Changes are written to `~/dotfiles/config/windsurf/global_rules.md`
+- Git tracks the changes automatically
+- Commit and push to sync across machines
+
+```bash
+# After editing via IDE
+cd ~/dotfiles
+git status  # Will show global_rules.md as modified
+git commit -m "feat(global-rules): describe your changes"
+git push
+```
 
 ### What's in the Global Rules
 
@@ -56,21 +78,34 @@ The global rules define 5 phases:
 
 ## 2. Global Skills Setup
 
-### Location
+### How It Works
+
+Same symlink pattern as global rules:
+
 ```
-~/.config/devin/skills/
+~/.config/devin/skills/dotfiles-audit/SKILL.md
+         ↑
+    (symlink)
+         ↓
+~/dotfiles/config/devin/skills/dotfiles-audit.skill.md
+```
+
+### Setup Steps (New Machine)
+
+```bash
+# Create directory and symlink
+mkdir -p ~/.config/devin/skills/dotfiles-audit
+ln -sf ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md \
+       ~/.config/devin/skills/dotfiles-audit/SKILL.md
+
+# Verify
+ls -la ~/.config/devin/skills/dotfiles-audit/SKILL.md
 ```
 
 ### Available Global Skills
 
 #### `dotfiles-audit`
 **Purpose:** Verify dotfiles environment health from any workspace
-
-**Setup:**
-```bash
-mkdir -p ~/.config/devin/skills/dotfiles-audit
-cp ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md ~/.config/devin/skills/dotfiles-audit/SKILL.md
-```
 
 **Usage:**
 ```
@@ -90,7 +125,7 @@ cp ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md ~/.config/devin/skills
 
 ## 3. Local Dotfiles Skills (Already Set Up)
 
-These are already in `~/dotfiles/.devin/skills/` and tracked in git:
+These are in `~/dotfiles/.devin/skills/` and tracked in git:
 
 ### `verify-and-audit`
 - **Triggers:** user + model
@@ -104,18 +139,40 @@ These are already in `~/dotfiles/.devin/skills/` and tracked in git:
 
 ---
 
-## 4. Symlink Strategy (Alternative)
+## 4. Complete Setup Script (One Command)
 
-Instead of copying, you can symlink the global skill to keep it in version control:
+For quick setup on a new machine:
 
 ```bash
-# Make dotfiles the source of truth
+#!/bin/bash
+# save as: setup-devin-global.sh
+
+set -euo pipefail
+
+echo "🔗 Setting up Devin CLI global configuration..."
+
+# Global Rules (symlinked from dotfiles)
+mkdir -p ~/.codeium/windsurf/memories
+if [[ -f ~/.codeium/windsurf/memories/global_rules.md && ! -L ~/.codeium/windsurf/memories/global_rules.md ]]; then
+  echo "📦 Backing up original global_rules.md"
+  mv ~/.codeium/windsurf/memories/global_rules.md ~/.codeium/windsurf/memories/global_rules.md.bak.$(date +%Y%m%d)
+fi
+ln -sf ~/dotfiles/config/windsurf/global_rules.md ~/.codeium/windsurf/memories/global_rules.md
+echo "✅ Global rules symlinked"
+
+# Global Skill (symlinked from dotfiles)
 mkdir -p ~/.config/devin/skills/dotfiles-audit
 ln -sf ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md \
        ~/.config/devin/skills/dotfiles-audit/SKILL.md
-```
+echo "✅ Global skill symlinked"
 
-This ensures changes to the skill are captured in dotfiles git history.
+echo ""
+echo "🎉 Setup complete! Restart Windsurf to load global rules."
+echo ""
+echo "Verification:"
+echo "  ls -la ~/.codeium/windsurf/memories/global_rules.md"
+echo "  ls -la ~/.config/devin/skills/dotfiles-audit/SKILL.md"
+```
 
 ---
 
@@ -124,17 +181,44 @@ This ensures changes to the skill are captured in dotfiles git history.
 After setup, verify everything works:
 
 ```bash
-# Check global rules exist
-ls ~/.codeium/windsurf/memories/global_rules.md
+# Check global rules symlink
+ls -la ~/.codeium/windsurf/memories/global_rules.md
+# Should show: -> /Users/you/dotfiles/config/windsurf/global_rules.md
 
-# Check global skill exists
-ls ~/.config/devin/skills/dotfiles-audit/SKILL.md
+# Check global skill symlink
+ls -la ~/.config/devin/skills/dotfiles-audit/SKILL.md
+# Should show: -> /Users/you/dotfiles/config/devin/skills/dotfiles-audit.skill.md
 
 # Check local skills exist
 ls ~/dotfiles/.devin/skills/*/SKILL.md
 
 # Run the dotfiles audit
-/devin skills invoke dotfiles-audit
+/dotfiles-audit
+```
+
+---
+
+## 6. Workflow: Editing Global Rules
+
+### Day-to-Day Usage
+
+1. **Edit via IDE** — Just use Windsurf's AI rules editor as normal
+2. **Changes auto-save to dotfiles** — Because of the symlink
+3. **Commit when ready:**
+   ```bash
+   cd ~/dotfiles
+   git diff config/windsurf/global_rules.md  # Review changes
+   git add config/windsurf/global_rules.md
+   git commit -m "feat(global-rules): your description"
+   git push
+   ```
+
+### Syncing to Another Machine
+
+```bash
+# On new machine, after installing dotfiles
+git pull  # Gets latest global_rules.md
+# Symlinks are already set up from install script
 ```
 
 ---
@@ -142,34 +226,48 @@ ls ~/dotfiles/.devin/skills/*/SKILL.md
 ## Troubleshooting
 
 ### Rules not loading
-- Ensure file is at exact path: `~/.codeium/windsurf/memories/global_rules.md`
-- Restart the IDE completely
-- Check file permissions (should be readable)
+- Ensure symlink exists: `ls -la ~/.codeium/windsurf/memories/global_rules.md`
+- Verify it points to dotfiles: `readlink ~/.codeium/windsurf/memories/global_rules.md`
+- Restart Windsurf completely
+
+### Symlink was replaced by regular file
+If Windsurf ever replaces the symlink with a regular file:
+```bash
+# Re-create the symlink
+mv ~/.codeium/windsurf/memories/global_rules.md \
+   ~/.codeium/windsurf/memories/global_rules.md.bak
+ln -sf ~/dotfiles/config/windsurf/global_rules.md \
+       ~/.codeium/windsurf/memories/global_rules.md
+```
 
 ### Skills not found
-- Verify `SKILL.md` filename (case-sensitive)
-- Check directory structure: `~/.config/devin/skills/<name>/SKILL.md`
-- Ensure frontmatter has valid YAML format
+- Verify symlink: `ls -la ~/.config/devin/skills/dotfiles-audit/SKILL.md`
+- Check file exists in dotfiles: `ls ~/dotfiles/config/devin/skills/`
+- Ensure frontmatter is valid YAML
 
 ### Cross-boundary bucketing not working
-- Verify `dot` command is in PATH: `which dot`
+- Verify `dot` command in PATH: `which dot`
 - Check `dot rebuild` works: `cd ~/dotfiles && dot validate`
-- Ensure `dotenv-init` is available: `type dotenv-init`
+- Ensure `dotenv-init` available: `type dotenv-init`
 
 ---
 
 ## Summary
 
-| Component | Setup Command | Verification |
-|-----------|---------------|--------------|
-| Global Rules | `cp ~/dotfiles/config/windsurf/global_rules.md.backup ~/.codeium/windsurf/memories/global_rules.md` | `ls ~/.codeium/windsurf/memories/global_rules.md` |
-| Global Skill | `mkdir -p ~/.config/devin/skills/dotfiles-audit && cp ~/dotfiles/config/devin/skills/dotfiles-audit.skill.md ~/.config/devin/skills/dotfiles-audit/SKILL.md` | `ls ~/.config/devin/skills/dotfiles-audit/SKILL.md` |
-| Local Skills | Already in `~/dotfiles/.devin/skills/` | `ls ~/dotfiles/.devin/skills/*/SKILL.md` |
+| Component | Location | Type | Git Tracked |
+|-----------|----------|------|-------------|
+| Global Rules | `~/.codeium/windsurf/memories/global_rules.md` → `~/dotfiles/config/windsurf/global_rules.md` | **Symlink** | ✅ Yes |
+| Global Skill | `~/.config/devin/skills/dotfiles-audit/SKILL.md` → `~/dotfiles/config/devin/skills/dotfiles-audit.skill.md` | **Symlink** | ✅ Yes |
+| Local Rules | `~/dotfiles/.devin/rules/` | Regular files | ✅ Yes |
+| Local Skills | `~/dotfiles/.devin/skills/` | Regular files | ✅ Yes |
+
+**Key benefit:** Edit via IDE → Changes auto-tracked in dotfiles → Commit and push → Sync everywhere
 
 ---
 
 ## See Also
 
-- `~/dotfiles/.devin/rules/plan-and-execute-guardrail.md` — Local implementation of global rules
+- `~/dotfiles/config/windsurf/global_rules.md` — Global rules (source of truth)
+- `~/dotfiles/.devin/rules/plan-and-execute-guardrail.md` — Local implementation
 - `~/dotfiles/README.md` — Main dotfiles documentation
 - `~/dotfiles/TESTING.md` — Testing and validation procedures
