@@ -67,6 +67,7 @@ jobs:
               scripts/bin/update \
               scripts/bin/validate \
               scripts/bin/apps \
+              scripts/bin/setup-private-host \
               scripts/bin/install-hooks \
               scripts/bin/scan-secrets \
               scripts/bin/check-brew-manual-installers \

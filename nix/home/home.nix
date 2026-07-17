@@ -68,8 +68,8 @@
     syntaxHighlighting.enable = true;
     historySubstringSearch.enable = true;
 
-    # dotDir is relative to home directory (empty = $HOME)
-    dotDir = "";
+    # Silence dotDir deprecation: absolute path equivalent to default
+    dotDir = config.home.homeDirectory;
 
     oh-my-zsh = {
       enable = true;

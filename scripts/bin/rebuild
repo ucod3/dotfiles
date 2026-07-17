@@ -36,7 +36,7 @@ if command -v brew >/dev/null 2>&1; then
   brew update
 fi
 
-sudo darwin-rebuild switch --flake ".#${HOSTNAME}"
+sudo darwin-rebuild switch --flake "${FLAKE_ROOT}#${HOSTNAME}"
 
 if [ -x "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers" ]; then
   "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers"

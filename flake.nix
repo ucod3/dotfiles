@@ -83,23 +83,10 @@
       homeEnvironment = ./nix/home/home.nix; # Home Manager configuration
     };
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # LAYER B: Clone-and-Run Dynamic Deployments
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Pre-built configurations for immediate use. These provide a
-    # "git clone && ./install.sh" experience for casual forkers.
-    #
-    # The rebuild script falls back to "default" if your hostname
-    # isn't explicitly mapped here.
     darwinConfigurations = {
-      # Default fallback configuration for quick testing/generic installs
-      # Uses generic "user" account name — change after install or use
-      # the exported modules for custom setups.
-      "default" = mkHost "default" "user";
-
-      # Example configuration — replace with your own hostname in a private downstream flake
-      # See docs/DEVIN_SETUP.md for the separation architecture
-      # "my-macbook" = mkHost "my-macbook" "myuser";
+      # Host configurations belong in a private downstream flake because they
+      # require a concrete macOS username and hostname.
+      # See docs/DEVIN_SETUP.md for the separation architecture.
     };
   };
 }

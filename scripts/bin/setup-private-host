@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+PRIVATE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+HOSTNAME="$(hostname -s)"
+USER_NAME="$(id -un)"
+
+if [[ ! "$HOSTNAME" =~ ^[A-Za-z0-9_-]+$ || ! "$USER_NAME" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  echo "Unsupported hostname or username for generated Nix configuration." >&2
+  exit 1
+fi
+
+if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
+  echo "Private configuration already exists at $PRIVATE_ROOT"
+  exit 0
+fi
+
+mkdir -p "$PRIVATE_ROOT/hosts"
+git init "$PRIVATE_ROOT" >/dev/null
+
+cat > "$PRIVATE_ROOT/flake.nix" <<EOF
+{
+  description = "Private host configuration for the shared dotfiles framework";
+
+  inputs = {
+    dotfiles.url = "git+file://$DOTFILES_ROOT";
+    nixpkgs.follows = "dotfiles/nixpkgs";
+    nix-darwin.follows = "dotfiles/nix-darwin";
+    home-manager.follows = "dotfiles/home-manager";
+    nix-homebrew.follows = "dotfiles/nix-homebrew";
+  };
+
+  outputs = inputs@{ self, dotfiles, nix-darwin, home-manager, nix-homebrew, ... }: {
+    darwinConfigurations."$HOSTNAME" = nix-darwin.lib.darwinSystem {
+      system = "aarch64-darwin";
+      specialArgs = { inherit inputs self; };
+      modules = [
+        dotfiles.darwinModules.coreSystem
+        nix-homebrew.darwinModules.nix-homebrew
+        home-manager.darwinModules.home-manager
+        ./hosts/$HOSTNAME.nix
+      ];
+    };
+  };
+}
+EOF
+
+cat > "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" <<EOF
+{ inputs, ... }:
+
+let
+  user = "$USER_NAME";
+in
+{
+  nix-homebrew = {
+    enable = true;
+    enableRosetta = true;
+    user = user;
+    autoMigrate = true;
+  };
+
+  home-manager = {
+    useGlobalPkgs = true;
+    useUserPackages = true;
+    backupFileExtension = "hm-backup";
+    extraSpecialArgs = { inherit user; };
+    users.\${user} = import inputs.dotfiles.darwinModules.homeEnvironment;
+  };
+
+  _module.args.user = user;
+}
+EOF
+
+cat > "$PRIVATE_ROOT/.gitignore" <<'EOF'
+result
+result-*
+.DS_Store
+EOF
+
+(
+  cd "$PRIVATE_ROOT"
+  git add .
+  nix flake lock
+  git add flake.lock
+  git commit -m "Configure $HOSTNAME host" >/dev/null
+)
+
+echo "Private configuration created at $PRIVATE_ROOT"

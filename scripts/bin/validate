@@ -48,7 +48,7 @@ done
 
 # ── 2. Shell script syntax ─────────────────────────────────────────────────
 section "Shell script syntax"
-for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps install.sh; do
+for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps scripts/bin/setup-private-host install.sh; do
   if [[ -f "$f" ]]; then
     if bash -n "$f" 2>/dev/null; then
       pass "$f"
@@ -62,7 +62,7 @@ done
 # ── 3. Shell script linting (shellcheck) ────────────────────────────────────
 section "Shell script linting"
 if command -v shellcheck >/dev/null 2>&1; then
-  for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps install.sh; do
+  for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps scripts/bin/setup-private-host install.sh; do
     if [[ -f "$f" ]]; then
       # Run shellcheck with specific exclusions for this codebase
       # SC1090: Can't follow non-constant source (we use dynamic paths)

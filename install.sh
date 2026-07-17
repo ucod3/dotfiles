@@ -217,6 +217,7 @@ run_installation() {
     clone_dotfiles
     # Install git hooks immediately after cloning
     bash "$DOTFILES_DIR/scripts/bin/install-hooks"
+    "$DOTFILES_DIR/scripts/bin/setup-private-host"
     echo
     
     # Step 7: Run the build
