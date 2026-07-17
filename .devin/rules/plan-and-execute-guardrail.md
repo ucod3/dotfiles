@@ -2,6 +2,11 @@
 trigger: always_on
 ---
 
+### CRITICAL INTERLOCK: MODEL-AGNOSTIC ESCAPE HATCH
+- You are strictly forbidden from attempting to fix the exact same shell, script, compiler, or Nix evaluation error more than 3 consecutive times in this session.
+- If an execution fail trace repeats 3 times, you must immediately HALT all tool operations. Do not try a 4th iteration.
+- Invoke the `loop-preventer` skill matrix, print a summary log of your changes, and yield control back to the user for manual guidance.
+
 # Core Engineering Guardrails
 
 ## 🧠 Architectural Philosophy
