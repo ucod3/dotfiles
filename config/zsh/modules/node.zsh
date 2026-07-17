@@ -164,5 +164,8 @@ pnpx() {
   command pnpx "$@"
 }
 
-mkdir -p "$XDG_DATA_HOME/pnpm/global"
-typeset -U PATH
+# Only perform zsh-specific setup when running under zsh
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+  mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/pnpm/global"
+  typeset -U PATH
+fi
