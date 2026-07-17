@@ -27,6 +27,28 @@ fi
 
 log_info "Building configuration for host: $HOSTNAME"
 
+# If using a private downstream flake, keep its dotfiles input in sync with the
+# local public repository. Otherwise changes committed to ~/dotfiles won't be
+# picked up until the private flake lock is manually refreshed.
+if [[ "$FLAKE_ROOT" != "$DOTFILES_ROOT" ]] && [[ -f "$FLAKE_ROOT/flake.lock" ]]; then
+  if command -v git >/dev/null 2>&1 && [[ -d "$DOTFILES_ROOT/.git" ]]; then
+    local_dotfiles_rev="$(git -C "$DOTFILES_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    locked_dotfiles_rev=""
+    if command -v jq >/dev/null 2>&1; then
+      locked_dotfiles_rev="$(jq -r '.nodes.dotfiles.locked.rev // empty' "$FLAKE_ROOT/flake.lock" 2>/dev/null || true)"
+    fi
+    if [[ -z "$locked_dotfiles_rev" ]]; then
+      locked_dotfiles_rev="$(grep -A8 '"dotfiles":' "$FLAKE_ROOT/flake.lock" 2>/dev/null | grep '"rev":' | head -n1 | sed -E 's/.*"rev": *"([^"]+)".*/\1/' || true)"
+    fi
+    if [[ -n "$local_dotfiles_rev" && -n "$locked_dotfiles_rev" && "$local_dotfiles_rev" != "$locked_dotfiles_rev" ]]; then
+      log_info "Private flake lock is behind local dotfiles (locked: ${locked_dotfiles_rev:0:10}, local: ${local_dotfiles_rev:0:10}). Updating..."
+      (cd "$FLAKE_ROOT" && nix flake update dotfiles)
+    fi
+  else
+    log_warning "Cannot verify private flake lock freshness; ensure $FLAKE_ROOT/flake.lock follows $DOTFILES_ROOT"
+  fi
+fi
+
 # Always ensure git hooks are installed (safe to run multiple times)
 if [ -x "$DOTFILES_ROOT/scripts/bin/install-hooks" ]; then
   "$DOTFILES_ROOT/scripts/bin/install-hooks" --quiet
