@@ -7,22 +7,22 @@ cd "$DOTFILES_ROOT"
 # shellcheck source=../../lib/log.sh
 source "$DOTFILES_ROOT/lib/log.sh"
 
-# Resolve the flake attribute from the current hostname.
-# The flake attribute key must match `hostname -s` exactly.
 HOSTNAME="$(hostname -s 2>/dev/null || true)"
+PRIVATE_FLAKE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+FLAKE_ROOT="$DOTFILES_ROOT"
 
-# Check if the resolved hostname is explicitly defined in flake.nix darwinConfigurations.
-# If not, fall back to the generic "default" configuration for clone-and-run compatibility.
-if [[ -n "$HOSTNAME" && -f "./flake.nix" ]]; then
-  if ! grep -q "\"${HOSTNAME}\" = mkHost" ./flake.nix 2>/dev/null; then
-    log_warning "Hostname '${HOSTNAME}' not explicitly mapped in flake.nix darwinConfigurations."
-    log_info "Falling back to the generic 'default' system configuration profile."
-    HOSTNAME="default"
-  fi
-elif [[ -z "$HOSTNAME" ]]; then
-  log_warning "Could not resolve hostname from system."
-  log_info "Falling back to the generic 'default' system configuration profile."
-  HOSTNAME="default"
+if [[ -z "$HOSTNAME" ]]; then
+  log_error "Could not resolve the current hostname."
+  exit 1
+fi
+
+if [[ -f "$PRIVATE_FLAKE_ROOT/flake.nix" ]] && grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$PRIVATE_FLAKE_ROOT/flake.nix"; then
+  FLAKE_ROOT="$PRIVATE_FLAKE_ROOT"
+  log_info "Using private host configuration: $FLAKE_ROOT"
+elif ! grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$DOTFILES_ROOT/flake.nix" 2>/dev/null; then
+  log_error "No configuration found for hostname '$HOSTNAME'."
+  log_info "Create one with: $DOTFILES_ROOT/scripts/bin/setup-private-host"
+  exit 1
 fi
 
 log_info "Building configuration for host: $HOSTNAME"

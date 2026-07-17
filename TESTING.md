@@ -195,21 +195,22 @@ nix flake check
 # View what would change
 nix flake metadata
 
+# Host configurations live in a private downstream flake (see
+# docs/DEVIN_SETUP.md and scripts/bin/setup-private-host). Test builds
+# from there, substituting your actual hostname:
+
 # Test build (without applying)
-nix build .#darwinConfigurations.m4pro.system --dry-run
+nix build ~/dotfiles-private#darwinConfigurations."$(hostname -s)".system --dry-run
 
 # Build and inspect (don't activate)
-nix build .#darwinConfigurations.m4pro.system
+nix build ~/dotfiles-private#darwinConfigurations."$(hostname -s)".system
 ls -la result/
 ```
 
 ### Test Home Manager Changes
 
 ```bash
-cd ~/dotfiles
-
-# Check home-manager config
-home-manager build --flake .#user
+cd ~/dotfiles-private
 
 # View generation diff
 home-manager generations
