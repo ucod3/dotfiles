@@ -23,24 +23,24 @@ foreground = #f8f8f2
 background = #282a36
 
 # Regular colors
-color-0 = #000000  # black
-color-1 = #ff5555  # red
-color-2 = #50fa7b  # green
-color-3 = #f1fa8c  # yellow
-color-4 = #bd93f9  # blue
-color-5 = #ff79c6  # magenta
-color-6 = #8be9fd  # cyan
-color-7 = #f8f8f2  # white
+palette = 0=#000000
+palette = 1=#ff5555
+palette = 2=#50fa7b
+palette = 3=#f1fa8c
+palette = 4=#bd93f9
+palette = 5=#ff79c6
+palette = 6=#8be9fd
+palette = 7=#f8f8f2
 
 # Bright colors
-color-8 = #6272a4  # bright black
-color-9 = #ff6e6e  # bright red
-color-10 = #69ff94  # bright green
-color-11 = #ffffa5  # bright yellow
-color-12 = #d6acff  # bright blue
-color-13 = #ff92df  # bright magenta
-color-14 = #a4ffff  # bright cyan
-color-15 = #ffffff  # bright white
+palette = 8=#6272a4
+palette = 9=#ff6e6e
+palette = 10=#69ff94
+palette = 11=#ffffa5
+palette = 12=#d6acff
+palette = 13=#ff92df
+palette = 14=#a4ffff
+palette = 15=#ffffff
 
 # Selection colors
 selection-foreground = #282a36
@@ -49,14 +49,8 @@ selection-background = #f8f8f2
 # Scrollback
 scrollback-limit = 10000
 
-# Bell
-bell-style = visual
-
 # Confirm before closing with running processes
 confirm-close-surface = false
-
-# Performance
-gpu-acceleration = true
 
 # Key bindings
 keybind = ctrl+c=copy_to_clipboard
