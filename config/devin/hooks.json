@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [ -d \"$HOME/dotfiles/.git\" ]; then cd \"$HOME/dotfiles\" && git add config/ nix/ hosts/ scripts/ lib/ 2>/dev/null; fi'"
+          }
+        ]
+      }
+    ]
+  }
+}

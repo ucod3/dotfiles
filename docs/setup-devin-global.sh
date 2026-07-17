@@ -69,7 +69,13 @@ create_symlink \
   "$HOME/.codeium/windsurf/mcp_config.json" \
   "MCP Configuration"
 
-# 3. Global Skills
+# 3. Unified Devin Configuration (hooks)
+create_symlink \
+  "$DOTFILES_ROOT/config/devin/hooks.json" \
+  "$HOME/.config/devin/config.json" \
+  "Unified Devin Configuration"
+
+# 4. Global Skills
 echo ""
 echo "Setting up Global Skills..."
 
@@ -103,6 +109,7 @@ echo ""
 echo "Summary:"
 echo "  Global Rules:  ~/.codeium/windsurf/memories/global_rules.md"
 echo "  MCP Config:    ~/.codeium/windsurf/mcp_config.json"
+echo "  Devin Config:  ~/.config/devin/config.json"
 echo "  Skills:        ~/.config/devin/skills/*/"
 echo ""
 echo "Next steps:"
@@ -113,6 +120,7 @@ echo ""
 echo "Verification:"
 echo "  ls -la ~/.codeium/windsurf/memories/global_rules.md"
 echo "  ls -la ~/.codeium/windsurf/mcp_config.json"
+echo "  ls -la ~/.config/devin/config.json"
 echo "  ls -la ~/.config/devin/skills/*/"
 echo ""
 
@@ -134,6 +142,13 @@ if [[ "${1:-}" == "--verify" ]]; then
     echo -e "${GREEN}✅ MCP config symlinked${NC}"
   else
     echo -e "${RED}❌ MCP config not symlinked${NC}"
+    ((errors++))
+  fi
+
+  if [[ -L "$HOME/.config/devin/config.json" ]]; then
+    echo -e "${GREEN}✅ Devin config symlinked${NC}"
+  else
+    echo -e "${RED}❌ Devin config not symlinked${NC}"
     ((errors++))
   fi
 

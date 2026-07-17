@@ -29,6 +29,14 @@ Across ALL execution modes, you are bound by these architectural laws:
 1. **Blueprint First:** Present a structural Markdown blueprint detailing target designs, data flows, and risk assessments before invoking file-writing or terminal tools.
 2. **User Verification Gate:** Explicitly state your detected lifecycle classification and your tool-generation intentions. Wait for explicit user validation before modifying any codebase state.
 3. **Strict Rollback:** If a verification pass, test suite, syntax validation, or compilation fails, immediately revert your file changes to the last known stable Git commit before trying an alternative fix. Do not stack fixes on top of a broken state.
+### 4. Strict Loop & Token Escape Hatch (Anti-Infinite Loop)
+- **Max Iterations:** You are strictly forbidden from attempting to fix the exact same terminal, compiler, or script error more than **3 consecutive times** in the same chat session.
+- **Circuit Breaker Protocol:** If a fix fails 3 times, you must immediately **STOP executing tools**. Do not guess a 4th time.
+- **Action on Failure:** 
+  1. Print a markdown summary of exactly what you tried (Commands run, modifications made).
+  2. State what you believe the root blocking issue is.
+  3. Explicitly ask the user for clarification, manual intervention, or environment confirmation before running any further tools.
+- **Token Efficiency:** Treat the user's local token usage as a finite, expensive production resource. Prefer small, isolated test script executions (`bash -n`, dry-runs) over massive, unvalidated system builds.
 
 ---
 
