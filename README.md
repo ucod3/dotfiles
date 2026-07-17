@@ -261,10 +261,11 @@ dotfiles/
 ```
 
 ### Modular Shell Configuration
-The 467-line `custom.zsh` is now split into 6 focused modules:
+The shell configuration is split into focused modules:
 - `init.zsh` - Basic initialization
 - `node.zsh` - Node.js and package management
-- `functions.zsh` - Utility functions
+- `utils.zsh` - Utility functions
+- `npm-compat.zsh` - npm compatibility helpers
 - `aliases.zsh` - Command shortcuts
 - `workshop.zsh` - Workshop helpers
 - `exports.zsh` - Environment variables

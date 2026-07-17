@@ -274,8 +274,8 @@ Edit your shell configuration:
 change
 # Edit ~/dotfiles/config/zsh/modules/aliases.zsh
 
-# Edit functions
-nvim ~/dotfiles/config/zsh/modules/functions.zsh
+# Edit utility functions
+nvim ~/dotfiles/config/zsh/modules/utils.zsh
 
 # Add environment variables
 nvim ~/dotfiles/config/zsh/modules/exports.zsh
