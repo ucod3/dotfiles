@@ -31,6 +31,12 @@
     };
   };
 
+  # Expose the dot dispatcher on PATH for non-interactive scripts
+  home.file.".local/bin/dot" = {
+    source = ../../scripts/bin/dot;
+    executable = true;
+  };
+
   programs.git = {
     enable = true;
 
