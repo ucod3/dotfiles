@@ -165,7 +165,7 @@ git checkout HEAD -- .  # Revert to last commit
 
 ### Adding New Applications
 
-Edit `nix/darwin/configuration.nix`:
+Edit `hosts/default.nix`:
 ```nix
 # Add to environment.systemPackages for Nix packages
 environment.systemPackages = with pkgs; [
@@ -250,8 +250,8 @@ dotfiles/
 │   ├── nvim/           # Neovim configuration
 │   ├── zsh/            # Zsh modules and configs
 │   └── ghostty/        # Terminal configuration
+├── hosts/              # macOS system config (shared, parameterized by user)
 ├── nix/                # Nix configuration
-│   ├── darwin/         # macOS system config
 │   └── home/           # Home Manager config
 ├── scripts/            # Utility scripts
 │   └── bin/            # Executable scripts

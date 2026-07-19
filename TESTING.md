@@ -61,7 +61,7 @@ cat ~/dotfiles/install.sh | less
 cat ~/dotfiles/scripts/bin/update | less
 
 # Check what would be installed
-cat ~/dotfiles/nix/darwin/configuration.nix | grep -A5 "brews\|casks"
+cat ~/dotfiles/hosts/default.nix | grep -A5 "brews\|casks"
 ```
 
 ---
@@ -236,7 +236,7 @@ zsh -n ~/dotfiles/config/zsh/modules/*.zsh
 # Validate Brewfile syntax
 cd ~/dotfiles
 brew bundle --file=- <<EOF
-$(grep -A1000 "brews = \[" nix/darwin/configuration.nix | head -20)
+$(grep -A1000 "brews = \[" hosts/default.nix | head -20)
 EOF
 
 # Check for outdated packages
@@ -386,7 +386,7 @@ nix flake check --show-trace
 
 # Check specific file syntax
 nix-instantiate --parse nix/home/home.nix
-nix-instantiate --parse nix/darwin/configuration.nix
+nix-instantiate --parse hosts/default.nix
 ```
 
 ### If Build Fails in Test

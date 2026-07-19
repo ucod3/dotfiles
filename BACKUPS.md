@@ -162,13 +162,14 @@ brew list --cask
 cat /opt/homebrew/Library/Taps/homebrew/homebrew-core/.../Brewfile
 ```
 
-### Reinstall from Brewfile
+### Reinstall Homebrew Packages
+
+Homebrew packages are managed declaratively in `hosts/default.nix`
+(`homebrew.brews` / `homebrew.casks`). To reinstall them, rebuild the system:
 
 ```bash
 cd ~/dotfiles
-brew bundle --file=- <<EOF
-$(cat nix/darwin/Brewfile)
-EOF
+./scripts/bin/rebuild
 ```
 
 ### Reset Homebrew
