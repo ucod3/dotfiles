@@ -200,7 +200,7 @@ echo "Next: Restart Windsurf to load global rules"
 
 Run it:
 ```bash
-bash ~/dotfiles/setup-devin-global.sh
+bash ~/dotfiles/docs/setup-devin-global.sh
 ```
 
 ### Manual Setup (Step by Step)

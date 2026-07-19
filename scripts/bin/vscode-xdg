@@ -1,7 +1,34 @@
 #!/usr/bin/env bash
 # Ensures VS Code Insiders uses XDG config directory
+set -euo pipefail
 
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_DATA_HOME="$HOME/.local/share"
 export XDG_CACHE_HOME="$HOME/.cache"
-exec "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders" "$@"
+
+# Resolve the VS Code CLI binary:
+#   1. VSCODE_BIN env var override
+#   2. VS Code Insiders app bundle
+#   3. Stable VS Code app bundle
+#   4. code-insiders / code on PATH
+candidates=(
+  "${VSCODE_BIN:-}"
+  "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders"
+  "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+)
+
+for candidate in "${candidates[@]}"; do
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    exec "$candidate" "$@"
+  fi
+done
+
+for cli in code-insiders code; do
+  if command -v "$cli" >/dev/null 2>&1; then
+    exec "$cli" "$@"
+  fi
+done
+
+echo "vscode-xdg: no VS Code binary found." >&2
+echo "  Install VS Code (Insiders) or set VSCODE_BIN to the CLI path." >&2
+exit 1

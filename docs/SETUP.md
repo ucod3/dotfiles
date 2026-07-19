@@ -314,7 +314,7 @@ cd ~/dotfiles && git push
 pnpm env use --global node@XX
 
 # When you add new software
-# Edit nix/darwin/configuration.nix
+# Edit hosts/default.nix
 ~/dotfiles/scripts/bin/rebuild
 ```
 
@@ -331,8 +331,8 @@ pnpm env use --global node@XX
 │   ├── nvim/           # Neovim configuration
 │   ├── zsh/            # Zsh modules
 │   └── ghostty/        # Terminal config
+├── hosts/               # macOS system settings (shared, parameterized by user)
 ├── nix/                 # Nix configuration
-│   ├── darwin/         # macOS system settings
 │   └── home/           # User environment
 ├── scripts/bin/         # Utility scripts
 │   ├── rebuild        # Main rebuild command
