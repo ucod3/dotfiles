@@ -132,7 +132,8 @@ update_flake_inputs() {
     fi
     
     # Show current flake.lock info
-    local current_date=$(git log -1 --format=%cd --date=short -- flake.lock 2>/dev/null || echo "unknown")
+    local current_date
+    current_date=$(git log -1 --format=%cd --date=short -- flake.lock 2>/dev/null || echo "unknown")
     log_info "Current flake.lock last updated: $current_date"
     
     # Update flake inputs
@@ -168,7 +169,8 @@ commit_flake_lock() {
     git add flake.lock
     
     # Create commit with timestamp
-    local timestamp=$(date +%Y-%m-%d)
+    local timestamp
+    timestamp=$(date +%Y-%m-%d)
     local commit_msg="Update flake inputs - $timestamp
 
 - Update nixpkgs, nix-darwin, home-manager, nix-homebrew
@@ -198,11 +200,13 @@ update_homebrew() {
             log_success "Homebrew updated"
             
             # Show outdated packages
-            local outdated=$(brew outdated --quiet 2>/dev/null || true)
+            local outdated
+            outdated=$(brew outdated --quiet 2>/dev/null || true)
             if [[ -n "$outdated" ]]; then
                 log_info "Outdated Homebrew packages (will be updated on next rebuild):"
                 echo "$outdated" | head -10
-                local count=$(echo "$outdated" | wc -l)
+                local count
+                count=$(echo "$outdated" | wc -l)
                 if [[ $count -gt 10 ]]; then
                     log_info "... and $((count - 10)) more"
                 fi
@@ -272,7 +276,8 @@ show_summary() {
     echo
     
     # Show when last updated
-    local last_update=$(git log -1 --format=%cd --date=relative -- flake.lock 2>/dev/null || echo "unknown")
+    local last_update
+    last_update=$(git log -1 --format=%cd --date=relative -- flake.lock 2>/dev/null || echo "unknown")
     log_info "Flake inputs last updated: $last_update"
     
     # Recommend regular updates

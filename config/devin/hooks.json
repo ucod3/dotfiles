@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -d \"$HOME/dotfiles/.git\" ]; then cd \"$HOME/dotfiles\" && git add AGENTS.md docs/ config/ nix/ hosts/ scripts/ lib/ 2>/dev/null; if ! git diff --cached --quiet; then git commit -m \"wip: devin auto-save workspace state [skip ci]\" --no-verify; fi; fi'"
+            "command": "bash -c 'if [ -d \"$HOME/dotfiles/.git\" ]; then cd \"$HOME/dotfiles\" && git add AGENTS.md docs/ config/ nix/ hosts/ scripts/ lib/ 2>/dev/null; if ! git diff --cached --quiet; then git commit -m \"wip: devin auto-save workspace state [skip ci]\"; fi; fi'"
           }
         ]
       }

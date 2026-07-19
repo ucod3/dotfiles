@@ -34,22 +34,32 @@ DOTFILES_ROOT="$(git rev-parse --show-toplevel)"
 # ── 1. Syntax & common-mistake validation ──────────────────────────────────
 "$DOTFILES_ROOT/scripts/bin/validate" --quick
 
-# ── 2. Secret scanning (optional — only runs if gitleaks is installed) ──────
-if command -v gitleaks >/dev/null 2>&1; then
-  gitleaks detect \
-    --source "$DOTFILES_ROOT" \
-    --config "$DOTFILES_ROOT/.gitleaks.toml" \
-    --redact \
-    --no-git
-else
-  echo "  ! gitleaks not installed — secret scan skipped (brew install gitleaks)"
+# ── 2. Secret scanning (mandatory — fail closed) ────────────────────────────
+if ! command -v gitleaks >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "  gitleaks not installed — attempting auto-install via Homebrew..."
+    brew install gitleaks || true
+  fi
 fi
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "✗ gitleaks is required for secret scanning but is not installed." >&2
+  echo "  Install it with: brew install gitleaks" >&2
+  echo "  (Refusing to commit without a secret scan. Emergency bypass: git commit --no-verify)" >&2
+  exit 1
+fi
+
+gitleaks detect \
+  --source "$DOTFILES_ROOT" \
+  --config "$DOTFILES_ROOT/.gitleaks.toml" \
+  --redact \
+  --no-git
 EOF
 
 chmod +x "$HOOKS_DIR/pre-commit"
 
 if [[ "$QUIET" == false ]]; then
-  echo "✓ Git pre-commit hook installed (validate + gitleaks)"
-  echo "  Runs syntax checks and secret scanning on every commit"
-  echo "  To bypass: git commit --no-verify"
+  echo "✓ Git pre-commit hook installed (validate + gitleaks, fail-closed)"
+  echo "  Runs syntax checks and mandatory secret scanning on every commit"
+  echo "  Emergency bypass only: git commit --no-verify"
 fi
