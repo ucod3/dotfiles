@@ -32,7 +32,8 @@
     #     ];
     #   };
     #
-    # Run `./scripts/bin/setup-private-host` to generate this automatically.
+    # Run `./scripts/bin/setup-private-host` to generate this automatically,
+    # or copy hosts/_template.nix for a documented manual starting point.
     # See docs/PRIVATE_HOST_SETUP.md for the full separation architecture.
     darwinModules = {
       coreSystem = ./hosts/default.nix;      # System-level defaults, packages, macOS settings

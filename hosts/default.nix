@@ -10,6 +10,12 @@
 { config, pkgs, self, user, ... }:
 
 {
+  # Optional application sets — each exposes dotfiles.apps.<set>.enable
+  # (default: true). Downstream forks disable sets from their host file:
+  #   dotfiles.apps.browsers.enable = false;
+  # See nix/modules/apps/ and hosts/_template.nix.
+  imports = [ ../nix/modules/apps ];
+
   system.primaryUser = user;
 
   nixpkgs.config.allowUnfree = true;
@@ -53,45 +59,19 @@
       cleanup = "uninstall"; # Removes apps no longer listed here
     };
 
-    # Command-line tools (no GUI)
+    # Framework-core command-line tools (no GUI)
     # Find at: https://formulae.brew.sh/formula/
+    # Taste-specific app sets live in nix/modules/apps/ (see imports above).
     brews = [
-      "gitleaks"  # Git secret scanning
-      "mas"       # Mac App Store CLI (required for masApps below)
+      "gitleaks"  # Git secret scanning (required by pre-commit hook)
       "sqlite"    # SQLite database
     ];
 
-    # GUI Applications (.app bundles)
+    # Framework-core GUI applications (.app bundles)
     # Find at: https://formulae.brew.sh/cask/  or  brew search --cask <name>
     casks = [
-      # Browsers
-      "arc"
-      "microsoft-edge@canary"
-      "zen"
-
-      # Development Tools
-      "codex"
-      "devin-desktop"
-      "zed"
-
-      # Productivity
-      "amethyst"    # Window manager
-      "ghostty"     # Terminal
-      "insync"      # Google Drive sync
-      "wpsoffice"   # Office suite
-
-      # Utilities
-      "adobe-acrobat-reader"
-      "antigravity"
-      "anydesk"     # Remote desktop
-      "windscribe"  # VPN
+      "ghostty"     # Terminal (config shipped in config/ghostty/)
     ];
-
-    # Mac App Store apps (requires Apple ID sign-in)
-    # Find ID: App Store → app page → right-click → Copy Link → number at end
-    masApps = {
-      Notability = 360593530;
-    };
   };
 
   # ── Nix Packages ───────────────────────────────────────────────────────────
@@ -100,11 +80,9 @@
   # These are available as CLI tools immediately after rebuild
   # ───────────────────────────────────────────────────────────────────────────
   environment.systemPackages = with pkgs; [
-    brave      # Browser (via Nix)
-    gh         # GitHub CLI
-    mkalias    # Create macOS aliases for Nix apps
-    raycast    # Spotlight replacement
+    mkalias    # Create macOS aliases for Nix apps (framework glue)
     # neovim removed - installed via Home Manager to prevent duplication
+    # Taste-specific packages (brave, gh, raycast) live in nix/modules/apps/
   ];
 
   nix.settings = {

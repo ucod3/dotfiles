@@ -52,6 +52,14 @@ Run `./scripts/bin/setup-private-host` on that machine too — it uses the
 local hostname/username automatically. Each machine gets its own entry in
 `~/dotfiles-private/hosts/`.
 
+## Manual setup & customization
+
+If you prefer to write the private flake by hand — or want to disable the
+upstream author's application sets (`dotfiles.apps.<set>.enable = false;`)
+and add per-machine overrides — start from the fully documented template at
+`hosts/_template.nix`. The optional app-set modules live in
+`nix/modules/apps/`.
+
 ## Backing up the private configuration
 
 `~/dotfiles-private` is a normal git repository. To back it up, create a

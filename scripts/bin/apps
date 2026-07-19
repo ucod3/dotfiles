@@ -16,6 +16,16 @@ set -euo pipefail
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
 CONFIG="$DOTFILES_ROOT/hosts/default.nix"
 
+# Optional app-set modules also declare brews/casks/masApps/systemPackages.
+# list/add/remove must see them all, but `apps add` only writes to $CONFIG.
+APP_MODULES_DIR="$DOTFILES_ROOT/nix/modules/apps"
+CONFIG_FILES=("$CONFIG")
+if [[ -d "$APP_MODULES_DIR" ]]; then
+  for _f in "$APP_MODULES_DIR"/*.nix; do
+    [[ -f "$_f" ]] && CONFIG_FILES+=("$_f")
+  done
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -95,26 +105,28 @@ list_section() {
 
 parse_block() {
   # Extract quoted values from a named block: parse_block "casks" "[" "]"
+  # Scans hosts/default.nix plus all nix/modules/apps/*.nix files.
   local name="$1" open="${2:-\[}" close="${3:-\]}"
-  python3 - "$CONFIG" "$name" "$open" "$close" << 'PYEOF'
+  python3 - "$name" "$open" "$close" "${CONFIG_FILES[@]}" << 'PYEOF'
 import sys, re
-cfg, name, open_c, close_c = sys.argv[1:]
-inside = False
-depth = 0
-for line in open(cfg):
-    stripped = line.strip()
-    if not inside:
-        if re.search(r'^\s*' + re.escape(name) + r'\s*=\s*' + re.escape(open_c), line) and not stripped.startswith('#'):
-            inside = True
-            depth = 1
-            continue
-    else:
-        depth += line.count(open_c) - line.count(close_c)
-        if depth <= 0:
-            break
-        m = re.match(r'\s*"([^"]+)"', line)
-        if m:
-            print("    " + m.group(1))
+name, open_c, close_c = sys.argv[1:4]
+for cfg in sys.argv[4:]:
+    inside = False
+    depth = 0
+    for line in open(cfg):
+        stripped = line.strip()
+        if not inside:
+            if re.search(r'^\s*(homebrew\.)?' + re.escape(name) + r'\s*=\s*' + re.escape(open_c), line) and not stripped.startswith('#'):
+                inside = True
+                depth = 1
+                continue
+        else:
+            depth += line.count(open_c) - line.count(close_c)
+            if depth <= 0:
+                break
+            m = re.match(r'\s*"([^"]+)"', line)
+            if m:
+                print("    " + m.group(1))
 PYEOF
 }
 
@@ -131,39 +143,41 @@ cmd_list() {
 
   echo ""
   echo -e "  ${BOLD}Mac App Store${NC}"
-  python3 - "$CONFIG" << 'PYEOF'
+  python3 - "${CONFIG_FILES[@]}" << 'PYEOF'
 import sys, re
-inside = False
-for line in open(sys.argv[1]):
-    if re.search(r'masApps\s*=\s*\{', line):
-        inside = True
-        continue
-    if inside:
-        if re.search(r'^\s*\}', line):
-            break
-        # MAS IDs are large numbers (> 100000)
-        m = re.match(r'\s+([A-Za-z][A-Za-z0-9 ]+)\s*=\s*(\d{6,})\s*;', line)
-        if m:
-            print("    " + m.group(1).strip() + "  (ID: " + m.group(2) + ")")
+for cfg in sys.argv[1:]:
+    inside = False
+    for line in open(cfg):
+        if re.search(r'masApps\s*=\s*\{', line):
+            inside = True
+            continue
+        if inside:
+            if re.search(r'^\s*\}', line):
+                break
+            # MAS IDs are large numbers (> 100000)
+            m = re.match(r'\s+([A-Za-z][A-Za-z0-9 ]+)\s*=\s*(\d{6,})\s*;', line)
+            if m:
+                print("    " + m.group(1).strip() + "  (ID: " + m.group(2) + ")")
 PYEOF
 
   echo ""
   echo -e "  ${BOLD}Nix Packages${NC} (system)"
-  python3 - "$CONFIG" << 'PYEOF'
+  python3 - "${CONFIG_FILES[@]}" << 'PYEOF'
 import sys, re
-inside = False
-for line in open(sys.argv[1]):
-    if re.search(r'systemPackages\s*=\s*with\s+pkgs', line):
-        inside = True
-        continue
-    if inside:
-        if re.search(r'^\s*\]', line):
-            break
-        stripped = line.strip()
-        if stripped and not stripped.startswith('#'):
-            name = stripped.split()[0]
-            if re.match(r'^[a-z]', name):
-                print("    " + name)
+for cfg in sys.argv[1:]:
+    inside = False
+    for line in open(cfg):
+        if re.search(r'systemPackages\s*=\s*(with\s+pkgs;\s*)?\[', line):
+            inside = True
+            continue
+        if inside:
+            if re.search(r'^\s*\]', line):
+                break
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                name = stripped.split()[0].removeprefix('pkgs.')
+                if re.match(r'^[a-z]', name):
+                    print("    " + name)
 PYEOF
 
   echo ""
@@ -246,8 +260,8 @@ cmd_add() {
     exit 0
   fi
 
-  # Check if already present
-  if grep -q "\"$name\"" "$CONFIG" 2>/dev/null; then
+  # Check if already present (in core config or any app-set module)
+  if grep -q "\"$name\"" "${CONFIG_FILES[@]}" 2>/dev/null; then
     warn "'$name' is already in your config"
     exit 0
   fi
@@ -291,7 +305,10 @@ cmd_remove() {
   section "Removing: $name"
   echo ""
 
-  if ! grep -q "\"$name\"" "$CONFIG" 2>/dev/null; then
+  # Locate the file that declares this app (core config or app-set module)
+  local target_file
+  target_file=$(grep -l "\"$name\"" "${CONFIG_FILES[@]}" 2>/dev/null | head -1 || true)
+  if [[ -z "$target_file" ]]; then
     warn "'$name' not found in your config"
     info "Run 'apps list' to see what's installed"
     exit 1
@@ -300,8 +317,8 @@ cmd_remove() {
   # Remove the line containing the app name (escape special regex chars)
   local escaped_name
   escaped_name=$(sed_escape "$name")
-  sed -i '' "/\"${escaped_name}\"/d" "$CONFIG"
-  ok "Removed '$name' from config"
+  sed -i '' "/\"${escaped_name}\"/d" "$target_file"
+  ok "Removed '$name' from ${target_file#"$DOTFILES_ROOT"/}"
 
   validate_after_mutation
 
@@ -351,10 +368,9 @@ cmd_help() {
   echo -e "  ${BOLD}Current counts:${NC}"
 
   local cask_count brew_count nix_count
-  cask_count=$(grep -A200 'casks = \[' "$CONFIG" | grep -m1 -A200 '\[' | grep -c '^\s*"' || true)
-  brew_count=$(grep -A200 'brews = \[' "$CONFIG" | grep -m1 -A200 '\[' | grep -c '^\s*"' || true)
-  nix_count=$(grep -A200 'environment.systemPackages' "$CONFIG" | grep -m1 -A200 '\[' \
-    | grep '^\s*[a-z]' | grep -v '^\s*#' | grep -v -c '\];' || true)
+  cask_count=$(parse_block "casks" "[" "]" | grep -c '\S' || true)
+  brew_count=$(parse_block "brews" "[" "]" | grep -c '\S' || true)
+  nix_count=$(cmd_list 2>/dev/null | grep -A200 'Nix Packages' | grep -c '^    [a-z]' || true)
 
   printf "    %-22s %s\n" "Casks (GUI apps)" "$cask_count apps"
   printf "    %-22s %s\n" "Brews (CLI tools)" "$brew_count tools"
