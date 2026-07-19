@@ -52,7 +52,8 @@ check_macos() {
 
 # Check architecture
 check_architecture() {
-    local arch=$(uname -m)
+    local arch
+    arch=$(uname -m)
     if [[ "$arch" != "arm64" ]]; then
         log_warning "This dotfiles is optimized for Apple Silicon (arm64)."
         log_warning "Your architecture: $arch"

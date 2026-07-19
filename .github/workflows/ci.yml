@@ -6,6 +6,7 @@ name: CI
 #   - Zsh module syntax (zsh -n)
 #   - Nix file parse syntax (nix-instantiate --parse)
 #   - Flake attribute tree evaluation (nix flake show)
+#   - Secret scanning across full git history (gitleaks)
 #
 # NOTE: nix flake check and darwin-rebuild are macOS-only and are NOT run here.
 # The full system build is validated locally via: dot validate
@@ -24,6 +25,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan all commits, not just HEAD
+          fetch-depth: 0
 
       # ── Install Nix ───────────────────────────────────────────────────────
       - name: Install Nix
@@ -52,6 +56,14 @@ jobs:
             fi
           done
           exit $failed
+
+      # ── Secret scanning (gitleaks) ────────────────────────────────────────
+      # Reuses the repo's own scan-secrets script for parity with local runs.
+      - name: Secret scan (gitleaks)
+        run: |
+          echo "=== gitleaks secret scan (full git history) ==="
+          DOTFILES_ROOT="$GITHUB_WORKSPACE" \
+            nix shell nixpkgs#gitleaks --command ./scripts/bin/scan-secrets
 
       # ── Shell script lint (shellcheck) ────────────────────────────────────
       - name: ShellCheck
