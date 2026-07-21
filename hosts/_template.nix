@@ -62,14 +62,19 @@ in
   # Inject your username into every framework module that needs it
   _module.args.user = user;
 
-  # ── 2. APPLICATION SETS — opt out of the upstream author's taste ──────────
-  # All sets default to enabled. Disable any you don't want:
+  # ── 2. APPLICATION SETS — everything is OPT-IN (default: false) ───────────
+  # A fresh clone installs nothing opinionated. Enable sets here, or via the
+  # gitignored `.local/settings.nix` written by install.sh (see lib/local.nix).
+  # The bundled lists are one example profile; override the `casks` /
+  # `nixPackages` options per set to make them your own.
   #
-  # dotfiles.apps.browsers.enable = false;      # Arc, Edge Canary, Zen, Brave
-  # dotfiles.apps.development.enable = false;   # Codex, Devin Desktop, Zed, gh
-  # dotfiles.apps.productivity.enable = false;  # Amethyst, Insync, WPS, Raycast
-  # dotfiles.apps.utilities.enable = false;     # Acrobat, Antigravity, AnyDesk, Windscribe
-  # dotfiles.apps.mas.enable = false;           # Mac App Store apps (Notability)
+  # dotfiles.apps.browsers.enable = true;      # example: Arc, Edge Canary, Zen, Brave
+  # dotfiles.apps.browsers.casks = [ "firefox" ];   # CUSTOMIZE: your own list
+  # dotfiles.apps.development.enable = true;   # example: Codex, Zed, gh
+  # dotfiles.apps.productivity.enable = true;  # example: Amethyst, Insync, WPS, Raycast
+  # dotfiles.apps.utilities.enable = true;     # example: Acrobat, Antigravity, AnyDesk, Windscribe
+  # dotfiles.apps.mas.enable = true;           # example: Mac App Store apps (Notability)
+  # dotfiles.ai.enable = true;                 # AI tooling: Devin Desktop + editor configs
 
   # ── 3. MACHINE-SPECIFIC ADDITIONS (examples) ───────────────────────────────
   # Extra Homebrew apps for this machine only:

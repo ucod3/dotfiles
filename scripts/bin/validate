@@ -170,11 +170,15 @@ else
   pass "rebuild uses dynamic hostname resolution"
 fi
 
-# Purity: getEnv in Nix files defeats flake reproducibility
-if grep -rn 'builtins\.getEnv' flake.nix hosts/ nix/ 2>/dev/null; then
-  fail "builtins.getEnv found in Nix files — this breaks pure evaluation"
+# Purity: getEnv in Nix files defeats flake reproducibility.
+# Sole sanctioned exception: lib/local.nix (ADR-004) — the impure-aware
+# loader for the gitignored .local settings layer, which degrades to empty
+# settings under pure evaluation.
+if grep -rn 'builtins\.getEnv' flake.nix hosts/ nix/ lib/ 2>/dev/null \
+    | grep -v '^lib/local\.nix:'; then
+  fail "builtins.getEnv found in Nix files — this breaks pure evaluation (only lib/local.nix is exempt, see ADR-004)"
 else
-  pass "No builtins.getEnv in Nix files"
+  pass "No builtins.getEnv outside the sanctioned lib/local.nix loader"
 fi
 
 # Portability: flake.nix must delegate to mkHost, not hard-wire a hostname

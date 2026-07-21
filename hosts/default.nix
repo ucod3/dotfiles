@@ -9,12 +9,20 @@
 
 { config, pkgs, self, user, ... }:
 
+let
+  # Gitignored local-settings layer (.local/ or ~/dotfiles-private).
+  # Requires `--impure` + DOTFILES_LOCAL env — see scripts/bin/rebuild and
+  # lib/local.nix for the empirically verified constraints. Under pure
+  # evaluation this degrades to empty settings (nothing extra installed).
+  dotfilesLocal = import ../lib/local.nix;
+in
 {
   # Optional application sets — each exposes dotfiles.apps.<set>.enable
-  # (default: true). Downstream forks disable sets from their host file:
-  #   dotfiles.apps.browsers.enable = false;
-  # See nix/modules/apps/ and hosts/_template.nix.
-  imports = [ ../nix/modules/apps ];
+  # (default: false, opt-in). Enable sets via `.local/settings.nix` or your
+  # private host file:
+  #   dotfiles.apps.browsers.enable = true;
+  # See nix/modules/apps/, nix/modules/ai.nix, and hosts/_template.nix.
+  imports = [ ../nix/modules/apps ../nix/modules/ai.nix ];
 
   system.primaryUser = user;
 
@@ -69,9 +77,10 @@
 
     # Framework-core GUI applications (.app bundles)
     # Find at: https://formulae.brew.sh/cask/  or  brew search --cask <name>
-    casks = [
-      "ghostty"     # Terminal (config shipped in config/ghostty/)
-    ];
+    # CUSTOMIZE: the framework core ships NO GUI apps. Terminal, browser,
+    # editor, and window-manager choices come from the interactive installer
+    # (written to .local/) or from your private host file.
+    casks = dotfilesLocal.casks;
   };
 
   # ── Nix Packages ───────────────────────────────────────────────────────────
@@ -79,11 +88,13 @@
   # Find names at: https://search.nixos.org/packages
   # These are available as CLI tools immediately after rebuild
   # ───────────────────────────────────────────────────────────────────────────
-  environment.systemPackages = with pkgs; [
-    mkalias    # Create macOS aliases for Nix apps (framework glue)
+  environment.systemPackages = [
+    pkgs.mkalias    # Create macOS aliases for Nix apps (framework glue)
     # neovim removed - installed via Home Manager to prevent duplication
     # Taste-specific packages (brave, gh, raycast) live in nix/modules/apps/
-  ];
+  ]
+  # Nix packages selected by the interactive installer (from .local/)
+  ++ map (name: pkgs.${name}) dotfilesLocal.nixPackages;
 
   nix.settings = {
     experimental-features = "nix-command flakes";

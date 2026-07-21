@@ -1,7 +1,12 @@
 [user]
-  # Set per-machine: git config --global user.name "Your Name"
-  #                  git config --global user.email "your@email.com"
-  # Or set here for a personal dotfiles fork
+  # Set per-machine via .local/identity.nix (preferred — see lib/local.nix),
+  # which generates ~/.config/git/config-local through the include below.
+  # Or: git config --global user.name "Your Name" / user.email "you@email"
+
+[include]
+  # Machine-local identity written by Home Manager from .local/identity.nix
+  # (missing include files are silently ignored by git)
+  path = config-local
 
 [core]
   excludesfile = ~/.config/git/.gitignore

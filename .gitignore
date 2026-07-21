@@ -13,3 +13,8 @@ node_modules/
 config/local/
 secrets/
 .zshrc.local
+
+# Modular local-settings layer (machine identity, app selections).
+# May be a real directory or a symlink to ~/dotfiles-private.
+.local
+.local/

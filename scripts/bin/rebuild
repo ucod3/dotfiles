@@ -58,7 +58,26 @@ if command -v brew >/dev/null 2>&1; then
   brew update
 fi
 
-sudo darwin-rebuild switch --flake "${FLAKE_ROOT}#${HOSTNAME}"
+# ── Local settings layer (.local/) ──────────────────────────────────────────
+# The gitignored .local/ layer is invisible to pure `git+file:` evaluation
+# (untracked files are excluded from the store copy), and the `path:` scheme
+# is unsafe (copies .git/, hard-fails on the core.fsmonitor socket). The
+# verified pattern is an absolute-path read under --impure; lib/local.nix
+# resolves $DOTFILES_LOCAL first because sudo may rewrite $HOME.
+# Without .local/ the build stays pure-compatible (empty settings), but we
+# always pass --impure so selections apply when present.
+DOTFILES_LOCAL="${DOTFILES_LOCAL:-$DOTFILES_ROOT/.local}"
+if [[ ! -e "$DOTFILES_LOCAL" && -d "$PRIVATE_FLAKE_ROOT" ]]; then
+  DOTFILES_LOCAL="$PRIVATE_FLAKE_ROOT"
+fi
+if [[ -e "$DOTFILES_LOCAL" ]]; then
+  log_info "Using local settings layer: $DOTFILES_LOCAL"
+else
+  log_warning "No .local settings layer found; building framework defaults only."
+fi
+
+sudo env DOTFILES_LOCAL="$DOTFILES_LOCAL" HOME="$HOME" \
+  darwin-rebuild switch --flake "${FLAKE_ROOT}#${HOSTNAME}" --impure
 
 if [ -x "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers" ]; then
   "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers"

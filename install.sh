@@ -163,6 +163,199 @@ clone_dotfiles() {
     log_success "Dotfiles cloned to $DOTFILES_DIR"
 }
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Local settings layer (.local/) — modular, gitignored machine configuration
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# PACKAGE_SOURCE lookup table: maps a menu option to its install source.
+#   nix:<attr>        → Nixpkgs attribute (preferred when clean/free)
+#   brew:cask:<name>  → Homebrew cask (unfree or messy in Nixpkgs on macOS)
+# CUSTOMIZE: add options here and to the matching prompt list below.
+# NOTE: plain case statement (macOS ships bash 3.2 — no associative arrays).
+package_source() {
+    case "$1" in
+        # Browsers
+        brave)     echo "nix:brave" ;;
+        firefox)   echo "brew:cask:firefox" ;;          # nixpkgs firefox is not packaged for darwin
+        chrome)    echo "brew:cask:google-chrome" ;;    # unfree
+        arc)       echo "brew:cask:arc" ;;              # not in nixpkgs
+        zen)       echo "brew:cask:zen" ;;              # not in nixpkgs
+        # Editors
+        vscode)    echo "brew:cask:visual-studio-code" ;; # unfree; cask keeps auto-update
+        zed)       echo "brew:cask:zed" ;;                # cask preferred for auto-update
+        cursor)    echo "brew:cask:cursor" ;;             # not in nixpkgs
+        neovim)    echo "nix:core" ;;                     # already in Home Manager core
+        # Terminals
+        ghostty)   echo "brew:cask:ghostty" ;;            # nixpkgs ghostty is broken on darwin
+        iterm2)    echo "brew:cask:iterm2" ;;
+        wezterm)   echo "brew:cask:wezterm" ;;
+        kitty)     echo "nix:kitty" ;;
+        # Window managers
+        amethyst)  echo "brew:cask:amethyst" ;;
+        rectangle) echo "brew:cask:rectangle" ;;
+        aerospace) echo "brew:cask:nikitabobko/tap/aerospace" ;;
+        *)         echo "" ;;
+    esac
+}
+
+# Read user input, working even under `curl | bash` (stdin is the script)
+prompt_read() {
+    local __var="$1" __prompt="$2" __default="${3:-}" __reply=""
+    if [ -t 0 ]; then
+        read -r -p "$__prompt" __reply
+    elif { : < /dev/tty; } 2>/dev/null; then
+        # curl | bash: stdin is the script, but a controlling TTY exists
+        read -r -p "$__prompt" __reply < /dev/tty || true
+    else
+        log_warning "No TTY available; using default: ${__default:-<none>}"
+    fi
+    eval "$__var=\"\${__reply:-\$__default}\""
+}
+
+# Present a numbered menu; sets REPLY_SELECTION to space-separated choices.
+# Args: <category label> <allow-multi: yes/no> <options...>
+select_menu() {
+    local label="$1" multi="$2"; shift 2
+    local options=("$@") i raw selection=""
+    echo "" >&2
+    echo "  Choose your $label:" >&2
+    i=1
+    for opt in "${options[@]}"; do
+        echo "    $i) $opt" >&2
+        i=$((i + 1))
+    done
+    echo "    0) none / skip" >&2
+    if [ "$multi" = "yes" ]; then
+        prompt_read raw "  Selection (numbers, comma-separated) [0]: " "0"
+    else
+        prompt_read raw "  Selection [0]: " "0"
+    fi
+    raw="${raw//,/ }"
+    for n in $raw; do
+        case "$n" in
+            0|'') ;;
+            *[!0-9]*) log_warning "Ignoring invalid choice: $n" ;;
+            *) if [ "$n" -ge 1 ] && [ "$n" -le "${#options[@]}" ]; then
+                   selection="$selection ${options[$((n - 1))]}"
+               else
+                   log_warning "Ignoring out-of-range choice: $n"
+               fi ;;
+        esac
+    done
+    REPLY_SELECTION="${selection# }"
+}
+
+# Convert selections into Nix list fragments via package_source
+LOCAL_CASKS=""
+LOCAL_NIXPKGS=""
+collect_packages() {
+    local name src
+    for name in $1; do
+        src="$(package_source "$name")"
+        case "$src" in
+            nix:core) ;; # already provided by the framework core
+            nix:*)        LOCAL_NIXPKGS="$LOCAL_NIXPKGS \"${src#nix:}\"" ;;
+            brew:cask:*)  LOCAL_CASKS="$LOCAL_CASKS \"${src#brew:cask:}\"" ;;
+            *) log_warning "No package source known for '$name'; skipping" ;;
+        esac
+    done
+}
+
+# Create or link the .local settings layer
+setup_local_settings() {
+    local local_dir="$DOTFILES_DIR/.local"
+    local private_dir="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+
+    if [ -e "$local_dir" ] || [ -L "$local_dir" ]; then
+        log_success "Local settings layer already present at $local_dir"
+        return 0
+    fi
+
+    # Existing private repo becomes the backing storage for .local
+    if [ -d "$private_dir" ]; then
+        ln -s "$private_dir" "$local_dir"
+        log_success "Linked .local -> $private_dir"
+        return 0
+    fi
+
+    log_info "No ~/dotfiles-private found — creating .local/ interactively."
+    log_info "(Everything in .local/ is gitignored; move it to ~/dotfiles-private"
+    log_info " later and re-link with: ln -s ~/dotfiles-private $local_dir)"
+    mkdir -p "$local_dir/browsers" "$local_dir/editors" "$local_dir/hosts"
+
+    # Identity (reuse git config when available)
+    local id_name id_email
+    id_name="$(git config --global user.name 2>/dev/null || true)"
+    id_email="$(git config --global user.email 2>/dev/null || true)"
+    [ -n "$id_name" ] || prompt_read id_name "  Git name: " ""
+    [ -n "$id_email" ] || prompt_read id_email "  Git email: " ""
+    if [ -n "$id_name" ] || [ -n "$id_email" ]; then
+        cat > "$local_dir/identity.nix" <<EOF
+{
+  name = "$id_name";
+  email = "$id_email";
+}
+EOF
+    fi
+
+    # Category selections → .local/{browsers,editors}/choices.nix
+    select_menu "browser(s)" yes brave firefox chrome arc zen
+    LOCAL_CASKS="" LOCAL_NIXPKGS=""
+    collect_packages "$REPLY_SELECTION"
+    cat > "$local_dir/browsers/choices.nix" <<EOF
+{
+  casks = [$LOCAL_CASKS ];
+  nixPackages = [$LOCAL_NIXPKGS ];
+}
+EOF
+
+    select_menu "editor(s)" yes vscode zed cursor neovim
+    LOCAL_CASKS="" LOCAL_NIXPKGS=""
+    collect_packages "$REPLY_SELECTION"
+    cat > "$local_dir/editors/choices.nix" <<EOF
+{
+  casks = [$LOCAL_CASKS ];
+  nixPackages = [$LOCAL_NIXPKGS ];
+}
+EOF
+
+    # Terminal + window manager → flat lists in settings.nix
+    select_menu "terminal" no ghostty iterm2 wezterm kitty
+    local term_sel="$REPLY_SELECTION"
+    select_menu "window manager" no amethyst rectangle aerospace
+    LOCAL_CASKS="" LOCAL_NIXPKGS=""
+    collect_packages "$term_sel $REPLY_SELECTION"
+
+    # Optional toggles
+    local enable_ai="false" enable_sets="n"
+    prompt_read enable_sets "  Enable the example app sets (author's taste)? (y/N): " "n"
+    [[ "$enable_sets" =~ ^[Yy]$ ]] && enable_sets="true" || enable_sets="false"
+    prompt_read enable_ai "  Enable AI tooling (Devin Desktop, Windsurf/Devin configs)? (y/N): " "n"
+    [[ "$enable_ai" =~ ^[Yy]$ ]] && enable_ai="true" || enable_ai="false"
+
+    cat > "$local_dir/settings.nix" <<EOF
+# Generated by install.sh — machine-local settings (gitignored).
+# Schema: see lib/local.nix. Edit freely, then run: dot rebuild
+{
+  ai.enable = $enable_ai;
+
+  apps = {
+    browsers.enable = $enable_sets;
+    development.enable = $enable_sets;
+    productivity.enable = $enable_sets;
+    utilities.enable = $enable_sets;
+    mas.enable = $enable_sets;
+  };
+
+  # Flat selections from the installer (terminal, window manager, extras)
+  casks = [$LOCAL_CASKS ];
+  nixPackages = [$LOCAL_NIXPKGS ];
+}
+EOF
+
+    log_success "Local settings written to $local_dir"
+}
+
 # Install Rosetta 2 for Intel compatibility (Apple Silicon only)
 install_rosetta() {
     if [[ $(uname -m) == "arm64" ]]; then
@@ -187,42 +380,47 @@ run_installation() {
     echo
     
     # Step 1: Pre-flight checks
-    log_info "Step 1/7: Checking system requirements..."
+    log_info "Step 1/8: Checking system requirements..."
     check_macos
     check_architecture
     echo
     
     # Step 2: Install Xcode tools
-    log_info "Step 2/7: Installing Xcode Command Line Tools..."
+    log_info "Step 2/8: Installing Xcode Command Line Tools..."
     check_xcode_tools
     echo
     
     # Step 3: Check Git
-    log_info "Step 3/7: Checking Git configuration..."
+    log_info "Step 3/8: Checking Git configuration..."
     check_git
     echo
     
     # Step 4: Install Nix
-    log_info "Step 4/7: Installing Nix package manager..."
+    log_info "Step 4/8: Installing Nix package manager..."
     check_nix
     echo
     
     # Step 5: Install Rosetta (Apple Silicon only)
-    log_info "Step 5/7: Installing Rosetta 2 (if needed)..."
+    log_info "Step 5/8: Installing Rosetta 2 (if needed)..."
     install_rosetta
     echo
     
     # Step 6: Backup and clone
-    log_info "Step 6/7: Setting up dotfiles repository..."
+    log_info "Step 6/8: Setting up dotfiles repository..."
     backup_existing
     clone_dotfiles
     # Install git hooks immediately after cloning
     bash "$DOTFILES_DIR/scripts/bin/install-hooks"
+    echo
+
+    # Step 7: Local settings layer (identity + app selections)
+    log_info "Step 7/8: Configuring your local settings (.local/)..."
+    setup_local_settings
     "$DOTFILES_DIR/scripts/bin/setup-private-host"
     echo
-    
-    # Step 7: Run the build
-    log_info "Step 7/7: Building your macOS configuration..."
+
+    # Step 8: Run the build
+    log_info "Step 8/8: Building your macOS configuration..."
     log_info "This will install all applications and configure your system."
     log_warning "You may be asked for your password (sudo access required)."
     echo
@@ -254,11 +452,10 @@ show_post_install_info() {
     echo
     
     log_info "What's been set up:"
-    echo "  ✅ Terminal: Ghostty with modern configuration"
     echo "  ✅ Shell: Zsh with Oh My Zsh, autosuggestions, syntax highlighting"
     echo "  ✅ Editor: Neovim with LSP support and modern plugins"
     echo "  ✅ Development: Git, Node.js, Python tools configured"
-    echo "  ✅ Apps: Chrome, VS Code, and all your essential applications"
+    echo "  ✅ Apps: the browsers/editors/terminal you selected (.local/)"
     echo "  ✅ macOS: System preferences optimized for productivity"
     echo
     
