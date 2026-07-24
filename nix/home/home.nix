@@ -61,11 +61,6 @@ in
 
     # Use "openpgp" instead if you actively sign commits with GPG.
     signing.format = null;
-  } // lib.optionalAttrs (dotfilesLocal.identity != null) {
-    # Git identity from the gitignored .local/identity.nix
-    # ({ name = "..."; email = "..."; })
-    userName = dotfilesLocal.identity.name or null;
-    userEmail = dotfilesLocal.identity.email or null;
   };
 
   programs.neovim = {
