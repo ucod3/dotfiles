@@ -196,6 +196,60 @@ export PRIVATE_API_KEY="..."
 
 ---
 
+## 🗄️ Managing Your Local Settings (`.local/`)
+
+All per-machine identity and preferences live in `~/dotfiles/.local/`, which is
+**gitignored by default** so your private data never enters the public repository:
+
+```
+.local/
+├── identity.nix          # { name = "..."; email = "..."; }
+├── settings.nix          # app toggles and extra packages
+├── browsers/choices.nix
+├── editors/choices.nix
+└── hosts/                # reserved for ~/dotfiles-private
+```
+
+### Path A: Private GitHub repository (multi-machine sync)
+
+Recommended if you use more than one Mac:
+
+```bash
+# Scaffold ~/dotfiles-private for this host
+cd ~/dotfiles
+./scripts/bin/setup-private-host
+
+# Move existing local settings into the private repo
+mv ~/dotfiles/.local/* ~/dotfiles-private/ && rmdir ~/dotfiles/.local
+ln -s ~/dotfiles-private ~/dotfiles/.local
+
+# Create a private GitHub repo and push
+gh repo create dotfiles-private --private
+cd ~/dotfiles-private
+git remote add origin git@github.com:<you>/dotfiles-private.git
+git push -u origin main
+```
+
+See [docs/PRIVATE_HOST_SETUP.md](./docs/PRIVATE_HOST_SETUP.md) for details.
+
+### Path B: Cloud backup (single machine)
+
+If you only have one Mac and don't want a second Git repo, symlink `.local/` to a
+cloud-synced folder:
+
+```bash
+CLOUD_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/dotfiles-local"
+mv ~/dotfiles/.local "$CLOUD_DIR"
+ln -s "$CLOUD_DIR" ~/dotfiles/.local
+```
+
+This works with iCloud Drive, Dropbox, Google Drive, etc.
+
+> Note: `dot rebuild` reads `.local/` under `--impure` evaluation. See `AGENTS.md`
+> and `docs/DECISIONS.md` for why this sanctioned impurity is required.
+
+---
+
 ## 🆘 Troubleshooting
 
 ### Build Fails
