@@ -52,6 +52,15 @@ Run `./scripts/bin/setup-private-host` on that machine too — it uses the
 local hostname/username automatically. Each machine gets its own entry in
 `~/dotfiles-private/hosts/`.
 
+If the flake already exists but lacks an entry for the current hostname — which
+also happens when macOS renames a machine on a new network — the script writes
+`hosts/<name>.nix` and prints the `darwinConfigurations` block to paste in. It
+deliberately does not rewrite your private `flake.nix`; that file is yours.
+
+```bash
+./scripts/bin/setup-private-host --host "$(hostname -s)"
+```
+
 ## Manual setup & customization
 
 If you prefer to write the private flake by hand — or want to disable the

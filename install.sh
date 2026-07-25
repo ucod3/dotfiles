@@ -4,9 +4,12 @@
 # Makes setup accessible to both tech and non-tech users
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh | bash
-#   # OR
 #   bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh)
+#
+# Use the process-substitution form above, NOT `curl … | bash`: piping makes the
+# script its own stdin, so prompts read lines of source instead of user input.
+# `prompt_read` falls back to /dev/tty to survive that, but the form above is
+# strictly better and is the only one documented.
 #
 
 set -euo pipefail
@@ -470,20 +473,21 @@ show_post_install_info() {
     echo "  ✅ Editor: Neovim with LSP support and modern plugins"
     echo "  ✅ Development: Git, Node.js, Python tools configured"
     echo "  ✅ Apps: the browsers/editors/terminal you selected (.local/)"
-    echo "  ✅ macOS: System preferences optimized for productivity"
+    echo "  ✅ macOS: stock behaviour unless you enabled the defaults profile"
     echo
     
     log_info "Quick start commands:"
-    echo "  update    - Update all packages and configuration"
-    echo "  change    - Edit your dotfiles"
-    echo "  nvim      - Launch Neovim editor"
-    echo "  code      - Launch VS Code"
+    echo "  dot rebuild   - Apply configuration changes"
+    echo "  dot update    - Update all packages and configuration"
+    echo "  dot apps      - Add or remove applications"
+    echo "  dot help      - Full command reference"
+    echo "  change        - Edit your shell customizations"
     echo
     
     log_info "Next steps:"
     echo "  1. Restart your terminal to load all changes"
-    echo "  2. Run 'update' to ensure everything is up to date"
-    echo "  3. Review BACKUPS.md in your dotfiles for maintenance info"
+    echo "  2. Turn on what you want in .local/settings.nix, then: dot rebuild"
+    echo "  3. See GETTING-STARTED.md and docs/OPERATIONS.md"
     echo
     
     log_info "Your dotfiles location: $DOTFILES_DIR"

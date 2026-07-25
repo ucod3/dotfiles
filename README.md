@@ -1,429 +1,121 @@
 # macOS Dotfiles
 
-A modern, reproducible macOS development environment using Nix flakes, nix-darwin, Home Manager, and Homebrew.
+A declarative, reproducible macOS environment built on Nix flakes, nix-darwin,
+Home Manager, nix-homebrew, and native Homebrew.
 
-## 🚀 Quick Start (One-Command Install)
+**It is de-opinionated.** The framework core installs no GUI apps and changes no
+macOS settings. Shell, Neovim, and core CLI tooling come as standard; everything
+else — browsers, editors, terminal, window manager, macOS defaults — is opt-in
+and asked for at install time. Fork it and you get a working system that looks
+like *your* choices, not the author's.
 
-### For Everyone (Tech and Non-Tech Users)
+Apple Silicon only.
 
-**Option 1: Copy and paste this into Terminal:**
+## Install
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh)
 ```
 
-**Option 2: If you prefer to review first:**
+The installer checks prerequisites (Xcode CLT, Nix, Rosetta), asks what you
+want, generates your private host flake, and runs the first build.
+
+Already cloned by hand? Run `./scripts/bin/bootstrap` — it is idempotent and
+handles the same first-run concerns.
+
+See [GETTING-STARTED.md](./GETTING-STARTED.md) for the full walkthrough,
+including what to do when the first build fails.
+
+## The three layers
+
+Know which one owns a change before you make it.
+
+| Layer | Path | Contents |
+|---|---|---|
+| Public framework | `~/dotfiles` | This repo. Generic, safe to distribute. |
+| Private identity | `~/dotfiles-private` | Your hostname and username, as a downstream flake. Generated for you. |
+| Machine-local | `.local/` (gitignored) | Your name/email, app selections, opt-in toggles. |
+
+This repo ships `darwinConfigurations = { }` **on purpose**: a host needs a
+concrete hostname and username, which a public framework must not hardcode.
+That is what the private flake is for — see
+[docs/PRIVATE_HOST_SETUP.md](./docs/PRIVATE_HOST_SETUP.md).
+
+## Daily use
+
 ```bash
-# Download and review
-curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh -o install.sh
-
-# Review the script
-cat install.sh
-
-# Run it
-bash install.sh
+dot rebuild            # apply configuration changes
+dot update             # update flake inputs + Homebrew, then rebuild
+dot apps add ghostty   # add an app to your selections
+dot apps list          # see what's declared
+dot validate           # syntax + common-mistake checks
+dot secrets            # scan for leaked secrets
+dot help               # full reference
 ```
 
-**What this does:**
-1. ✅ Checks system requirements (macOS, Apple Silicon)
-2. ✅ Installs Xcode Command Line Tools (if needed)
-3. ✅ Installs Nix package manager (if needed)
-4. ✅ Configures Git (if needed)
-5. ✅ Installs Rosetta 2 for Intel compatibility (if needed)
-6. ✅ Clones this dotfiles repository
-7. ✅ Builds and configures your entire macOS system
-8. ✅ Installs all applications and development tools
+`rebuild`, `update`, `validate` and `apps` are also available as bare aliases.
 
-**Time required:** 15-30 minutes (mostly automatic)
+## Turning things on
 
-**No technical knowledge required!** The installer handles everything.
+Everything opinionated is off until you ask. Edit `.local/settings.nix` and run
+`dot rebuild`:
 
----
-
-## 📋 What's Included
-
-### Terminal & Shell
-- **Ghostty** - Modern, fast terminal emulator
-- **Zsh** with Oh My Zsh
-- **Autosuggestions** - Fish-like suggestions
-- **Syntax highlighting** - Command validation
-- **you-should-use** - Reminds you of aliases
-- **fzf** - Fuzzy finder for files/commands
-- **zoxide** - Smarter cd command
-
-### Development Tools
-- **Neovim** - Modern Vim with LSP support
-  - Telescope (fuzzy finder)
-  - Treesitter (syntax highlighting)
-  - Lualine (status bar)
-  - Dracula theme
-  - LSP: lua-language-server, pyright, typescript-language-server
-- **Git** - Modern workflow configuration
-- **Node.js** - Via pnpm and version management
-- **Python** - With pygments and development tools
-
-### Applications (via Homebrew)
-- **Browsers:** Arc, Microsoft Edge Canary, Zen Browser
-- **Development:** VS Code, Zed, Ghostty, Codex, Devin Desktop
-- **Productivity:** Amethyst (window manager), Insync, WPS Office
-- **Utilities:** AnyDesk, Windscribe VPN, Adobe Acrobat Reader, Antigravity
-
-### macOS System Configuration
-- Dock auto-hide for more screen space
-- Faster key repeat rate
-- Show all file extensions
-- Disable window animations
-- Optimized Finder settings
-
----
-
-## 🎯 Who Is This For?
-
-### Developers
-- **Perfect for:** Web developers, software engineers, DevOps
-- **Benefits:** Consistent environment across machines, easy onboarding, version-controlled tools
-- **Setup time:** 15 minutes vs 4-8 hours manual setup
-
-### Non-Technical Users
-- **Perfect for:** Students, professionals, anyone wanting a productive Mac
-- **Benefits:** One command sets up everything, professional-grade tools, easy to maintain
-- **No technical knowledge required**
-
-### Teams
-- **Perfect for:** Development teams, remote workers
-- **Benefits:** Identical environments, easy to share, quick onboarding
-- **New team member:** Productive in 15 minutes instead of days
-
----
-
-## 📖 Manual Installation (Advanced Users)
-
-If you prefer manual control or the automated installer doesn't work:
-
-### Prerequisites
-- macOS (optimized for Apple Silicon, works on Intel)
-- Xcode Command Line Tools: `xcode-select --install`
-- Git configured with your name and email
-
-### Step 1: Install Nix
-```bash
-curl -L https://nixos.org/nix/install | sh
-```
-
-### Step 2: Clone Dotfiles
-```bash
-git clone https://github.com/ucod3/dotfiles.git ~/dotfiles
-cd ~/dotfiles
-```
-
-### Step 3: Build System
-```bash
-./scripts/bin/rebuild
-```
-
----
-
-## 🛠️ Daily Usage
-
-### Essential Commands
-
-| Command | Description |
-|---------|-------------|
-| `update` | Update all packages and system configuration |
-| `change` | Quick edit to your dotfiles |
-| `nvim` | Launch Neovim editor |
-| `code` | Launch VS Code |
-| `ga` | Git add (alias) |
-| `gcmsg` | Git commit with message (alias) |
-| `workshop` | Workshop helper for EpicWeb courses |
-
-### Managing Your Dotfiles
-
-**Edit configuration:**
-```bash
-cd ~/dotfiles
-# Edit files...
-nix flake update  # Update dependencies
-./scripts/bin/rebuild  # Apply changes
-```
-
-**View recent changes:**
-```bash
-cd ~/dotfiles
-git log --oneline -10
-```
-
-**Rollback if something breaks:**
-```bash
-cd ~/dotfiles
-git checkout HEAD -- .  # Revert to last commit
-./scripts/bin/rebuild
-```
-
----
-
-## 🔧 Customization
-
-### Adding New Applications
-
-Edit `hosts/default.nix`:
 ```nix
-# Add to environment.systemPackages for Nix packages
-environment.systemPackages = with pkgs; [
-  brave
-  gh
-  your-new-package  # Add here
-];
+{
+  ai.enable = true;                     # AI tooling configs
+  apps.browsers.enable = true;          # example app sets — see nix/modules/apps/
+  apps.development.enable = true;
 
-# Or add to Homebrew casks
-brews = [ "your-brew-package" ];
-casks = [ "your-cask-app" ];
+  homebrew.cleanup = "uninstall";       # prune casks you no longer declare
+  system.macosDefaults.enable = true;   # Dock/Finder/key-repeat profile
+  home.exampleProfile.enable = true;    # oh-my-zsh, ghostty, vscode, node tooling
+
+  casks = [ "ghostty" "rectangle" ];    # any Homebrew casks
+  nixPackages = [ "htop" ];             # any nixpkgs attributes
+}
 ```
 
-### Adding Shell Aliases
+Each app set is fully overridable (`dotfiles.apps.<set>.casks = [ ... ];`).
+Look for `# CUSTOMIZE:` comments throughout the tree.
+[`hosts/_template.nix`](./hosts/_template.nix) is the complete worked example.
 
-Edit `config/zsh/modules/aliases.zsh`:
-```zsh
-alias myalias='my command'
+> **Nothing here defaults to destructive.** `homebrew.cleanup` stays `"none"`
+> until you opt in, and a build that would prune against an empty cask list
+> refuses to evaluate. See ADR-007.
+
+## Documentation
+
+| Doc | Covers |
+|---|---|
+| [GETTING-STARTED.md](./GETTING-STARTED.md) | Install, `.local/` schema, first-run troubleshooting |
+| [docs/OPERATIONS.md](./docs/OPERATIONS.md) | Day-to-day: updates, rollback, generations, backups |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Which layer owns which package or setting |
+| [docs/DECISIONS.md](./docs/DECISIONS.md) | ADRs — read before reversing anything deliberate |
+| [docs/TESTING.md](./docs/TESTING.md) | `dot validate`, the bats suite, CI |
+| [docs/PRIVATE_HOST_SETUP.md](./docs/PRIVATE_HOST_SETUP.md) | The downstream private flake |
+| [AGENTS.md](./AGENTS.md) | The contract for AI agents working in this repo |
+
+## Repository layout
+
+```
+flake.nix              Inputs, exported modules, evaluation checks
+hosts/                 System-level config (default.nix) + downstream template
+nix/modules/           Opt-in app sets, Homebrew policy, macOS defaults
+nix/home/              Home Manager configuration
+lib/                   Nix helpers (local.nix, pkgs.nix) + shell helpers
+config/                Dotfiles proper: zsh, git, nvim, ghostty, editors
+scripts/bin/           The `dot` CLI and its subcommands
+tests/                 bats suite
+docs/                  Architecture, decisions, operations, testing
 ```
 
-### Machine-Specific Configuration
+## Working with AI agents
 
-Create `~/.zshrc.local` for settings that shouldn't be in Git:
-```zsh
-# Machine-specific exports
-export PRIVATE_API_KEY="..."
-```
+The agent contract is vendor-neutral and lives in [AGENTS.md](./AGENTS.md).
+Claude, Cursor, Copilot, Devin and Windsurf each have a short pointer file that
+restates nothing, so any tool — including one with no config here at all — gets
+the same rules. See ADR-008.
 
----
+## License
 
-## 🗄️ Managing Your Local Settings (`.local/`)
-
-All per-machine identity and preferences live in `~/dotfiles/.local/`, which is
-**gitignored by default** so your private data never enters the public repository:
-
-```
-.local/
-├── identity.nix          # { name = "..."; email = "..."; }
-├── settings.nix          # app toggles and extra packages
-├── browsers/choices.nix
-├── editors/choices.nix
-└── hosts/                # reserved for ~/dotfiles-private
-```
-
-### Path A: Private GitHub repository (multi-machine sync)
-
-Recommended if you use more than one Mac:
-
-```bash
-# Scaffold ~/dotfiles-private for this host
-cd ~/dotfiles
-./scripts/bin/setup-private-host
-
-# Move existing local settings into the private repo
-mv ~/dotfiles/.local/* ~/dotfiles-private/ && rmdir ~/dotfiles/.local
-ln -s ~/dotfiles-private ~/dotfiles/.local
-
-# Create a private GitHub repo and push
-gh repo create dotfiles-private --private
-cd ~/dotfiles-private
-git remote add origin git@github.com:<you>/dotfiles-private.git
-git push -u origin main
-```
-
-See [docs/PRIVATE_HOST_SETUP.md](./docs/PRIVATE_HOST_SETUP.md) for details.
-
-### Path B: Cloud backup (single machine)
-
-If you only have one Mac and don't want a second Git repo, symlink `.local/` to a
-cloud-synced folder:
-
-```bash
-CLOUD_DIR="$HOME/Library/Mobile Documents/com~apple~CloudDocs/dotfiles-local"
-mv ~/dotfiles/.local "$CLOUD_DIR"
-ln -s "$CLOUD_DIR" ~/dotfiles/.local
-```
-
-This works with iCloud Drive, Dropbox, Google Drive, etc.
-
-> Note: `dot rebuild` reads `.local/` under `--impure` evaluation. See `AGENTS.md`
-> and `docs/DECISIONS.md` for why this sanctioned impurity is required.
-
----
-
-## 🆘 Troubleshooting
-
-### Build Fails
-
-**Problem:** "Git tree is dirty" warning  
-**Solution:**
-```bash
-cd ~/dotfiles
-git add .
-git commit -m "WIP: current state"
-./scripts/bin/rebuild
-```
-
-**Problem:** Permission denied errors  
-**Solution:**
-```bash
-# Fix Nix permissions
-sudo chown -R $(whoami) /nix
-```
-
-**Problem:** Package not found  
-**Solution:**
-```bash
-# Update flake inputs
-nix flake update
-./scripts/bin/rebuild
-```
-
-### Recovery Procedures
-
-See [BACKUPS.md](./BACKUPS.md) for detailed recovery procedures including:
-- Rolling back to previous generations
-- Recovering from broken builds
-- Full system recovery steps
-
----
-
-## 🏗️ Architecture
-
-### Technology Stack
-- **Nix Flakes** - Reproducible package management
-- **nix-darwin** - macOS system configuration
-- **Home Manager** - User environment management
-- **Homebrew** - macOS-native applications
-- **Git** - Version control and backup
-
-### Directory Structure
-```
-dotfiles/
-├── config/              # Application configurations
-│   ├── git/            # Git configuration
-│   ├── nvim/           # Neovim configuration
-│   ├── zsh/            # Zsh modules and configs
-│   └── ghostty/        # Terminal configuration
-├── hosts/              # macOS system config (shared, parameterized by user)
-├── nix/                # Nix configuration
-│   └── home/           # Home Manager config
-├── scripts/            # Utility scripts
-│   └── bin/            # Executable scripts
-├── flake.nix           # Main Nix flake
-├── install.sh          # One-command installer ⭐
-└── BACKUPS.md          # Recovery documentation
-```
-
-### Modular Shell Configuration
-The shell configuration is split into focused modules:
-- `init.zsh` - Basic initialization
-- `node.zsh` - Node.js and package management
-- `utils.zsh` - Utility functions
-- `npm-compat.zsh` - npm compatibility helpers
-- `aliases.zsh` - Command shortcuts
-- `workshop.zsh` - Workshop helpers
-- `exports.zsh` - Environment variables
-
----
-
-## � AI Assistant Configuration (Devin CLI)
-
-This dotfiles repository includes comprehensive configuration for the [Devin CLI](https://cli.devin.ai/) AI assistant:
-
-### What's Included
-
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **Global Rules** | `config/windsurf/global_rules.md` | Workspace lifecycle & compliance engine  |
-| **Global Skills** | `config/devin/skills/` | Cross-workspace verification tools  |
-| **MCP Config** | `config/devin/mcp/` | Model Context Protocol server definitions |
-| **Local Rules** | `.devin/rules/` | Dotfiles-specific guardrails |
-| **Local Skills** | `.devin/skills/` | Dotfiles verification and audit routines |
-
-All global configuration is **symlinked** from dotfiles — edit via IDE, changes auto-tracked in git.
-
-### Key Features
-
-- **Cross-Boundary Bucketing** — Automatically route fixes to dotfiles (global) or local `.envrc` (project)
-- **Lifecycle Detection** — Auto-detect Epic Web workshops, npm projects, production environments
-- **Proactive Verification** — Skills run automatically to ensure code quality
-- **Edit via IDE → Auto-tracked** — All changes through symlinks commit to git automatically
-- **Strict Compliance** — Git & Nix tree awareness, rollback procedures, purity checks
-
-### Setup After Dotfiles Install
-
-```bash
-# One-command setup of all Devin global configuration
-mkdir -p ~/.codeium/windsurf/memories ~/.config/devin/skills
-cd ~/dotfiles/config/devin/skills && for f in *.skill.md; do mkdir -p ~/.config/devin/skills/${f%.skill.md}; ln -sf ~/dotfiles/config/devin/skills/$f ~/.config/devin/skills/${f%.skill.md}/SKILL.md; done
-ln -sf ~/dotfiles/config/windsurf/global_rules.md ~/.codeium/windsurf/memories/global_rules.md
-ln -sf ~/dotfiles/config/devin/mcp/mcp_config.json ~/.codeium/windsurf/mcp_config.json
-```
-
-Or use the setup script:
-```bash
-bash ~/dotfiles/docs/setup-devin-global.sh
-```
-
-**How it works:** When you edit global rules, skills, or MCP config via the IDE, changes write through symlinks to the dotfiles repo. Simply `git commit` and `git push` to sync across machines.
-
-See [docs/DEVIN_SETUP.md](./docs/DEVIN_SETUP.md) for complete setup, workflow, and troubleshooting.
-
----
-
-## �🤝 Contributing
-
-This is a personal dotfiles repository, but feel free to:
-- Fork it for your own use
-- Submit issues for bugs
-- Suggest improvements
-
----
-
-## 📝 License
-
-MIT License - Feel free to use, modify, and share.
-
----
-
-## 🌟 Why This Approach?
-
-### Traditional macOS Setup
-```
-1. Install apps one by one from websites
-2. Configure settings manually
-3. Repeat for every new Mac
-4. Lose everything when Mac dies
-5. Hope you remember all the apps
-Time: 4-8 hours per machine
-```
-
-### This Dotfiles Approach
-```
-1. Run one command
-2. Everything installs automatically
-3. Same setup on every Mac
-4. Full backup in Git
-5. Exact reproduction possible
-Time: 15 minutes per machine
-```
-
-**Benefits:**
-- ✅ **Reproducible** - Same setup every time
-- ✅ **Version controlled** - Track changes, rollback if needed
-- ✅ **Self-documenting** - Code describes configuration
-- ✅ **Shareable** - Team members get identical setups
-- ✅ **Maintainable** - Update everything with one command
-- ✅ **Recoverable** - Full system restore in minutes
-
----
-
-## 📞 Support
-
-- **Issues:** [GitHub Issues](https://github.com/ucod3/dotfiles/issues)
-- **Documentation:** See [BACKUPS.md](./BACKUPS.md) for troubleshooting
-- **Nix Manual:** [NixOS Documentation](https://nixos.org/manual/nix/stable/)
-
----
-
-**Made with ❤️ for productive macOS development**
+MIT
