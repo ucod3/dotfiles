@@ -96,12 +96,25 @@ fi
 # ── 5. Nix flake check ─────────────────────────────────────────────────────
 if [[ "$QUICK_MODE" == false ]]; then
   section "Nix flake check"
-  if nix flake check 2>/dev/null; then
-    pass "flake.nix is valid"
+  # HARD failure — deliberately not a warning.
+  #
+  # flake.nix exports evaluation checks (cold + full) that instantiate
+  # hosts/default.nix and nix/home/home.nix against a dummy host identity.
+  # They exist because `darwinConfigurations` is empty here, which used to
+  # make `nix flake check` a no-op that validated nothing (audit finding H2).
+  # Downgrading this back to a warning would make those checks advisory and
+  # let a broken module ship green — the exact gap they were added to close.
+  #
+  # Errors are surfaced rather than sent to /dev/null: a silent "had issues"
+  # tells the operator nothing actionable.
+  flake_log="$(mktemp -t dotfiles-flake-check.XXXXXX)"
+  if nix flake check > "$flake_log" 2>&1; then
+    pass "flake.nix evaluates (cold + full host checks)"
   else
-    # flake check can fail for non-syntax reasons on darwin, treat as warning
-    warn "nix flake check had issues (may be non-critical on macOS)"
+    fail "nix flake check failed — a module does not evaluate:"
+    tail -n 30 "$flake_log" | sed 's/^/    /'
   fi
+  rm -f "$flake_log"
 fi
 
 # ── 6. Unit tests (bats) ────────────────────────────────────────────────────
@@ -193,7 +206,9 @@ section "Git tracking"
 NIX_SOURCES=$(grep -h "source = \.\." nix/home/home.nix hosts/default.nix 2>/dev/null \
   | sed 's/.*source = \.\.\/\.\.\///;s/[";].*//;s/ //g' | sort -u)
 while IFS= read -r src; do
-  if [[ -n "$src" ]] && ! git ls-files --error-unmatch "$src" 2>/dev/null; then
+  # --error-unmatch echoes matched paths on success; silence stdout so the
+  # section shows only real failures.
+  if [[ -n "$src" ]] && ! git ls-files --error-unmatch "$src" >/dev/null 2>&1; then
     fail "Nix references '$src' but it's not tracked by git (run: git add $src)"
   fi
 done <<< "$NIX_SOURCES"

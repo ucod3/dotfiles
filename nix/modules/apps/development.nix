@@ -8,6 +8,7 @@
 
 let
   cfg = config.dotfiles.apps.development;
+  pkgsByName = import ../../../lib/pkgs.nix;
 in
 {
   options.dotfiles.apps.development = {
@@ -37,6 +38,7 @@ in
 
   config = lib.mkIf cfg.enable {
     homebrew.casks = cfg.casks;
-    environment.systemPackages = map (name: pkgs.${name}) cfg.nixPackages;
+    environment.systemPackages =
+      pkgsByName pkgs "dotfiles.apps.development.nixPackages" cfg.nixPackages;
   };
 }

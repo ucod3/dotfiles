@@ -1,5 +1,7 @@
 # Command Aliases
-alias code="code-insiders"
+# `code` is only remapped when the Insiders channel is actually installed —
+# hardcoding it broke stable-VS Code users on a fresh fork (audit finding M2).
+(( $+commands[code-insiders] )) && alias code="code-insiders"
 alias npm="pnpm"
 alias npx="pnpx"
 alias yarn="pnpm"
@@ -12,7 +14,7 @@ alias dot='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/dot'
 # Convenience shorthands (all delegate to dot internally)
 alias update='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/update'
 alias apps='${DOTFILES_ROOT:-$HOME/dotfiles}/scripts/bin/apps'
-alias change='code-insiders ${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/custom.zsh'
+alias change='${VISUAL:-${EDITOR:-nvim}} ${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/custom.zsh'
 alias use-node="pnpm-use-node"
 alias use-nvm="nvm-init && nvm use"
 alias npm-real="real-npm"

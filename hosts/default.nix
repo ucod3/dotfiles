@@ -15,6 +15,9 @@ let
   # lib/local.nix for the empirically verified constraints. Under pure
   # evaluation this degrades to empty settings (nothing extra installed).
   dotfilesLocal = import ../lib/local.nix;
+
+  # Resolves Nixpkgs attribute names with an error that names the bad entry
+  pkgsByName = import ../lib/pkgs.nix;
 in
 {
   # Optional application sets — each exposes dotfiles.apps.<set>.enable
@@ -22,11 +25,14 @@ in
   # private host file:
   #   dotfiles.apps.browsers.enable = true;
   # See nix/modules/apps/, nix/modules/ai.nix, and hosts/_template.nix.
-  imports = [ ../nix/modules/apps ../nix/modules/ai.nix ];
+  imports = [
+    ../nix/modules/apps
+    ../nix/modules/ai.nix
+    ../nix/modules/homebrew.nix # dotfiles.homebrew.cleanup (safe default, ADR-006)
+    ../nix/modules/system.nix   # dotfiles.system.macosDefaults, dotfiles.nixpkgs.allowUnfree
+  ];
 
   system.primaryUser = user;
-
-  nixpkgs.config.allowUnfree = true;
 
   # ── Homebrew Apps ──────────────────────────────────────────────────────────
   # HOW TO ADD/REMOVE APPS:
@@ -64,7 +70,10 @@ in
     onActivation = {
       autoUpdate = false;
       upgrade = true;
-      cleanup = "uninstall"; # Removes apps no longer listed here
+      # cleanup is set by nix/modules/homebrew.nix via dotfiles.homebrew.cleanup.
+      # It must NOT be hardcoded to "uninstall" here: the framework core ships
+      # no casks, so on a cold fork that would uninstall the user's existing
+      # Homebrew apps. See ADR-006.
     };
 
     # Framework-core command-line tools (no GUI)
@@ -90,11 +99,12 @@ in
   # ───────────────────────────────────────────────────────────────────────────
   environment.systemPackages = [
     pkgs.mkalias    # Create macOS aliases for Nix apps (framework glue)
+    pkgs.direnv
     # neovim removed - installed via Home Manager to prevent duplication
     # Taste-specific packages (brave, gh, raycast) live in nix/modules/apps/
   ]
   # Nix packages selected by the interactive installer (from .local/)
-  ++ map (name: pkgs.${name}) dotfilesLocal.nixPackages;
+  ++ pkgsByName pkgs ".local/ nixPackages" dotfilesLocal.nixPackages;
 
   nix.settings = {
     experimental-features = "nix-command flakes";
@@ -104,18 +114,9 @@ in
 
   programs.zsh.enable = true;
 
-  # macOS System Optimizations
-  system.defaults = {
-    dock.autohide = true;
-    finder.FXPreferredViewStyle = "clmv";
-    NSGlobalDomain = {
-      ApplePressAndHoldEnabled = false;
-      KeyRepeat = 2;
-      InitialKeyRepeat = 15;
-      AppleShowAllExtensions = true;
-      NSAutomaticWindowAnimationsEnabled = false;
-    };
-  };
+  # macOS system defaults live in nix/modules/system.nix behind
+  # dotfiles.system.macosDefaults.enable — they are an opinionated profile and
+  # must not be imposed on a cold fork. Override per key from your host file.
 
   system.configurationRevision = self.rev or self.dirtyRev or null;
   system.stateVersion = 6;

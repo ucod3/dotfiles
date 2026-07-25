@@ -76,6 +76,28 @@ in
   # dotfiles.apps.mas.enable = true;           # example: Mac App Store apps (Notability)
   # dotfiles.ai.enable = true;                 # AI tooling: Devin Desktop + editor configs
 
+  # ── 2b. SYSTEM POSTURE — safe defaults on a cold fork ─────────────────────
+  # Homebrew pruning is OFF unless a .local/ layer exists, because the core
+  # ships no casks and "uninstall" would remove YOUR existing apps (ADR-006):
+  # dotfiles.homebrew.cleanup = "uninstall";   # prune undeclared casks
+  #
+  # The macOS defaults profile (Dock autohide, key repeat, column view) is
+  # opinionated — note it disables press-and-hold accent entry:
+  # dotfiles.system.macosDefaults.enable = true;
+  # dotfiles.nixpkgs.allowUnfree = false;      # strict free-software posture
+  #
+  # ── 2c. HOME PROFILE — taste-specific user config (Home Manager namespace) ─
+  # These live under home-manager.users.<you>, not at the system level:
+  # home-manager.users.${user}.dotfiles.home = {
+  #   ohMyZsh.enable = true;          # omz framework, theme, plugins
+  #   ohMyZsh.theme = "agnoster";     # CUSTOMIZE
+  #   ghostty.enable = true;          # link the bundled Ghostty config
+  #   vscode.enable = true;           # link the bundled settings.json
+  #   vscode.configDir = "Code";      # "Code - Insiders" (default) / "Code" / "VSCodium"
+  #   languageServers.enable = true;  # lua-language-server, pyright, ts-ls
+  #   nodeTooling.enable = true;      # pnpm
+  # };
+
   # ── 3. MACHINE-SPECIFIC ADDITIONS (examples) ───────────────────────────────
   # Extra Homebrew apps for this machine only:
   # homebrew.casks = [ "firefox" ];

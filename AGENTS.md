@@ -8,7 +8,7 @@ This repository is an AI-native, declarative, reproducible macOS development env
 ## 🗺️ Architectural Topology
 We enforce a strict boundary separation between public framework code and private machine identities:
 1. **Public Framework (`~/dotfiles`):** Contains generic system structures, configurations, custom shell modules, and AI workflows. Completely safe for public distribution. All opinionated app sets are OPT-IN (`enable = false` by default).
-2. **Private Identity (`~/dotfiles-private`):** A downstream Git repository that handles machine hostnames (e.g., `Usmans-M4Pro`), usernames (`usmanbutt`), and private environment flags. Feeds dynamically from the public framework via a local `git+file://` flake input.
+2. **Private Identity (`~/dotfiles-private`):** A downstream Git repository that handles machine hostnames (e.g., `<your-hostname>`), usernames (`<your-username>`), and private environment flags. Feeds dynamically from the public framework via a local `git+file://` flake input. Never substitute real values here — this file is public.
 3. **Local Settings Layer (`~/dotfiles/.local/`, gitignored):** Machine-local identity and app selections read by `lib/local.nix`. May be a real directory (created interactively by `install.sh`) or a symlink to `~/dotfiles-private` (backing storage). Subfolders: `browsers/`, `editors/`, `hosts/` (reserved for the private flake — never auto-imported), plus `identity.nix` and `settings.nix`.
 
 ## 🧪 Local Settings Layer — Empirically Verified Nix Constraints

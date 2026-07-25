@@ -1,8 +1,21 @@
 title = "dotfiles gitleaks config"
 
+# Inherit gitleaks' full default ruleset.
+#
+# CRITICAL — do not remove this stanza. Without it the config declares no
+# rules at all, so gitleaks loads an EMPTY ruleset and every scan trivially
+# reports "no leaks found". That silently neutered both `dot secrets` and the
+# "mandatory, fail-closed" pre-commit hook: a canary file containing a
+# live-format AWS key, GitHub PAT and Slack token scanned completely clean.
+# Verified empirically during the public-purity audit — see ADR-006.
+[extend]
+useDefault = true
+
 [allowlist]
 description = "Global allowlist"
+# Keep this list minimal and path-specific. Broad entries (the previous
+# version allowlisted the whole of README.md) create blind spots that are
+# invisible in a passing scan.
 paths = [
-  '''config/homebrew/manual-installer-skip.txt''',
-  '''README\.md'''
+  '''config/homebrew/manual-installer-skip\.txt''',
 ]

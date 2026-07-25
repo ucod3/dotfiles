@@ -7,6 +7,7 @@
 
 let
   cfg = config.dotfiles.apps.browsers;
+  pkgsByName = import ../../../lib/pkgs.nix;
 in
 {
   options.dotfiles.apps.browsers = {
@@ -37,6 +38,7 @@ in
 
   config = lib.mkIf cfg.enable {
     homebrew.casks = cfg.casks;
-    environment.systemPackages = map (name: pkgs.${name}) cfg.nixPackages;
+    environment.systemPackages =
+      pkgsByName pkgs "dotfiles.apps.browsers.nixPackages" cfg.nixPackages;
   };
 }
