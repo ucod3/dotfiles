@@ -10,6 +10,7 @@
 #   dot <subcommand> [args...]
 #
 # Subcommands:
+#   bootstrap            First-run setup on a fresh Mac (idempotent)
 #   rebuild              Rebuild the system (darwin-rebuild switch)
 #   update  [opts]       Update flake inputs, Homebrew, and rebuild
 #   apps    [opts]       Manage installed applications
@@ -44,6 +45,10 @@ dispatch() {
   shift || true  # consume subcommand; remaining "$@" are its args
 
   case "$cmd" in
+
+    bootstrap)
+      exec "$BIN/bootstrap" "$@"
+      ;;
 
     rebuild)
       exec "$BIN/rebuild" "$@"
@@ -92,6 +97,9 @@ cmd_help() {
   echo -e "  ${BLUE}Usage:${NC}  dot <subcommand> [args...]"
   echo ""
   echo -e "  ${BLUE}System${NC}"
+  echo "    bootstrap            First-run setup on a fresh Mac (idempotent):"
+  echo "                         Nix, conflicting /etc files, private host flake,"
+  echo "                         first build, git hooks"
   echo "    rebuild              Rebuild macOS system configuration"
   echo "                         (resolves the private flake first, then this"
   echo "                          repo, for darwinConfigurations.\$(hostname -s))"

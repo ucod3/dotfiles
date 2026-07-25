@@ -6,47 +6,35 @@ PRIVATE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
 HOSTNAME="$(hostname -s)"
 USER_NAME="$(id -un)"
 
+# Flakes are not enabled by the stock Nix installer, and `nix flake lock` below
+# is one of the first flake commands a fresh machine ever runs.
+# shellcheck source=../../lib/nix.sh
+source "$DOTFILES_ROOT/lib/nix.sh"
+
+usage() {
+  echo "Usage: setup-private-host [--host NAME] [--user NAME]"
+  echo
+  echo "Generates ~/dotfiles-private, the downstream flake holding this machine's"
+  echo "hostname and username. This repo ships no darwinConfigurations on purpose."
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host) HOSTNAME="$2"; shift 2 ;;
+    --user) USER_NAME="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
 if [[ ! "$HOSTNAME" =~ ^[A-Za-z0-9_-]+$ || ! "$USER_NAME" =~ ^[A-Za-z0-9_-]+$ ]]; then
   echo "Unsupported hostname or username for generated Nix configuration." >&2
   exit 1
 fi
 
-if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
-  echo "Private configuration already exists at $PRIVATE_ROOT"
-  exit 0
-fi
-
-mkdir -p "$PRIVATE_ROOT/hosts"
-git init "$PRIVATE_ROOT" >/dev/null
-
-cat > "$PRIVATE_ROOT/flake.nix" <<EOF
-{
-  description = "Private host configuration for the shared dotfiles framework";
-
-  inputs = {
-    dotfiles.url = "git+file://$DOTFILES_ROOT";
-    nixpkgs.follows = "dotfiles/nixpkgs";
-    nix-darwin.follows = "dotfiles/nix-darwin";
-    home-manager.follows = "dotfiles/home-manager";
-    nix-homebrew.follows = "dotfiles/nix-homebrew";
-  };
-
-  outputs = inputs@{ self, dotfiles, nix-darwin, home-manager, nix-homebrew, ... }: {
-    darwinConfigurations."$HOSTNAME" = nix-darwin.lib.darwinSystem {
-      system = "aarch64-darwin";
-      specialArgs = { inherit inputs self; };
-      modules = [
-        dotfiles.darwinModules.coreSystem
-        nix-homebrew.darwinModules.nix-homebrew
-        home-manager.darwinModules.home-manager
-        ./hosts/$HOSTNAME.nix
-      ];
-    };
-  };
-}
-EOF
-
-cat > "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" <<EOF
+write_host_file() {
+  mkdir -p "$PRIVATE_ROOT/hosts"
+  cat > "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" <<EOF
 { inputs, ... }:
 
 let
@@ -71,6 +59,69 @@ in
   _module.args.user = user;
 }
 EOF
+}
+
+if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
+  # Don't silently succeed. `rebuild` points people here when their hostname has
+  # no configuration — usually because macOS renamed the machine — and a bare
+  # "already exists" exit left them with the same failure and no next step.
+  if grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$PRIVATE_ROOT/flake.nix"; then
+    echo "Private configuration already defines '$HOSTNAME' at $PRIVATE_ROOT"
+    exit 0
+  fi
+
+  echo "Private flake exists at $PRIVATE_ROOT but has no host '$HOSTNAME'." >&2
+  echo >&2
+  echo "Writing hosts/$HOSTNAME.nix. Add this to $PRIVATE_ROOT/flake.nix yourself" >&2
+  echo "(the flake is yours — this script will not rewrite it):" >&2
+  echo >&2
+  cat >&2 <<EOF
+    darwinConfigurations."$HOSTNAME" = nix-darwin.lib.darwinSystem {
+      system = "$(nix_system)";
+      specialArgs = { inherit inputs self; };
+      modules = [
+        dotfiles.darwinModules.coreSystem
+        nix-homebrew.darwinModules.nix-homebrew
+        home-manager.darwinModules.home-manager
+        ./hosts/$HOSTNAME.nix
+      ];
+    };
+EOF
+  write_host_file
+  exit 0
+fi
+
+mkdir -p "$PRIVATE_ROOT/hosts"
+git init "$PRIVATE_ROOT" >/dev/null
+
+cat > "$PRIVATE_ROOT/flake.nix" <<EOF
+{
+  description = "Private host configuration for the shared dotfiles framework";
+
+  inputs = {
+    dotfiles.url = "git+file://$DOTFILES_ROOT";
+    nixpkgs.follows = "dotfiles/nixpkgs";
+    nix-darwin.follows = "dotfiles/nix-darwin";
+    home-manager.follows = "dotfiles/home-manager";
+    nix-homebrew.follows = "dotfiles/nix-homebrew";
+  };
+
+  outputs = inputs@{ self, dotfiles, nix-darwin, home-manager, nix-homebrew, ... }: {
+    darwinConfigurations."$HOSTNAME" = nix-darwin.lib.darwinSystem {
+      system = "$(nix_system)";
+      specialArgs = { inherit inputs self; };
+      modules = [
+        dotfiles.darwinModules.coreSystem
+        nix-homebrew.darwinModules.nix-homebrew
+        home-manager.darwinModules.home-manager
+        ./hosts/$HOSTNAME.nix
+      ];
+    };
+  };
+}
+EOF
+
+write_host_file
 
 cat > "$PRIVATE_ROOT/.gitignore" <<'EOF'
 result

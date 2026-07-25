@@ -50,6 +50,25 @@ check_macos() {
     log_success "Running on macOS"
 }
 
+# Read user input, working even under `curl | bash` (stdin is the script).
+# Defined up here because the very first prompts (architecture, Xcode) need it —
+# it used to live further down, after several raw `read` calls had already
+# silently consumed lines of this script as if they were user input.
+# Args: <varname> <prompt> [default] [extra read flags...]
+prompt_read() {
+    local __var="$1" __prompt="$2" __default="${3:-}" __reply=""
+    shift 3 2>/dev/null || shift $#
+    if [ -t 0 ]; then
+        read -r "$@" -p "$__prompt" __reply
+    elif { : < /dev/tty; } 2>/dev/null; then
+        # curl | bash: stdin is the script, but a controlling TTY exists
+        read -r "$@" -p "$__prompt" __reply < /dev/tty || true
+    else
+        log_warning "No TTY available; using default: ${__default:-<none>}"
+    fi
+    eval "$__var=\"\${__reply:-\$__default}\""
+}
+
 # Check architecture
 check_architecture() {
     local arch
@@ -58,9 +77,9 @@ check_architecture() {
         log_warning "This dotfiles is optimized for Apple Silicon (arm64)."
         log_warning "Your architecture: $arch"
         log_info "The setup may still work but hasn't been tested on Intel Macs."
-        read -p "Continue anyway? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        local continue_intel="n"
+        prompt_read continue_intel "Continue anyway? (y/N): " "n"
+        if [[ ! $continue_intel =~ ^[Yy]$ ]]; then
             exit 1
         fi
     else
@@ -74,8 +93,7 @@ check_xcode_tools() {
         log_info "Installing Xcode Command Line Tools..."
         log_info "This is required for Git and compilation tools."
         xcode-select --install
-        log_warning "Please complete the Xcode installation and press Enter to continue..."
-        read -r
+        prompt_read _xcode_ack "Complete the Xcode installation, then press Enter to continue..." ""
     else
         log_success "Xcode Command Line Tools installed"
     fi
@@ -124,9 +142,17 @@ check_git() {
         log_warning "Git is not fully configured."
         log_info "Let's set up your Git identity (required for commits)..."
         
-        read -p "Enter your name: " git_name
-        read -p "Enter your email: " git_email
-        
+        prompt_read git_name "Enter your name: " ""
+        prompt_read git_email "Enter your email: " ""
+
+        if [[ -z "$git_name" || -z "$git_email" ]]; then
+            log_error "Git identity is required for commits. Set it with:"
+            log_info "  git config --global user.name  'Your Name'"
+            log_info "  git config --global user.email 'you@example.com'"
+            exit 1
+        fi
+
+
         git config --global user.name "$git_name"
         git config --global user.email "$git_email"
         
@@ -196,20 +222,6 @@ package_source() {
         aerospace) echo "brew:cask:nikitabobko/tap/aerospace" ;;
         *)         echo "" ;;
     esac
-}
-
-# Read user input, working even under `curl | bash` (stdin is the script)
-prompt_read() {
-    local __var="$1" __prompt="$2" __default="${3:-}" __reply=""
-    if [ -t 0 ]; then
-        read -r -p "$__prompt" __reply
-    elif { : < /dev/tty; } 2>/dev/null; then
-        # curl | bash: stdin is the script, but a controlling TTY exists
-        read -r -p "$__prompt" __reply < /dev/tty || true
-    else
-        log_warning "No TTY available; using default: ${__default:-<none>}"
-    fi
-    eval "$__var=\"\${__reply:-\$__default}\""
 }
 
 # Present a numbered menu; sets REPLY_SELECTION to space-separated choices.
@@ -376,7 +388,7 @@ run_installation() {
     log_info "Estimated time: 15-30 minutes depending on internet speed."
     echo
     
-    read -p "Press Enter to continue or Ctrl+C to cancel..."
+    prompt_read _start_ack "Press Enter to continue or Ctrl+C to cancel..." ""
     echo
     
     # Step 1: Pre-flight checks
@@ -409,35 +421,37 @@ run_installation() {
     log_info "Step 6/8: Setting up dotfiles repository..."
     backup_existing
     clone_dotfiles
-    # Install git hooks immediately after cloning
-    bash "$DOTFILES_DIR/scripts/bin/install-hooks"
+    # NOTE: git hooks are installed by bootstrap AFTER the first build. The
+    # pre-commit hook requires gitleaks, which the build provides — installing
+    # it here blocked every commit made before the first successful rebuild.
     echo
 
     # Step 7: Local settings layer (identity + app selections)
     log_info "Step 7/8: Configuring your local settings (.local/)..."
     setup_local_settings
-    "$DOTFILES_DIR/scripts/bin/setup-private-host"
     echo
 
-    # Step 8: Run the build
+    # Step 8: Bootstrap and build
     log_info "Step 8/8: Building your macOS configuration..."
     log_info "This will install all applications and configure your system."
     log_warning "You may be asked for your password (sudo access required)."
     echo
-    
+
     cd "$DOTFILES_DIR"
-    
-    if ! ./scripts/bin/rebuild; then
-        log_error "Build failed. This could be due to:"
-        log_info "1. Network issues downloading packages"
-        log_info "2. Permission problems"
+
+    # bootstrap owns the first-run-only concerns: conflicting /etc files,
+    # the private host flake, the nix-darwin bootstrap build, and git hooks.
+    if ! ./scripts/bin/bootstrap; then
+        log_error "Build failed. Common causes:"
+        log_info "1. Files nix-darwin refuses to overwrite (/etc/nix/nix.conf, /etc/zshrc)"
+        log_info "   — bootstrap prints the exact 'sudo mv' commands to fix this"
+        log_info "2. Network issues downloading packages"
         log_info "3. macOS security settings blocking Nix"
         echo
         log_info "Troubleshooting steps:"
-        log_info "1. Check your internet connection"
-        log_info "2. Try running the build again: cd $DOTFILES_DIR && ./scripts/bin/rebuild"
-        log_info "3. Check the BACKUPS.md file for recovery procedures"
-        log_info "4. Review the error messages above for specific issues"
+        log_info "1. Re-run: cd $DOTFILES_DIR && ./scripts/bin/bootstrap"
+        log_info "2. Check your internet connection"
+        log_info "3. Review the error messages above for specific issues"
         exit 1
     fi
     
@@ -491,9 +505,9 @@ cleanup_on_error() {
     if [[ -d "$DOTFILES_DIR" ]] && [[ -d "$BACKUP_DIR" ]]; then
         # Only prompt if stdin is a terminal (not piped)
         if [[ -t 0 ]]; then
-            log_info "Would you like to restore the backup? (y/N)"
-            read -r
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
+            local restore_reply
+            prompt_read restore_reply "Would you like to restore the backup? (y/N) " "n"
+            if [[ $restore_reply =~ ^[Yy]$ ]]; then
                 rm -rf "$DOTFILES_DIR"
                 mv "$BACKUP_DIR" "$DOTFILES_DIR"
                 log_success "Backup restored."

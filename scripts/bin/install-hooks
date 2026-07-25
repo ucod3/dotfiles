@@ -35,21 +35,28 @@ DOTFILES_ROOT="$(git rev-parse --show-toplevel)"
 "$DOTFILES_ROOT/scripts/bin/validate" --quick
 
 # ── 2. Secret scanning (mandatory — fail closed) ────────────────────────────
-if ! command -v gitleaks >/dev/null 2>&1; then
-  if command -v brew >/dev/null 2>&1; then
-    echo "  gitleaks not installed — attempting auto-install via Homebrew..."
-    brew install gitleaks || true
-  fi
+# gitleaks ships via nix-darwin, but this hook is installed on a fresh clone
+# before that build has run. Fall back to `nix run` so the very first commit is
+# still scanned rather than blocked.
+GITLEAKS=()
+if command -v gitleaks >/dev/null 2>&1; then
+  GITLEAKS=( gitleaks )
+elif command -v nix >/dev/null 2>&1; then
+  echo "  gitleaks not on PATH — running via nix (first run downloads it)..."
+  GITLEAKS=( nix --extra-experimental-features "nix-command flakes" run nixpkgs#gitleaks -- )
+elif command -v brew >/dev/null 2>&1; then
+  echo "  gitleaks not installed — attempting auto-install via Homebrew..."
+  brew install gitleaks >/dev/null 2>&1 && GITLEAKS=( gitleaks )
 fi
 
-if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "✗ gitleaks is required for secret scanning but is not installed." >&2
-  echo "  Install it with: brew install gitleaks" >&2
+if [[ ${#GITLEAKS[@]} -eq 0 ]]; then
+  echo "✗ gitleaks is required for secret scanning but could not be obtained." >&2
+  echo "  Install Nix, or run: brew install gitleaks" >&2
   echo "  (Refusing to commit without a secret scan. Emergency bypass: git commit --no-verify)" >&2
   exit 1
 fi
 
-gitleaks detect \
+"${GITLEAKS[@]}" detect \
   --source "$DOTFILES_ROOT" \
   --config "$DOTFILES_ROOT/.gitleaks.toml" \
   --redact \

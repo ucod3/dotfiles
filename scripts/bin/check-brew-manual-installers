@@ -10,8 +10,11 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 if ! command -v brew >/dev/null 2>&1; then
-  echo "brew is not installed or not on PATH."
-  exit 1
+  # Not an error: this is an advisory post-rebuild check, and a machine with no
+  # Homebrew simply has no casks to follow up on. Exiting non-zero here made a
+  # successful `darwin-rebuild switch` report overall failure under `set -e`.
+  echo "brew is not installed — no casks to check."
+  exit 0
 fi
 
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"

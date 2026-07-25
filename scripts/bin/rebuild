@@ -6,6 +6,10 @@ cd "$DOTFILES_ROOT"
 
 # shellcheck source=../../lib/log.sh
 source "$DOTFILES_ROOT/lib/log.sh"
+# shellcheck source=../../lib/nix.sh
+source "$DOTFILES_ROOT/lib/nix.sh"
+
+require_nix
 
 HOSTNAME="$(hostname -s 2>/dev/null || true)"
 PRIVATE_FLAKE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
@@ -16,12 +20,38 @@ if [[ -z "$HOSTNAME" ]]; then
   exit 1
 fi
 
-if [[ -f "$PRIVATE_FLAKE_ROOT/flake.nix" ]] && grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$PRIVATE_FLAKE_ROOT/flake.nix"; then
+# Does this flake define a darwinConfiguration for $HOSTNAME? Ask Nix rather
+# than grepping for a literal string — a flake that builds its hosts with
+# genAttrs or an interpolated name is valid but would never match a text grep.
+# Falls back to the grep when evaluation is unavailable (e.g. no network yet).
+host_names() {
+  local root="$1"
+  nix eval --json "${root}#darwinConfigurations" --apply builtins.attrNames 2>/dev/null
+}
+
+has_host() {
+  local root="$1" names
+  names="$(host_names "$root")" || names=""
+  if [[ -n "$names" ]]; then
+    grep -q "\"${HOSTNAME}\"" <<<"$names"
+  else
+    grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$root/flake.nix" 2>/dev/null
+  fi
+}
+
+if [[ -f "$PRIVATE_FLAKE_ROOT/flake.nix" ]] && has_host "$PRIVATE_FLAKE_ROOT"; then
   FLAKE_ROOT="$PRIVATE_FLAKE_ROOT"
   log_info "Using private host configuration: $FLAKE_ROOT"
-elif ! grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$DOTFILES_ROOT/flake.nix" 2>/dev/null; then
+elif ! has_host "$DOTFILES_ROOT"; then
   log_error "No configuration found for hostname '$HOSTNAME'."
-  log_info "Create one with: $DOTFILES_ROOT/scripts/bin/setup-private-host"
+  if [[ -f "$PRIVATE_FLAKE_ROOT/flake.nix" ]]; then
+    available="$(host_names "$PRIVATE_FLAKE_ROOT" || true)"
+    [[ -n "$available" ]] && log_info "Hosts defined in $PRIVATE_FLAKE_ROOT: $available"
+    log_info "Your hostname may have drifted (macOS renames on some networks)."
+    log_info "Add a host with: $DOTFILES_ROOT/scripts/bin/setup-private-host --host '$HOSTNAME'"
+  else
+    log_info "Create one with: $DOTFILES_ROOT/scripts/bin/setup-private-host"
+  fi
   exit 1
 fi
 
@@ -85,9 +115,27 @@ else
   log_info "Create one by running: $DOTFILES_ROOT/install.sh  (see GETTING-STARTED.md)"
 fi
 
-sudo env DOTFILES_LOCAL="$DOTFILES_LOCAL" HOME="$HOME" \
-  darwin-rebuild switch --flake "${FLAKE_ROOT}#${HOSTNAME}" --impure
+# ── The build ───────────────────────────────────────────────────────────────
+# nix-darwin installs `darwin-rebuild`, but the FIRST build is what installs
+# nix-darwin — so on a fresh machine the binary does not exist yet. Bootstrap
+# that one build through `nix run`. Without this the very first rebuild died
+# with a bare "darwin-rebuild: command not found" under `set -e`.
+# Paths must be absolute: sudo does not carry the Nix profile on secure_path.
+NIX_BIN="$(nix_bin)"
+if DR_BIN="$(command -v darwin-rebuild 2>/dev/null)"; then
+  REBUILD_CMD=( "$DR_BIN" )
+else
+  log_warning "darwin-rebuild not found — bootstrapping nix-darwin for the first build."
+  log_info "This is expected on a fresh machine; later rebuilds use the installed binary."
+  REBUILD_CMD=( "$NIX_BIN" run "github:LnL7/nix-darwin/master#darwin-rebuild" -- )
+fi
 
+sudo env DOTFILES_LOCAL="$DOTFILES_LOCAL" HOME="$HOME" NIX_CONFIG="$NIX_CONFIG" \
+  "${REBUILD_CMD[@]}" switch --flake "${FLAKE_ROOT}#${HOSTNAME}" --impure
+
+# Post-flight advisory. It must never invert the exit status of a system
+# activation that already succeeded.
 if [ -x "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers" ]; then
-  "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers"
+  "$DOTFILES_ROOT/scripts/bin/check-brew-manual-installers" \
+    || log_warning "Post-rebuild cask check reported issues (non-fatal — the rebuild succeeded)."
 fi

@@ -79,10 +79,11 @@ in
     # Framework-core command-line tools (no GUI)
     # Find at: https://formulae.brew.sh/formula/
     # Taste-specific app sets live in nix/modules/apps/ (see imports above).
-    brews = [
-      "gitleaks"  # Git secret scanning (required by pre-commit hook)
-      "sqlite"    # SQLite database
-    ];
+    # CUSTOMIZE: the framework core ships no brews. Tooling the repo itself
+    # depends on (gitleaks, jq, sqlite) comes from Nix instead — see
+    # environment.systemPackages below — so a cold clone is not gated on
+    # Homebrew being installed first.
+    brews = [ ];
 
     # Framework-core GUI applications (.app bundles)
     # Find at: https://formulae.brew.sh/cask/  or  brew search --cask <name>
@@ -98,8 +99,14 @@ in
   # These are available as CLI tools immediately after rebuild
   # ───────────────────────────────────────────────────────────────────────────
   environment.systemPackages = [
-    pkgs.mkalias    # Create macOS aliases for Nix apps (framework glue)
+    pkgs.mkalias # Create macOS aliases for Nix apps (framework glue)
     pkgs.direnv
+    # Tooling this repo's own scripts depend on. These live here rather than in
+    # homebrew.brews so that a fresh clone can validate and commit before (or
+    # without) Homebrew ever being installed.
+    pkgs.gitleaks # secret scanning — required by the pre-commit hook
+    pkgs.jq # flake.lock parsing in scripts/bin/rebuild
+    pkgs.sqlite
     # neovim removed - installed via Home Manager to prevent duplication
     # Taste-specific packages (brave, gh, raycast) live in nix/modules/apps/
   ]

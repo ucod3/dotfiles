@@ -17,7 +17,11 @@
   let
     inherit (nixpkgs) lib;
 
-    darwinSystems = [ "aarch64-darwin" "x86_64-darwin" ];
+    # Apple Silicon only. x86_64-darwin was previously listed here, but nothing
+    # in the repo was ever tested on Intel and `setup-private-host` hardcoded
+    # aarch64-darwin — so the claim was advertising something that could not
+    # build. Add "x86_64-darwin" back only alongside a machine that verifies it.
+    darwinSystems = [ "aarch64-darwin" ];
 
     # Instantiate the exported modules against a throwaway host identity.
     # Returns the toplevel derivation; forcing its `drvPath` evaluates the

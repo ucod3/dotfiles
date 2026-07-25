@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# bootstrap — first-run setup for a fresh Mac. Idempotent; safe to re-run.
+#
+# Owns the concerns that only exist BEFORE the first successful build:
+#   1. Nix itself
+#   2. Files nix-darwin refuses to clobber (/etc/nix/nix.conf, /etc/zshrc, ...)
+#   3. A private host flake (this repo ships `darwinConfigurations = { }`)
+#   4. The first build, which must run through `nix run nix-darwin` because
+#      `darwin-rebuild` does not exist until that build completes
+#   5. Git hooks — LAST, because the pre-commit hook needs gitleaks, which the
+#      build provides
+#
+# `install.sh` delegates here. Run it directly if you cloned by hand.
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+cd "$DOTFILES_ROOT"
+
+# shellcheck source=../../lib/log.sh
+source "$DOTFILES_ROOT/lib/log.sh"
+# shellcheck source=../../lib/nix.sh
+source "$DOTFILES_ROOT/lib/nix.sh"
+
+NON_INTERACTIVE=false
+for arg in "$@"; do
+  case "$arg" in
+    --non-interactive) NON_INTERACTIVE=true ;;
+    -h|--help)
+      echo "Usage: bootstrap [--non-interactive]"
+      echo
+      echo "Prepares a fresh Mac: Nix, conflicting-file check, private host flake,"
+      echo "first build, git hooks. Idempotent."
+      exit 0
+      ;;
+    *) log_error "Unknown option: $arg"; exit 1 ;;
+  esac
+done
+
+ask() {
+  # ask <prompt> — true on y/Y. Always false when non-interactive or no tty.
+  local prompt="$1" reply
+  if [[ "$NON_INTERACTIVE" == true || ! -t 0 ]]; then
+    return 1
+  fi
+  read -r -p "$prompt [y/N] " reply </dev/tty
+  [[ "$reply" =~ ^[Yy]$ ]]
+}
+
+# ── 1. Nix ──────────────────────────────────────────────────────────────────
+if command -v nix >/dev/null 2>&1; then
+  log_success "Nix is installed"
+else
+  log_info "Installing Nix (multi-user daemon install)..."
+  curl --proto '=https' --tlsv1.2 -fsSL https://nixos.org/nix/install | sh -s -- --daemon
+  # shellcheck disable=SC1091
+  [ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ] \
+    && . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+  command -v nix >/dev/null 2>&1 || {
+    log_error "Nix installed but is not on PATH. Open a new terminal and re-run bootstrap."
+    exit 1
+  }
+  log_success "Nix installed"
+fi
+
+# ── 2. Files nix-darwin will not overwrite ──────────────────────────────────
+# nix-darwin's first activation hard-fails rather than clobbering these. This
+# is the single most common fresh-machine failure, and the error it produces
+# does not explain the fix.
+CONFLICTS=()
+for f in /etc/nix/nix.conf /etc/bashrc /etc/zshrc /etc/zprofile /etc/zshenv; do
+  # A file nix-darwin already manages is a symlink into the store — not a conflict.
+  if [[ -f "$f" && ! -L "$f" ]]; then
+    CONFLICTS+=( "$f" )
+  fi
+done
+
+if (( ${#CONFLICTS[@]} > 0 )); then
+  log_warning "These files would block nix-darwin's first activation:"
+  printf '    %s\n' "${CONFLICTS[@]}"
+  log_info "nix-darwin refuses to overwrite them. The standard fix is to move each"
+  log_info "aside as <file>.before-nix-darwin; nix-darwin then manages the path."
+  if ask "Move them aside now (requires sudo)?"; then
+    for f in "${CONFLICTS[@]}"; do
+      sudo mv "$f" "$f.before-nix-darwin"
+      log_success "moved $f -> $f.before-nix-darwin"
+    done
+  else
+    log_warning "Leaving them in place. The first build will fail until they are moved:"
+    for f in "${CONFLICTS[@]}"; do
+      echo "    sudo mv $f $f.before-nix-darwin"
+    done
+    exit 1
+  fi
+fi
+
+# ── 3. Private host flake ───────────────────────────────────────────────────
+# This repo ships `darwinConfigurations = { }` on purpose: a host needs a
+# concrete hostname and username, which a public framework must not hardcode.
+HOSTNAME_SHORT="$(hostname -s 2>/dev/null || true)"
+PRIVATE_FLAKE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+
+if [[ -f "$PRIVATE_FLAKE_ROOT/flake.nix" ]] \
+   && grep -q "darwinConfigurations\.\"${HOSTNAME_SHORT}\"" "$PRIVATE_FLAKE_ROOT/flake.nix" 2>/dev/null; then
+  log_success "Private host flake already defines '$HOSTNAME_SHORT'"
+else
+  log_info "Generating private host flake for '$HOSTNAME_SHORT'..."
+  "$DOTFILES_ROOT/scripts/bin/setup-private-host"
+fi
+
+# ── 4. First build ──────────────────────────────────────────────────────────
+log_info "Running the first build..."
+"$DOTFILES_ROOT/scripts/bin/rebuild"
+
+# ── 5. Git hooks (last: the pre-commit hook needs gitleaks from the build) ──
+if [ -x "$DOTFILES_ROOT/scripts/bin/install-hooks" ]; then
+  "$DOTFILES_ROOT/scripts/bin/install-hooks"
+fi
+
+log_success "Bootstrap complete."
+log_info "Open a new terminal, then use: dot rebuild | dot update | dot validate"
