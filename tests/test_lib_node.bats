@@ -4,6 +4,7 @@
 #
 
 setup() {
+  load 'bats_helper'
   # Source the file under test
   source "$BATS_TEST_DIRNAME/../lib/node.sh"
 }

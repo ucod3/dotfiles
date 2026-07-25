@@ -104,8 +104,10 @@ if [ "$found_manual_installers" = false ]; then
 fi
 
 echo "Recently touched casks (last 24h):"
+# -exec basename directly rather than piping through xargs: a cask directory
+# containing whitespace would otherwise be split into bogus entries.
 find "$caskroom" -name ".metadata" -mtime -1 -exec dirname {} \; 2>/dev/null \
-  | xargs -n1 basename 2>/dev/null \
+  | while IFS= read -r d; do basename "$d"; done \
   | sort -u || true
 
 echo

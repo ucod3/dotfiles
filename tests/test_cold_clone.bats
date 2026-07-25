@@ -8,6 +8,7 @@
 #
 
 setup() {
+  load 'bats_helper'
   REPO_ROOT="$BATS_TEST_DIRNAME/.."
   # A PATH with neither brew nor nix, to stand in for a machine before the
   # first build has run.

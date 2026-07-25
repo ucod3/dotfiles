@@ -1,15 +1,15 @@
 name: CI
 
-# Run on every push and pull request to main.
-# Tests what is safely testable on a Linux runner:
-#   - Shell script syntax (bash -n via shellcheck)
-#   - Zsh module syntax (zsh -n)
-#   - Nix file parse syntax (nix-instantiate --parse)
-#   - Flake attribute tree evaluation (nix flake show)
-#   - Secret scanning across full git history (gitleaks)
+# Two jobs:
+#   lint (Linux) — syntax, shellcheck, zsh, nix parse, secrets, bats.
+#   eval (macOS) — `nix flake check`, which instantiates the darwin modules and
+#                  therefore cannot run on Linux. Without it the flake's own
+#                  evaluation checks — including the cold-is-nondestructive
+#                  guard from ADR-007 — never ran in CI at all.
 #
-# NOTE: nix flake check and darwin-rebuild are macOS-only and are NOT run here.
-# The full system build is validated locally via: dot validate
+# File lists are derived from `git ls-files` rather than hand-maintained here.
+# Two hand-written lists (this file and scripts/bin/validate) had drifted apart,
+# leaving three scripts checked by neither.
 
 on:
   push:
@@ -29,32 +29,26 @@ jobs:
           # Full history so gitleaks can scan all commits, not just HEAD
           fetch-depth: 0
 
-      # ── Install Nix ───────────────────────────────────────────────────────
       - name: Install Nix
         uses: cachix/install-nix-action@v27
         with:
-          # Enable flakes and nix-command; no channel needed
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       # ── Shell script syntax (bash -n) ─────────────────────────────────────
       - name: Bash syntax check
         run: |
-          echo "=== bash -n on all scripts/bin/ scripts ==="
+          echo "=== bash -n on every tracked bash script ==="
           failed=0
-          for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update \
-                   scripts/bin/validate scripts/bin/apps scripts/bin/install-hooks \
-                   scripts/bin/scan-secrets scripts/bin/check-brew-manual-installers \
-                   install.sh; do
-            if [[ -f "$f" ]]; then
-              if bash -n "$f" 2>&1; then
-                echo "  OK: $f"
-              else
-                echo "  FAIL: $f"
-                failed=1
-              fi
+          while IFS= read -r f; do
+            head -1 "$f" | grep -q bash || continue
+            if bash -n "$f" 2>&1; then
+              echo "  OK: $f"
+            else
+              echo "  FAIL: $f"
+              failed=1
             fi
-          done
+          done < <(git ls-files 'scripts/bin/*' 'lib/*.sh' 'install.sh')
           exit $failed
 
       # ── Secret scanning (gitleaks) ────────────────────────────────────────
@@ -68,22 +62,16 @@ jobs:
       # ── Shell script lint (shellcheck) ────────────────────────────────────
       - name: ShellCheck
         run: |
-          echo "=== shellcheck on all scripts/bin/ scripts ==="
-          # SC1090/1091: can't follow dynamic source paths (lib/log.sh etc.) — expected
-          # SC2148: shebangs present, skip top-of-file check
+          echo "=== shellcheck on every tracked bash script ==="
+          # SC1090/1091: can't follow dynamic source paths (lib/log.sh etc.)
+          mapfile -t scripts < <(
+            while IFS= read -r f; do
+              head -1 "$f" | grep -q bash && echo "$f"
+            done < <(git ls-files 'scripts/bin/*' 'lib/*.sh' 'install.sh')
+          )
+          printf '  will check: %s\n' "${scripts[@]}"
           nix shell nixpkgs#shellcheck --command \
-            shellcheck --severity=error \
-              --exclude=SC1090,SC1091 \
-              scripts/bin/dot \
-              scripts/bin/rebuild \
-              scripts/bin/update \
-              scripts/bin/validate \
-              scripts/bin/apps \
-              scripts/bin/setup-private-host \
-              scripts/bin/install-hooks \
-              scripts/bin/scan-secrets \
-              scripts/bin/check-brew-manual-installers \
-              install.sh
+            shellcheck --severity=error --exclude=SC1090,SC1091 "${scripts[@]}"
 
       # ── Zsh module syntax (zsh -n) ────────────────────────────────────────
       - name: Zsh syntax check
@@ -105,30 +93,20 @@ jobs:
       # ── Nix file parse syntax ─────────────────────────────────────────────
       - name: Nix parse check
         run: |
-          echo "=== nix-instantiate --parse on .nix files ==="
+          echo "=== nix-instantiate --parse on every tracked .nix file ==="
           failed=0
-          for f in flake.nix nix/home/home.nix hosts/default.nix; do
-            if [[ -f "$f" ]]; then
-              if nix-instantiate --parse "$f" > /dev/null 2>&1; then
-                echo "  OK: $f"
-              else
-                echo "  FAIL: $f"
-                nix-instantiate --parse "$f" 2>&1 | sed 's/^/    /'
-                failed=1
-              fi
+          while IFS= read -r f; do
+            if nix-instantiate --parse "$f" > /dev/null 2>&1; then
+              echo "  OK: $f"
+            else
+              echo "  FAIL: $f"
+              nix-instantiate --parse "$f" 2>&1 | sed 's/^/    /'
+              failed=1
             fi
-          done
+          done < <(git ls-files '*.nix')
           exit $failed
 
-      # ── Flake attribute tree evaluation ───────────────────────────────────
-      # nix flake show evaluates the outputs attribute set without building
-      # any darwin derivations, so it is safe on Linux.
-      - name: Nix flake show
-        run: |
-          echo "=== nix flake show (pure attribute tree evaluation) ==="
-          nix flake show --all-systems 2>&1
-
-      # ── Unit tests (bats) ───────────────────────────────────────────────────
+      # ── Unit tests (bats) ─────────────────────────────────────────────────
       - name: Bats unit tests
         run: |
           echo "=== bats test suite ==="
@@ -137,3 +115,27 @@ jobs:
           else
             echo "No tests/ directory found — skipping"
           fi
+
+  eval:
+    name: Flake evaluation (macOS)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # Instantiates hosts/default.nix and nix/home/home.nix against a dummy
+      # host. `darwinConfigurations` is empty here on purpose, so without these
+      # checks a broken module or a typo'd nixpkgs attribute passes CI cleanly.
+      #
+      # Note this runs PURE: no .local/ layer exists on the runner, so it also
+      # exercises the cold-fork path — exactly what cold-is-nondestructive
+      # asserts (ADR-007).
+      - name: Nix flake check
+        run: nix flake check --print-build-logs

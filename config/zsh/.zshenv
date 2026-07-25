@@ -43,8 +43,14 @@ export BUNDLE_USER_CACHE="$XDG_CACHE_HOME/bundle"
 export BUNDLE_USER_PLUGIN="$XDG_DATA_HOME/bundle"
 
 export NVM_DIR="$XDG_DATA_HOME/nvm"
-export PNPM_HOME="$XDG_DATA_HOME/pnpm"
+# Respect an override from .envrc or the environment.
+export PNPM_HOME="${PNPM_HOME:-$XDG_DATA_HOME/pnpm}"
 mkdir -p "$NVM_DIR" "$PNPM_HOME" 2>/dev/null || true
 
-export PATH="/usr/local/sbin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PNPM_HOME:$PATH"
+# Sole definition of PNPM_HOME and its PATH entry — env vars belong in .zshenv
+# per the zsh startup contract, and this was previously duplicated in both
+# modules/exports.zsh and modules/node.zsh. Note it is $PNPM_HOME/bin, not
+# $PNPM_HOME: the latter contains only directories (bin/, global/, store/),
+# so the bare entry never resolved a single executable.
+export PATH="/usr/local/sbin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PNPM_HOME/bin:$PATH"
 typeset -U path PATH

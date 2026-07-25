@@ -6,6 +6,7 @@
 # Run with: bats tests/
 
 setup() {
+  load 'bats_helper'
   # Source the file under test
   load '../config/zsh/modules/node.zsh'
 }

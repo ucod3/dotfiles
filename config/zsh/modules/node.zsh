@@ -17,12 +17,8 @@
 #   - Node.js versions managed by pnpm, not system package manager
 #   - Saves significant disk space compared to npm/yarn
 
-# Ensure PNPM_HOME/bin is in PATH (idempotent — safe to re-source)
-export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-case ":$PATH:" in
-  *":$PNPM_HOME/bin:"*) ;;
-  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-esac
+# PNPM_HOME and its PATH entry are set once in config/zsh/.zshenv, which is
+# sourced before this module for every shell. Do not re-declare them here.
 
 # Install a Node.js version via pnpm (pnpm 11+ API)
 _pnpm_install_node() {

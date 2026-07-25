@@ -47,8 +47,17 @@ for f in config/zsh/modules/*.zsh config/zsh/custom.zsh config/zsh/.zshenv; do
 done
 
 # ── 2. Shell script syntax ─────────────────────────────────────────────────
+# Derived from git, not hand-listed. Two hand-maintained lists (here and in
+# .github/workflows/ci.yml) had drifted apart, leaving three scripts checked by
+# neither.
+SH_SCRIPTS=()
+while IFS= read -r _f; do
+  [[ -f "$_f" ]] || continue
+  head -1 "$_f" | grep -q 'bash' && SH_SCRIPTS+=("$_f")
+done < <(git ls-files 'scripts/bin/*' 'lib/*.sh' 'install.sh' 2>/dev/null)
+
 section "Shell script syntax"
-for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps scripts/bin/setup-private-host install.sh; do
+for f in ${SH_SCRIPTS[@]+"${SH_SCRIPTS[@]}"}; do
   if [[ -f "$f" ]]; then
     if bash -n "$f" 2>/dev/null; then
       pass "$f"
@@ -62,7 +71,7 @@ done
 # ── 3. Shell script linting (shellcheck) ────────────────────────────────────
 section "Shell script linting"
 if command -v shellcheck >/dev/null 2>&1; then
-  for f in scripts/bin/dot scripts/bin/rebuild scripts/bin/update scripts/bin/validate scripts/bin/apps scripts/bin/setup-private-host install.sh; do
+  for f in ${SH_SCRIPTS[@]+"${SH_SCRIPTS[@]}"}; do
     if [[ -f "$f" ]]; then
       # Run shellcheck with specific exclusions for this codebase
       # SC1090: Can't follow non-constant source (we use dynamic paths)
@@ -81,7 +90,9 @@ fi
 # ── 4. Nix syntax ──────────────────────────────────────────────────────────
 if [[ "$QUICK_MODE" == false ]]; then
   section "Nix syntax"
-  for f in flake.nix nix/home/home.nix hosts/default.nix; do
+  # Every tracked .nix file, not just the three entry points — 9 of 13 were
+  # previously unchecked, and hosts/_template.nix was checked by nothing.
+  for f in $(git ls-files '*.nix'); do
     if [[ -f "$f" ]]; then
       if nix-instantiate --parse "$f" > /dev/null 2>&1; then
         pass "$f"
