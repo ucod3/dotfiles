@@ -29,10 +29,11 @@ let
 
   cfg = config.dotfiles.home;
 
-  # Shared default for every opinionated set below: adopt the example profile
-  # only on a machine that has actually opted into this framework.
-  exampleProfile = dotfilesLocal.exists;
-  exampleProfileText = lib.literalExpression "<true when a .local/ layer exists>";
+  # Shared default for every opinionated set below. Opt-in only: having a
+  # settings layer is not a request for this author's shell, editor and node
+  # tooling — the user must ask for it explicitly (ADR-007).
+  exampleProfile = dotfilesLocal.homeProfile != null && dotfilesLocal.homeProfile;
+  exampleProfileText = lib.literalExpression ".local/settings.nix `home.exampleProfile.enable`, else false";
 in
 {
   options.dotfiles.home = {

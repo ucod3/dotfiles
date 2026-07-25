@@ -27,12 +27,16 @@ in
     cleanup = lib.mkOption {
       type = lib.types.enum [ "none" "uninstall" "zap" ];
 
-      # Default is DELIBERATELY conservative. `.local/` present means someone
-      # ran install.sh or linked a private flake — they have a declared cask
-      # set, so pruning is meaningful. No `.local/` means a cold clone with an
-      # empty cask set, where pruning is purely destructive.
-      default = if dotfilesLocal.exists then "uninstall" else "none";
-      defaultText = lib.literalExpression ''if <.local/ exists> then "uninstall" else "none"'';
+      # Default is DELIBERATELY non-destructive, always. Pruning is opt-in per
+      # machine via `.local/settings.nix`; the mere presence of a settings
+      # layer is NOT consent to uninstall software (ADR-007). An earlier
+      # version defaulted to "uninstall" whenever a `.local/` directory
+      # existed, which fired on bare directories with an empty cask list.
+      default =
+        if dotfilesLocal.homebrewCleanup != null
+        then dotfilesLocal.homebrewCleanup
+        else "none";
+      defaultText = lib.literalExpression ''.local/settings.nix `homebrew.cleanup`, else "none"'';
 
       description = ''
         Homebrew `onActivation.cleanup` mode.
@@ -48,12 +52,26 @@ in
   config = {
     homebrew.onActivation.cleanup = cfg.cleanup;
 
+    # Hard stop. Pruning against an empty declared set is always mass deletion,
+    # never intent — so refuse to evaluate rather than trusting the default to
+    # have been computed correctly. This is what makes the wipe unreachable.
+    assertions = [{
+      assertion = cfg.cleanup == "none" || config.homebrew.casks != [ ];
+      message = ''
+        dotfiles: homebrew cleanup is "${cfg.cleanup}" but the declared cask list
+        is EMPTY. Activating this would uninstall every Homebrew cask on this
+        machine. Declare your casks in .local/settings.nix first, or set
+        `dotfiles.homebrew.cleanup = "none"`.
+      '';
+    }];
+
     # Make the non-obvious safe default visible at build time rather than
-    # letting a fork silently wonder why stale casks are never pruned.
-    warnings = lib.optional (cfg.cleanup == "none" && !dotfilesLocal.exists) ''
-      dotfiles: homebrew cleanup is "none" because no .local/ settings layer was
-      found. Undeclared Homebrew casks will NOT be uninstalled. Set
-      `dotfiles.homebrew.cleanup = "uninstall"` once your cask list is complete.
+    # letting someone silently wonder why stale casks are never pruned. Gated on
+    # `exists`: a machine with no settings layer has nobody to advise yet.
+    warnings = lib.optional (cfg.cleanup == "none" && dotfilesLocal.exists) ''
+      dotfiles: homebrew cleanup is "none", so undeclared Homebrew casks will NOT
+      be uninstalled. Set `homebrew.cleanup = "uninstall";` in
+      .local/settings.nix once your cask list is complete.
     '';
   };
 }

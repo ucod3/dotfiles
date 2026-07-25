@@ -76,8 +76,23 @@
     #   full — every optional app set and opinionated home module enabled.
     #          Guards the bundled example profiles: every cask name is typed
     #          and every nixPackages attribute must actually exist in nixpkgs.
+    #   cold-is-nondestructive — pins the ADR-007 contract: a fresh fork must
+    #          never resolve to a destructive or opinionated default.
     checks = lib.genAttrs darwinSystems (system: {
       cold = mkEvalCheck "cold-${system}" { inherit system; };
+
+      # Regression guard for ADR-007. A cold fork once resolved
+      # `homebrew.onActivation.cleanup` to "uninstall" with an empty declared
+      # cask list, which uninstalls every cask on the machine. Assert the
+      # resolved values directly so that can never silently come back.
+      cold-is-nondestructive =
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          host = mkDummyHost { inherit system; };
+        in
+        assert host.config.homebrew.onActivation.cleanup == "none";
+        assert !host.config.dotfiles.system.macosDefaults.enable;
+        pkgs.runCommand "dotfiles-check-cold-nondestructive-${system}" { } "touch $out";
 
       full = mkEvalCheck "full-${system}" {
         inherit system;
@@ -92,6 +107,9 @@
             homebrew.cleanup = "uninstall";
             system.macosDefaults.enable = true;
           };
+          # The cleanup assertion refuses "uninstall" against an empty cask
+          # list, so a fully-enabled host must declare at least one cask.
+          homebrew.casks = [ "ghostty" ];
         }];
         extraHomeModules = [{
           dotfiles.home = {

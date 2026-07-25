@@ -66,14 +66,23 @@ fi
 # resolves $DOTFILES_LOCAL first because sudo may rewrite $HOME.
 # Without .local/ the build stays pure-compatible (empty settings), but we
 # always pass --impure so selections apply when present.
+# Mirror of `settingsFiles` in lib/local.nix — keep the two in sync. A bare
+# directory is NOT a settings layer: pointing this at ~/dotfiles-private (which
+# setup-private-host creates with no settings files) used to enable destructive
+# Homebrew pruning against an empty cask list. See ADR-007.
+has_settings_layer() {
+  local d="$1"
+  [[ -e "$d/settings.nix" || -e "$d/identity.nix" || -e "$d/apps.nix" \
+     || -e "$d/browsers/choices.nix" || -e "$d/editors/choices.nix" ]]
+}
+
 DOTFILES_LOCAL="${DOTFILES_LOCAL:-$DOTFILES_ROOT/.local}"
-if [[ ! -e "$DOTFILES_LOCAL" && -d "$PRIVATE_FLAKE_ROOT" ]]; then
-  DOTFILES_LOCAL="$PRIVATE_FLAKE_ROOT"
-fi
-if [[ -e "$DOTFILES_LOCAL" ]]; then
+if has_settings_layer "$DOTFILES_LOCAL"; then
   log_info "Using local settings layer: $DOTFILES_LOCAL"
 else
-  log_warning "No .local settings layer found; building framework defaults only."
+  log_warning "No .local/ settings layer with content found at $DOTFILES_LOCAL."
+  log_warning "Building framework defaults only: nothing opinionated, no Homebrew pruning."
+  log_info "Create one by running: $DOTFILES_ROOT/install.sh  (see GETTING-STARTED.md)"
 fi
 
 sudo env DOTFILES_LOCAL="$DOTFILES_LOCAL" HOME="$HOME" \

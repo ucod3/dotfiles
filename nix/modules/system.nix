@@ -22,11 +22,11 @@ in
     system.macosDefaults = {
       enable = lib.mkOption {
         type = lib.types.bool;
-        # Same rationale as dotfiles.homebrew.cleanup: a machine with a local
-        # settings layer opted into this framework's profile; a cold fork did
-        # not, and should get stock macOS behaviour until it asks otherwise.
-        default = dotfilesLocal.exists;
-        defaultText = lib.literalExpression "<true when a .local/ layer exists>";
+        # Opt-in only. Having a settings layer is not a request to rewrite
+        # macOS behaviour (this profile disables press-and-hold accents, among
+        # other things) — the user must ask for it explicitly (ADR-007).
+        default = dotfilesLocal.macosDefaults != null && dotfilesLocal.macosDefaults;
+        defaultText = lib.literalExpression ".local/settings.nix `system.macosDefaults.enable`, else false";
         description = ''
           Apply the example macOS system defaults (Dock autohide, Finder column
           view, faster key repeat, no window animations).
