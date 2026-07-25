@@ -18,3 +18,10 @@ secrets/
 # May be a real directory or a symlink to ~/dotfiles-private.
 .local
 .local/
+
+# Machine-local agent tool state (permission allowlists with absolute paths).
+# Must be ignored in the committed config, not just in .git/info/exclude:
+# `dot validate` fails on untracked files under agent directories, so a
+# machine-local exclude made validation pass here and fail on a fresh clone.
+**/config.local.json
+.claude/settings.local.json

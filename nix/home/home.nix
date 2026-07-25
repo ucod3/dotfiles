@@ -167,7 +167,10 @@ in
       # AI tooling configs — gated behind `.local/settings.nix` ai.enable
       # (see nix/modules/ai.nix for the system-level counterpart)
       "windsurf/config.json".source = ../../config/windsurf/config.json;
-      # Same target as docs/setup-devin-global.sh (hooks.json -> devin config)
+      # Devin reads its hook definitions from config.json, so the repo's
+      # hooks.json is the source for that path. Home Manager is the sole owner
+      # of this symlink — an imperative installer script used to claim the same
+      # target and clobber it (removed in ADR-008).
       "devin/config.json".source = ../../config/devin/hooks.json;
     };
 

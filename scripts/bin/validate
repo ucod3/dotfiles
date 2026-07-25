@@ -187,11 +187,22 @@ fi
 # Sole sanctioned exception: lib/local.nix (ADR-004) — the impure-aware
 # loader for the gitignored .local settings layer, which degrades to empty
 # settings under pure evaluation.
-if grep -rn 'builtins\.getEnv' flake.nix hosts/ nix/ lib/ 2>/dev/null \
-    | grep -v '^lib/local\.nix:'; then
-  fail "builtins.getEnv found in Nix files — this breaks pure evaluation (only lib/local.nix is exempt, see ADR-004)"
+GETENV_STRAY=$(git ls-files '*.nix' | xargs grep -n 'builtins\.getEnv' 2>/dev/null \
+  | grep -v '^lib/local\.nix:' || true)
+if [[ -n "$GETENV_STRAY" ]]; then
+  fail "builtins.getEnv found outside lib/local.nix — this breaks pure evaluation (ADR-004):"
+  echo "$GETENV_STRAY" | sed 's/^/    /'
 else
   pass "No builtins.getEnv outside the sanctioned lib/local.nix loader"
+fi
+
+# ...and the converse. If the loader ever loses its getEnv the .local/ layer
+# silently stops resolving and every opt-in quietly reverts to its default —
+# which looks like a clean pass rather than a failure.
+if grep -q 'builtins\.getEnv' lib/local.nix 2>/dev/null; then
+  pass "lib/local.nix retains its sanctioned impure read"
+else
+  fail "lib/local.nix has no builtins.getEnv — the .local/ settings loader is broken (ADR-004)"
 fi
 
 # Portability: flake.nix must delegate to mkHost, not hard-wire a hostname
@@ -213,14 +224,21 @@ while IFS= read -r src; do
   fi
 done <<< "$NIX_SOURCES"
 
-# .devin/ rules and skills must always be tracked — untracked files here
-# mean a rule or skill will silently not apply on other machines.
-UNTRACKED_DEVIN=$(git ls-files --others --exclude-standard .devin/ 2>/dev/null)
-if [[ -n "$UNTRACKED_DEVIN" ]]; then
-  fail "Untracked .devin/ files — rules/skills won't apply on other machines (run: git add):"
-  echo "$UNTRACKED_DEVIN" | sed 's/^/    /'
+# Agent adapter directories must be tracked — an untracked rule or skill
+# silently fails to apply on any other machine. Vendor-neutral: each path is
+# checked only if it exists, so this works for whichever tools a fork uses.
+AGENT_DIRS=(.devin/rules .devin/skills .devin/workflows .claude .cursor/rules .github)
+UNTRACKED_AGENT=""
+for d in "${AGENT_DIRS[@]}"; do
+  [[ -d "$d" ]] || continue
+  found=$(git ls-files --others --exclude-standard "$d" 2>/dev/null)
+  [[ -n "$found" ]] && UNTRACKED_AGENT+="$found"$'\n'
+done
+if [[ -n "${UNTRACKED_AGENT// /}" ]]; then
+  fail "Untracked agent config — rules/skills won't apply elsewhere (run: git add):"
+  echo "$UNTRACKED_AGENT" | sed '/^$/d;s/^/    /'
 else
-  pass ".devin/ rules and skills are git-tracked"
+  pass "Agent configuration is git-tracked"
 fi
 
 # Check for any untracked files in the broader config directories

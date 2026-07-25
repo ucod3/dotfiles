@@ -1,30 +1,29 @@
 ---
 name: loop-preventer
-description: Mandatory circuit-breaker check to track fix attempts and prevent infinite tool loops.
+description: Post-mortem procedure to run when the circuit breaker trips on a repeating error.
 triggers:
   - model
-  - always_on
 ---
 
-# Loop Preventer & Token Circuit Breaker
+# Loop preventer — escape routine
 
-You must execute this skill or evaluate its logic before attempting to repeat a failing terminal command, script execution, or code patch.
+The threshold itself is defined once, as rule **R8** in `AGENTS.md` at the repo
+root. Do not restate it here; this skill covers only *what to do* when it trips.
 
-## Execution Guardrails
+## When the breaker trips
 
-1. **State Tracking Matrix:**
-   - Keep a running count of how many times you have attempted to fix the *exact same* error or symptom in this session.
-   - If the current count is **0, 1, or 2**, you may proceed with an alternative blueprint strategy.
+Stop executing tools — no file edits, no terminal commands. Then output a
+markdown post-mortem containing:
 
-2. **The 3-Strike Circuit Breaker:**
-   - If your fix fails **3 times consecutive**, you are strictly ordered to **STOP executing all tools** (no file edits, no terminal commands).
-   - Do not guess a 4th time.
+- **Attempts log** — what you changed and what commands you actually ran.
+- **Evidence** — the real output you observed, not your interpretation of it.
+  Quote the error. If you never saw the failing output directly, say so.
+- **Root blocker** — what you believe is actually preventing progress (e.g.
+  "the Nix store is locked", "the cask's upstream URL 404s", "this needs a
+  credential I don't have").
+- **Handover** — three concrete options for the user, and what input you need.
 
-3. **Required Escape Routine:**
-   If the circuit breaker trips, you must output a markdown summary to the user containing:
-   - **Attempts Log:** What code was changed and what commands were run.
-   - **Symptom Analysis:** Why your fixes failed (e.g., "The Nix store is locked," "The Homebrew cask has a malformed upstream URL").
-   - **Handover Request:** Ask the user for manual validation, environment context, or explicit input before proceeding.
+## Before each retry
 
-## Verification Check
-Before every tool run, ask yourself: *"Have I tried this variant or faced this exact error output 3 times?"* If yes, halt immediately.
+Ask: *have I already faced this exact error output?* Track the count honestly.
+Re-running a command with a cosmetic change is still a repeat attempt.

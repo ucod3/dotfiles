@@ -113,12 +113,6 @@ else
   echo "⚠️  verify-and-audit skill missing"
 fi
 
-if [[ -f ".devin/skills/integration-audit/SKILL.md" ]]; then
-  echo "✅ integration-audit skill present"
-else
-  echo "⚠️  integration-audit skill missing"
-fi
-
 if git ls-files .devin/skills/ 2>/dev/null | grep -q "SKILL.md"; then
   echo "✅ Skills are git-tracked"
 else

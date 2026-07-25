@@ -1,4 +1,13 @@
 {
+  "_comment": [
+    "Auto-STAGE, not auto-commit (ADR-003 as amended by ADR-008).",
+    "Nix's git+file: evaluation reads a dirty tree's staged changes and skips",
+    "untracked files, so `git add` is what makes evaluation correct — the",
+    "commit never was. Committing also published unreviewed content to a",
+    "permanent public history. The old path list omitted flake.nix, flake.lock,",
+    ".devin/ and tests/, so it could not satisfy its own guarantees; `git add -A`",
+    "covers everything and .local/ is gitignored, so nothing private is staged."
+  ],
   "hooks": {
     "PostToolUse": [
       {
@@ -6,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if [ -d \"$HOME/dotfiles/.git\" ]; then cd \"$HOME/dotfiles\" && git add AGENTS.md docs/ config/ nix/ hosts/ scripts/ lib/ 2>/dev/null; if ! git diff --cached --quiet; then git commit -m \"wip: devin auto-save workspace state [skip ci]\"; fi; fi'"
+            "command": "bash -c 'if [ -d \"$HOME/dotfiles/.git\" ]; then cd \"$HOME/dotfiles\" && git add -A 2>/dev/null || true; fi'"
           }
         ]
       }

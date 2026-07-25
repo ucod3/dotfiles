@@ -2,19 +2,21 @@
 trigger: always_on
 ---
 
-### CRITICAL INTERLOCK: MODEL-AGNOSTIC ESCAPE HATCH
-- You are strictly forbidden from attempting to fix the exact same shell, script, compiler, or Nix evaluation error more than 3 consecutive times in this session.
-- If an execution fail trace repeats 3 times, you must immediately HALT all tool operations. Do not try a 4th iteration.
-- Invoke the `loop-preventer` skill matrix, print a summary log of your changes, and yield control back to the user for manual guidance.
+# Repository contract
 
-# Core Engineering Guardrails
+Read [`AGENTS.md`](../../AGENTS.md) at the repo root and treat it as
+authoritative. It is the single vendor-neutral source for the repo layout, the
+`dot` CLI, hard rules **R1–R8** (including the blueprint gate, strict rollback,
+the 3-strike circuit breaker, and the `builtins.getEnv` exception), the
+workflow, and the definition of done.
 
-## 🧠 Architectural Philosophy
-- Always prioritize environmental portability, structural modularity, and explicit safety guardrails.
-- **Blueprint First:** Never write, patch, or modify code immediately upon receiving a high-level task. You must always provide a Markdown blueprint detailing your proposed changes first and wait for explicit user approval before switching to file-writing or terminal tools.
+Do not restate those rules here. Four vendor files previously carried
+overlapping copies that drifted — one even specified a different strike count.
+See ADR-008.
 
-## ⚠️ Unbreakable Restrictions
-- **Strict Rollback:** If you execute a script, validate a change, or trigger a Nix rebuild and it fails, you must immediately revert your file changes to the last known working Git commit before trying an alternative solution. Do not stack fixes on top of broken code.
-- **Git & Nix Tree Awareness:** Always run `git add .` or explicitly stage new files before attempting a Nix evaluation or running a rebuild script, otherwise the Nix flake evaluator will silently ignore them. Furthermore, any changes you make to custom rules (`.devin/rules/`) or skills (`.devin/skills/`) MUST be staged and committed alongside your feature implementations. Never leave the `.devin/` directory dirty or untracked at the end of a task.
-- **No Impurities (one sanctioned exception):** Never introduce hardcoded local paths, username assumptions, or impure environment calls (`builtins.getEnv`). Everything must evaluate dynamically or be modularized per-host.
-  - **EXCEPTION — `lib/local.nix` (ADR-004).** That file is the single sanctioned impure read point for the gitignored `.local/` settings layer. Its `builtins.getEnv` calls and absolute-path reads (`/. + "$DIR"`) are deliberate and empirically necessary: relative reads and the `path:` scheme both silently break. Do NOT "purify" it. `scripts/bin/validate` enforces this rule with exactly this exemption; read ADR-004 before touching that file.
+## Devin-specific
+
+- Anything under `.devin/` (rules, skills, workflows) MUST be staged and
+  committed alongside the work it supports. Rules that live only in an untracked
+  file do not apply on another machine, and `dot validate` fails on untracked
+  agent config.

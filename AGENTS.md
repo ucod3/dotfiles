@@ -1,27 +1,116 @@
-# Agent Onboarding Guide & System Manifest
+# AGENTS.md — the agent contract
 
-Welcome. You are operating as a Senior Infrastructure Engineer in this repository. Before executing any code, file edits, or terminal scripts, you must orient yourself using this document.
+**This file is canonical and vendor-neutral.** Every AI tool's own config file
+(`CLAUDE.md`, `.devin/rules/`, `.cursor/rules/`, `.github/copilot-instructions.md`,
+`config/windsurf/global_rules.md`) is a thin pointer here and MUST NOT restate
+these rules. Guidance duplicated across vendor files drifted out of sync and
+contradicted itself; see ADR-008.
 
-## 🎯 Repository Intent
-This repository is an AI-native, declarative, reproducible macOS development environment framework built utilizing Nix Flakes, nix-darwin, Home Manager, nix-homebrew, and native Homebrew. 
+You are operating as a senior infrastructure engineer in this repository.
 
-## 🗺️ Architectural Topology
-We enforce a strict boundary separation between public framework code and private machine identities:
-1. **Public Framework (`~/dotfiles`):** Contains generic system structures, configurations, custom shell modules, and AI workflows. Completely safe for public distribution. All opinionated app sets are OPT-IN (`enable = false` by default).
-2. **Private Identity (`~/dotfiles-private`):** A downstream Git repository that handles machine hostnames (e.g., `<your-hostname>`), usernames (`<your-username>`), and private environment flags. Feeds dynamically from the public framework via a local `git+file://` flake input. Never substitute real values here — this file is public.
-3. **Local Settings Layer (`~/dotfiles/.local/`, gitignored):** Machine-local identity and app selections read by `lib/local.nix`. May be a real directory (created interactively by `install.sh`) or a symlink to `~/dotfiles-private` (backing storage). Subfolders: `browsers/`, `editors/`, `hosts/` (reserved for the private flake — never auto-imported), plus `identity.nix` and `settings.nix`.
+---
 
-## 🧪 Local Settings Layer — Empirically Verified Nix Constraints
-These were verified by sandbox experiments (do not "simplify" them away):
-- **Gitignored files are invisible to `git+file:` flakes.** Relative reads like `builtins.pathExists ./.local/...` silently return `false` because untracked files are excluded from the store evaluation copy.
-- **The `path:` scheme is NOT a safe workaround.** It copies `.git/` into the store and hard-fails on `.git/fsmonitor--daemon.ipc` (this repo sets `core.fsmonitor = true`). With `.local` as an out-of-tree symlink, pure `path:` evaluation still resolves to MISSING.
-- **The working pattern:** absolute-path reads (`/. + "$DIR"`) under `--impure`. Works for BOTH a plain gitignored `.local/` directory and a `.local -> ~/dotfiles-private` symlink.
-- **Execution flags:** `scripts/bin/rebuild` always passes `--impure` and exports `DOTFILES_LOCAL` explicitly through `sudo env` (sudo may rewrite `$HOME`). `lib/local.nix` resolves `$DOTFILES_LOCAL` → `~/dotfiles/.local` → `~/dotfiles-private`, degrading to empty settings under pure evaluation so CI/cold clones stay green.
-- **`PACKAGE_SOURCE` convention:** `install.sh` maps menu options to `nix:<attr>` or `brew:cask:<name>` via a `case` lookup (macOS bash 3.2 — no associative arrays). Prefer Nixpkgs; fall back to casks for unfree/broken-on-darwin apps.
-- **AI tooling gate:** `dotfiles.ai.enable` (default false, from `.local/settings.nix` `ai.enable`) gates the Devin Desktop cask (`nix/modules/ai.nix`) and Windsurf/Devin config symlinks (`nix/home/home.nix`).
+## 1. What this repo is
 
-## 📜 Mandatory Operational Runbook
-You are strictly bound by the governance rules specified in our AI Contribution protocol. You must read the tracking documents before beginning your tasks:
-- **System Topography:** Read `docs/ARCHITECTURE.md` to identify where variables and software packages belong.
-- **Historical Context:** Read `docs/DECISIONS.md` to avoid re-introducing past failures or altering intentional exceptions.
-- **Workflow Control:** Follow `docs/AI_WORKFLOW.md` explicitly to navigate Planning, Implementation, and Loop Break rules.
+`ucod3/dotfiles` — a declarative, reproducible macOS environment built on Nix
+flakes, nix-darwin, Home Manager, nix-homebrew, and native Homebrew.
+
+The framework is **de-opinionated**: the core ships no GUI apps and no macOS
+tweaks. Every app set is opt-in (`dotfiles.apps.<set>.enable`, default `false`),
+as are the macOS defaults and the example home profile. `hosts/_template.nix` is
+the complete worked example.
+
+**Three layers.** Know which one owns a change before making it:
+
+1. **`~/dotfiles`** — this repo. Public, generic, safe to distribute.
+2. **`~/dotfiles-private`** — a downstream flake holding hostname/username
+   identity. Consumes this repo via `git+file://`. This public repo ships
+   `darwinConfigurations = { }` on purpose; hosts live downstream.
+3. **`.local/`** (gitignored) — machine-local settings read by `lib/local.nix`:
+   `identity.nix`, `settings.nix`, `apps.nix`, `browsers/choices.nix`,
+   `editors/choices.nix`, `hosts/` (reserved for the private flake, never
+   auto-imported). May be a real directory or a symlink to `~/dotfiles-private`.
+
+Depth on demand: `docs/ARCHITECTURE.md` (which layer owns what, plus the
+verified Nix constraints behind the `.local/` loader) and `docs/DECISIONS.md`
+(ADRs — read before reversing anything deliberate).
+
+---
+
+## 2. The `dot` CLI
+
+```
+dot bootstrap   # first-run setup on a fresh Mac (idempotent)
+dot rebuild     # resolve the private flake first, then this repo, and switch
+dot update      # update flake inputs + Homebrew, then rebuild
+dot validate    # full syntax + common-mistake checks (--quick skips Nix eval)
+dot apps        # add/remove/list applications
+dot secrets     # scan for leaked secrets
+dot hooks       # (re)install git pre-commit hooks
+```
+
+---
+
+## 3. Hard rules
+
+Cite these by number (`R4`) rather than restating them.
+
+- **R1 — Never modify `.local/`, `identity.nix`, or `settings.nix` in public
+  commits.** That layer is machine-local and gitignored by design. If a task
+  needs a setting changed there, tell the user what to add; do not commit it.
+- **R2 — Stage before evaluating.** Run `git add` on new or changed files before
+  any Nix evaluation. The flake evaluator reads the working tree for a dirty
+  repo but *excludes untracked files*, so an unstaged new file is silently
+  invisible and evaluation fails in confusing ways.
+- **R3 — No `builtins.getEnv` outside `lib/local.nix`.** It breaks pure
+  evaluation. `lib/local.nix` is the sole sanctioned exception (ADR-004), and
+  `dot validate` enforces exactly that scope.
+- **R4 — Don't "simplify" the `.local/` loader.** Relative paths and the `path:`
+  flake scheme both silently break (the latter copies `.git/` and hard-fails on
+  the `core.fsmonitor` socket). Keep absolute-path reads (`/. + "$DIR"`) under
+  `--impure`, and keep `scripts/bin/rebuild` passing `--impure` plus
+  `sudo env DOTFILES_LOCAL=... HOME=...` — sudo may rewrite `$HOME`. See ADR-004
+  and `docs/ARCHITECTURE.md`.
+- **R5 — Never default to a destructive or opinionated value on a fresh clone.**
+  Presence of a directory is not consent. A cold fork must get nothing
+  opinionated and nothing destructive. The `cold-is-nondestructive` flake check
+  pins this; see ADR-007 for the incident that motivated it.
+- **R6 — Blueprint before writing.** Present a short Markdown plan of what will
+  change, in which files, and why alternatives were passed over. Wait for
+  explicit approval before file-writing or running mutating commands.
+- **R7 — Strict rollback.** If a fix fails, revert to the last known-good commit
+  before trying an alternative. Do not stack fixes on top of a broken state.
+- **R8 — Three-strike circuit breaker.** After **3** consecutive failed attempts
+  against the same error, STOP. Do not attempt a 4th. Emit a post-mortem: what
+  you ran, what evidence you actually observed, what you believe the root
+  blocker is, and 3 options for human intervention.
+
+---
+
+## 4. Workflow
+
+1. **Understand** — read `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`
+   and the target files. Identify which of the three layers owns the change.
+2. **Blueprint** — R6. State edge cases. Do not edit yet.
+3. **Implement** — stay inside the approved scope. Don't touch adjacent modules
+   or run generic cleanup passes.
+4. **Verify** — §5 below. On repeated failure, invoke R8.
+5. **Review** — summarize what changed and any new assumptions or maintenance
+   burden the user has taken on.
+
+---
+
+## 5. Definition of done
+
+**Always run `scripts/bin/dot validate` before considering a task complete.**
+It checks, in order: zsh/bash syntax, shellcheck, Nix syntax, `nix flake check`,
+`bats tests/`, common-mistake greps, and git-tracking. `--quick` skips the slow
+Nix evaluation. Exit code is non-zero only on errors; warnings still pass.
+
+For changes touching Nix evaluation, also run `nix flake check` explicitly —
+that is what exercises the `cold`, `full` and `cold-is-nondestructive` checks.
+
+A fail-closed pre-commit hook runs `validate --quick` plus gitleaks on every
+commit. `dot secrets` runs the scan on demand. Never weaken or bypass it to make
+a commit succeed; a clean gitleaks result is only meaningful if rules actually
+loaded (ADR-006).

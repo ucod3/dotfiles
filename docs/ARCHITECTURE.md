@@ -24,5 +24,40 @@ When adding software to the Mac, follow this exact prioritization tree:
 
 ## 🛑 Common Anti-Patterns to Avoid
 - **Duplicate Declarations:** Do not install a tool via Home Manager packages if it is already provisioned globally inside nix-darwin.
-- **Hardcoded Home Directory Strings:** Never use explicit strings like `/Users/usmanbutt/` in any framework module or Zsh configuration. Always parse dynamically using `$HOME` or `$DOTFILES_ROOT`.
-- **Pure Evaluation Breaks:** Never introduce `builtins.getEnv` directly inside a Nix module file. It completely breaks pure evaluation and flake reproducibility.
+- **Hardcoded Home Directory Strings:** Never use explicit strings like `/Users/<you>/` in any framework module or Zsh configuration. Always parse dynamically using `$HOME` or `$DOTFILES_ROOT`.
+- **Pure Evaluation Breaks:** Never introduce `builtins.getEnv` into a Nix module. `lib/local.nix` is the single sanctioned exception (ADR-004) and `dot validate` enforces exactly that scope — see below.
+
+## 4. The `.local/` settings layer — verified Nix constraints
+
+These were established by experiment, not inference. Do not "simplify" them away
+(rule R4 in `AGENTS.md`); each bullet is a failure someone already hit.
+
+- **Gitignored files are invisible to `git+file:` flakes.** Relative reads like
+  `builtins.pathExists ./.local/...` silently return `false`, because untracked
+  files are excluded from the store copy used for evaluation. Note the
+  distinction that matters day to day: a *dirty* tree's **staged** changes are
+  visible; only **untracked** files are not. Hence R2, "stage before evaluating".
+- **The `path:` scheme is NOT a safe workaround.** It copies `.git/` into the
+  store and hard-fails on `.git/fsmonitor--daemon.ipc` (this repo sets
+  `core.fsmonitor = true`). With `.local` as an out-of-tree symlink, pure `path:`
+  evaluation still resolves to MISSING.
+- **The working pattern** is an absolute-path read (`/. + "$DIR"`) under
+  `--impure`. It is the only approach that works for BOTH a plain gitignored
+  `.local/` directory and a `.local -> ~/dotfiles-private` symlink.
+- **Execution flags:** `scripts/bin/rebuild` always passes `--impure` and exports
+  `DOTFILES_LOCAL` explicitly through `sudo env`, because sudo may rewrite
+  `$HOME`. `lib/local.nix` resolves `$DOTFILES_LOCAL` → `~/dotfiles/.local`,
+  degrading to empty settings under pure evaluation so CI and cold clones stay
+  green. Nothing in the loader throws.
+- **Detection is content-based, not existence-based.** A directory counts as a
+  settings layer only if it carries a recognized settings file (`settingsFiles`
+  in `lib/local.nix`, mirrored by `has_settings_layer()` in `scripts/bin/rebuild`
+  — keep the two in sync). `exists` gates nothing behavioural; modules read the
+  explicit `homebrewCleanup` / `macosDefaults` / `homeProfile` accessors, where
+  `null` means "unspecified" and the module supplies a safe default. See ADR-007.
+- **`.local/hosts/`** is reserved for the private flake and must never be
+  auto-imported by the loader (double-import conflicts).
+- **`PACKAGE_SOURCE` convention:** `install.sh` maps menu options to
+  `nix:<attr>` or `brew:cask:<name>` via a `case` lookup (macOS ships bash 3.2 —
+  no associative arrays). Prefer Nixpkgs; fall back to casks for apps that are
+  unfree or broken on darwin.

@@ -2,10 +2,10 @@
 
 This log records long-term structural decisions, trade-offs, and design choices. Agents must consult this log to ensure they do not reverse deliberate choices.
 
-## [ADR-001] Ghostty Installed via Homebrew Cask
+## [ADR-001] Ghostty Belongs to the Homebrew Cask Layer
 - **Context:** Ghostty can be compiled or packaged via Nix experimental derivations, but its macOS integration requires strict application sandboxing and access to native rendering hooks.
-- **Decision:** Ghostty is explicitly managed via the Homebrew Casks layer (`casks = [ "ghostty" ]`).
-- **Consequence:** Do not attempt to refactor Ghostty into a standard `nixpkgs` entry.
+- **Decision:** Ghostty is managed via the Homebrew Casks layer. Since the de-opinionated refactor the framework core declares no casks at all, so the declaration lives in the gitignored `.local/` layer (`casks = [ "ghostty" ]` in `settings.nix`, written by `install.sh`) rather than in `hosts/default.nix`. `nix/home/home.nix` still links its config file, gated on `dotfiles.home.ghostty.enable`.
+- **Consequence:** Do not attempt to refactor Ghostty into a standard `nixpkgs` entry. Do not "restore" a core cask declaration for it — the core ships no casks by design.
 
 ## [ADR-002] Deprecated `vim.loop` Avoidance
 - **Context:** Neovim 0.10+ deprecated the `vim.loop` API namespace in favor of the unified `vim.uv` module layer.
@@ -14,12 +14,12 @@ This log records long-term structural decisions, trade-offs, and design choices.
 
 ## [ADR-003] Downstream Flake Dynamic Syncing
 - **Context:** Private infrastructure identifiers cannot leak to public remotes. The local `git+file://` architecture binds them, but ignores uncommitted files.
-- **Decision:** A custom `PostToolUse` command hook automatically stages and auto-commits working adjustments.
-- **Consequence:** Rebuilds are evaluated against local committed state (`HEAD`). Do not remove or decouple the auto-commit hook.
+- **Decision:** A custom `PostToolUse` command hook automatically stages working adjustments. *(Amended by ADR-008: it stages only — the auto-commit was removed.)*
+- **Consequence:** Rebuilds evaluate against the working tree including staged changes; untracked files remain invisible, so new files must be `git add`ed (rule R2). Do not remove the auto-stage hook.
 
 ## [ADR-004] Impure `.local/` Settings Layer (Sanctioned `builtins.getEnv` Exception)
 - **Context:** The gitignored `.local/` layer (machine identity + app selections) is invisible to pure `git+file:` evaluation (untracked files are excluded from the store copy). Empirical sandbox tests showed the `path:` scheme is unsafe: it copies `.git/` into the store, hard-fails on the `core.fsmonitor` daemon socket, and still resolves out-of-tree `.local -> ~/dotfiles-private` symlinks to MISSING under pure evaluation.
-- **Decision:** `lib/local.nix` is the single sanctioned impure read point. It resolves `$DOTFILES_LOCAL` → `~/dotfiles/.local` → `~/dotfiles-private` via absolute paths (`/. + "$DIR"`), and `scripts/bin/rebuild` passes `--impure` plus `sudo env DOTFILES_LOCAL=... HOME=...` (sudo may rewrite `$HOME`). Under pure evaluation the loader degrades to empty settings so CI and cold clones evaluate green.
+- **Decision:** `lib/local.nix` is the single sanctioned impure read point. It resolves `$DOTFILES_LOCAL` → `~/dotfiles/.local` via absolute paths (`/. + "$DIR"`), and `scripts/bin/rebuild` passes `--impure` plus `sudo env DOTFILES_LOCAL=... HOME=...` (sudo may rewrite `$HOME`). Under pure evaluation the loader degrades to empty settings so CI and cold clones evaluate green. *(ADR-007 removed `~/dotfiles-private` from the candidate list; use the `.local -> ~/dotfiles-private` symlink instead.)*
 - **Consequence:** Do not add `builtins.getEnv` anywhere else (`validate` enforces this with a `lib/local.nix` exemption). Do not "simplify" the loader to relative paths or the `path:` scheme — both silently break. `.local/hosts/` is reserved for the private flake and must never be auto-imported by the loader (double-import conflicts).
 
 ## [ADR-005] Freeze on `global_rules.md` Expansion
@@ -43,3 +43,8 @@ This log records long-term structural decisions, trade-offs, and design choices.
   3. `exists` gates nothing behavioural. Modules read explicit tri-state accessors (`homebrewCleanup`, `macosDefaults`, `homeProfile`) where `null` means "unspecified" and the module supplies a non-destructive default.
   4. `homebrew.cleanup` defaults to `"none"` unconditionally, and an assertion refuses to evaluate `"uninstall"`/`"zap"` against an empty cask list.
 - **Consequence:** Pruning, macOS defaults and the example home profile are now explicit opt-ins written into `.local/settings.nix`. Existing machines that relied on the implicit defaults must add `homebrew.cleanup`, `system.macosDefaults.enable` and `home.exampleProfile.enable` to keep their current behaviour. The `cold-is-nondestructive` flake check pins the contract: never add a default that a fresh fork would experience as destructive or opinionated.
+
+## [ADR-008] `AGENTS.md` Is the Canonical Agent Contract (supersedes ADR-005)
+- **Context:** ADR-005 correctly diagnosed always-on context bloat, but its remedy was vendor-forked: it named `.devin/skills/` and root `CLAUDE.md` as the two destinations for guidance. The result was the duplication it set out to stop. A 2026-07-25 audit found the three-strike loop rule stated in four places — `config/windsurf/global_rules.md`, `.devin/rules/plan-and-execute-guardrail.md`, `.devin/skills/loop-preventer/SKILL.md` (all "3") and `docs/AI_WORKFLOW.md` ("2 consecutive times") — a direct contradiction in files that can all load at once. "Blueprint first" appeared three times, strict rollback twice, stage-before-eval three times, the `getEnv` exception five times. Meanwhile the *operational* contract was trapped in vendor files: "always run `dot validate`" and "never modify `.local/`" existed only in `CLAUDE.md`, and `AGENTS.md` never mentioned the `dot` CLI at all — so an agent arriving with no vendor folder could not learn how to validate its own work. `scripts/bin/validate` compounded this by hard-failing on untracked files under `.devin/` specifically, enforcing one vendor's hygiene as a repo-wide rule.
+- **Decision:** `AGENTS.md` is the single canonical, vendor-neutral agent contract: repo layout, the `dot` CLI, numbered hard rules **R1–R8**, workflow, and definition of done. Every vendor file becomes a thin pointer that restates nothing — `CLAUDE.md` (via `@AGENTS.md` import), `.devin/rules/`, `.cursor/rules/agents.mdc`, `.github/copilot-instructions.md`, and `config/windsurf/global_rules.md`, which reverts to genuinely machine-global content only. Rules are cited by number (`R4`), never re-prosed. The three-strike threshold is **3**, stated once in R8. `docs/AI_WORKFLOW.md` is absorbed into `AGENTS.md` §4. `validate`'s agent-config check iterates a vendor-neutral `AGENT_DIRS` list, checking only directories that exist.
+- **Consequence:** Adding a new AI tool costs ~5 lines pointing at `AGENTS.md`, and no rule can drift between vendors because no rule is stated twice. ADR-005's under-100-line always-on cap survives, reassigned to `AGENTS.md`. Do not copy rules back into any vendor file, and do not add repo-specific guidance to `global_rules.md` — it is injected into *every* workspace on the machine, not just this one. The auto-commit hook (ADR-003) is likewise reduced to auto-*stage*: `git add` is what makes `git+file:` evaluation correct, while the commit only published unreviewed content to permanent public history.
