@@ -47,6 +47,68 @@ removed this way; disable or override the set in `.local/settings.nix` instead.
 Whether removal actually uninstalls anything depends on `homebrew.cleanup`,
 which is `"none"` unless you opted in.
 
+## Adopting unmanaged files
+
+Bringing a file that already exists in `$HOME` under declarative management.
+
+```bash
+dot scan-unmapped                   # what is adoptable
+dot adopt ~/.claude/CLAUDE.md --dry-run
+dot adopt ~/.claude/CLAUDE.md
+dot rebuild
+```
+
+Adoption **moves** the file to `~/dotfiles-private/home/<rel>`, appends a
+mapping to `~/dotfiles-private/home.nix`, and stages both. Nothing is written
+to this repo, and nothing is committed for you.
+
+```nix
+home.file.".claude/CLAUDE.md".source = ./home/.claude/CLAUDE.md;
+```
+
+The source is a **path literal**, not an interpolated string. The literal is
+copied into the store as part of the flake source, so it evaluates purely and
+reproduces on another machine; an absolute-path string would make Home Manager
+call `builtins.path` on a context-free string — an impure read that only
+resolves under `--impure` and is invisible to git.
+
+Two consequences worth internalising:
+
+- **Between the adopt and the rebuild, the path does not exist.** The file has
+  moved and Home Manager has not yet recreated it. Rebuild promptly.
+- **The deployed file is read-only**, because it is a `/nix/store` symlink.
+  Edit the copy under `~/dotfiles-private/home/` and rebuild. Editing in place
+  is not possible, by design.
+
+`home.nix` only applies if a host module imports it. `dot adopt` warns when
+nothing does:
+
+```nix
+users.${user}.imports = [
+  inputs.dotfiles.darwinModules.homeEnvironment
+  ../home.nix
+];
+```
+
+### What adoption refuses
+
+Credential paths (`.ssh`, `.gnupg`, `.aws`, `.config/gh`, `.claude.json`) are
+refused outright — committing them to any git repo writes them into history
+permanently.
+
+The subtler refusal is **any directory Home Manager already owns files inside**.
+HM writes per-file symlinks into real directories:
+
+```
+~/.config/nvim/          real directory
+├── init.lua        →    /nix/store/…-home-manager-files/…   managed
+└── lazy-lock.json                                           unmanaged
+```
+
+Adopting `~/.config/nvim` would move that store symlink into the private repo
+and hand the path two owners. `scan-unmapped` reports these as *partially
+managed*; adopt the individual unmanaged file instead.
+
 ## Rolling back
 
 ### Nix generations

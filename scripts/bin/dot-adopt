@@ -1,0 +1,461 @@
+#!/usr/bin/env bash
+#
+# dot-adopt — turn unmanaged $HOME files into declarative Home Manager mappings
+#
+# Two subcommands, both dispatched from `dot`:
+#
+#   dot scan-unmapped          List adoption candidates under $HOME and ~/.config
+#   dot adopt <path>           Move a path into ~/dotfiles-private and declare it
+#
+# Adoption moves the real file into ~/dotfiles-private/home/<rel>, appends a
+# `home.file."<rel>".source = ./home/<rel>;` mapping to ~/dotfiles-private/home.nix,
+# and stages both in that repo. After `dot rebuild`, ~/<rel> becomes a symlink
+# into /nix/store — read-only by design. Edit the copy in dotfiles-private and
+# rebuild; do not edit the symlink target.
+#
+# Why the mapping uses a path literal (./home/<rel>) rather than an interpolated
+# string: a path literal is copied into the store as part of the flake source,
+# so it evaluates purely and reproduces on another machine. An absolute-path
+# string would make Home Manager call builtins.path on a context-free string —
+# an impure read that only resolves under --impure and is invisible to git.
+#
+# Why staging is mandatory: ~/dotfiles-private is consumed via `git+file://`.
+# The evaluator reads the working tree but EXCLUDES untracked files, so an
+# unstaged adoption is silently invisible and fails in confusing ways (R2).
+#
+# Usage:
+#   dot scan-unmapped
+#   dot adopt ~/.claude/CLAUDE.md
+#   dot adopt ~/.config/neofetch --dry-run
+#
+
+set -euo pipefail
+
+DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+PRIVATE_ROOT="${DOTFILES_PRIVATE:-$HOME/dotfiles-private}"
+
+# shellcheck source=../../lib/log.sh
+source "$DOTFILES_ROOT/lib/log.sh"
+
+ADOPT_SUBDIR="home"
+ADOPT_DIR="$PRIVATE_ROOT/$ADOPT_SUBDIR"
+HOME_NIX="$PRIVATE_ROOT/home.nix"
+
+# Insertion marker. New mappings go directly above this line, so appending
+# never has to guess where the attribute set ends.
+SENTINEL="# dot-adopt:entries — new mappings are inserted directly above this line."
+
+# $HOME with symlinks resolved, so prefix comparisons are reliable.
+HOME_PHYS="$(cd "$HOME" && pwd -P)"
+
+# ── Path classification data ──────────────────────────────────────────────────
+
+# Never adoptable: credential material. Committing these to a git repo — even a
+# private one — writes them into history permanently. Refused outright rather
+# than warned about, since a warning is easy to click past.
+SECRET_PATHS=(
+  ".ssh" ".gnupg" ".aws" ".netrc" ".docker"
+  ".config/gh" ".config/github-copilot" ".config/op"
+  ".claude.json" ".codeium" ".supermaven" ".antigravity"
+)
+
+# Machine-local churn: caches, histories, compiled artefacts, trash. Nothing
+# here is worth version control, and several are rewritten continuously.
+# Entries are glob patterns, matched against the whole path or any parent of it.
+NOISE_PATHS=(
+  ".cache" ".Trash" ".DS_Store" ".CFUserTextEncoding" ".viminfo"
+  ".npm" ".pnpm-state" ".nix-defexpr" ".nix-profile" ".nix-channels"
+  ".local" ".oh-my-zsh" ".zsh_sessions" ".zsh_history"
+  ".Xauthority" ".lesshst" ".node_repl_history" ".python_history"
+  ".config/Code - Insiders" ".config/nvim.pre-home-manager"
+  # Compiled zsh completion caches. Machine- and version-suffixed, rewritten
+  # on almost every shell start, and meaningless on another host.
+  ".zcompdump*"
+)
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+die() {
+  log_error "$1"
+  exit 1
+}
+
+# Fully resolve a symlink chain. Prints the final target, or the input itself
+# when it is not a symlink. Bounded so a cyclic link cannot hang the script.
+resolve_link() {
+  local p="$1" hops=0 target
+  while [[ -L "$p" ]]; do
+    hops=$(( hops + 1 ))
+    if (( hops > 40 )); then
+      printf '%s\n' "$p"
+      return 1
+    fi
+    target="$(readlink "$p")"
+    case "$target" in
+      /*) p="$target" ;;
+      *)  p="$(dirname "$p")/$target" ;;
+    esac
+  done
+  printf '%s\n' "$p"
+}
+
+# Absolute path with the parent resolved physically, but the final component
+# left untouched — we must be able to see that the target itself is a symlink.
+to_abs() {
+  local p="$1" parent base
+  [[ "$p" == /* ]] || p="$PWD/$p"
+  p="${p%/}"
+  [[ -n "$p" ]] || p="/"
+  parent="$(dirname "$p")"
+  base="$(basename "$p")"
+  parent="$(cd "$parent" 2>/dev/null && pwd -P)" || return 1
+  printf '%s\n' "${parent%/}/$base"
+}
+
+is_store_symlink() {
+  local p="$1" target
+  [[ -L "$p" ]] || return 1
+  target="$(resolve_link "$p")"
+  [[ "$target" == /nix/store/* ]]
+}
+
+is_adopted_symlink() {
+  local p="$1" target
+  [[ -L "$p" ]] || return 1
+  target="$(resolve_link "$p")"
+  [[ "$target" == "$PRIVATE_ROOT"/* ]]
+}
+
+# Count symlinks into /nix/store beneath a directory. A non-zero count means
+# Home Manager already owns files inside it, so adopting the directory would
+# move store symlinks into the private repo and give those paths two owners.
+# $2 caps the search depth: scanning uses a shallow probe for speed, adoption
+# uses an unbounded one because a missed link there corrupts HM state.
+count_store_links() {
+  local dir="$1" maxdepth="${2:-}" link target count=0
+  local -a find_args=("$dir")
+  [[ -n "$maxdepth" ]] && find_args+=(-maxdepth "$maxdepth")
+  find_args+=(-type l)
+  while IFS= read -r link; do
+    target="$(resolve_link "$link")"
+    [[ "$target" == /nix/store/* ]] && count=$(( count + 1 ))
+  done < <(find "${find_args[@]}" 2>/dev/null)
+  printf '%s\n' "$count"
+}
+
+# Match a path against a list of glob patterns, treating a match on any parent
+# as a match (".ssh" also covers ".ssh/config").
+list_match() {
+  local needle="$1"
+  shift
+  local item
+  for item in "$@"; do
+    # shellcheck disable=SC2254  # unquoted on purpose: list entries are globs
+    case "$needle" in
+      $item|$item/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# Home Manager attribute names are quoted strings; a path containing a quote or
+# backslash would break out of the generated Nix. Refuse rather than escape —
+# no legitimate dotfile needs those characters.
+valid_rel() {
+  local rel="$1"
+  [[ "$rel" =~ ^[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]*$ ]] || return 1
+  [[ "$rel" == *".."* ]] && return 1
+  return 0
+}
+
+require_private_repo() {
+  [[ -d "$PRIVATE_ROOT" ]] \
+    || die "Private flake not found at $PRIVATE_ROOT (set DOTFILES_PRIVATE to override)"
+  git -C "$PRIVATE_ROOT" rev-parse --git-dir >/dev/null 2>&1 \
+    || die "$PRIVATE_ROOT is not a git repository — adoption requires it (R2)"
+}
+
+# ── scan-unmapped ─────────────────────────────────────────────────────────────
+
+# Classify one home-relative path. Prints "STATUS|NOTE".
+classify() {
+  local abs="$1" rel="$2" links
+
+  if list_match "$rel" "${SECRET_PATHS[@]}"; then
+    printf 'SECRET|credential material — never adopt\n'
+    return
+  fi
+  if list_match "$rel" "${NOISE_PATHS[@]}"; then
+    printf 'NOISE|machine-local churn\n'
+    return
+  fi
+  if [[ "$abs" == "$DOTFILES_ROOT" || "$abs" == "$DOTFILES_ROOT"/* \
+     || "$abs" == "$PRIVATE_ROOT" || "$abs" == "$PRIVATE_ROOT"/* ]]; then
+    printf 'REPO|already a dotfiles repository\n'
+    return
+  fi
+  if is_store_symlink "$abs"; then
+    printf 'MANAGED|symlink into /nix/store\n'
+    return
+  fi
+  if is_adopted_symlink "$abs"; then
+    printf 'ADOPTED|symlink into dotfiles-private\n'
+    return
+  fi
+  if [[ -e "$ADOPT_DIR/$rel" ]]; then
+    printf 'PENDING|adopted, awaiting `dot rebuild`\n'
+    return
+  fi
+  if [[ -d "$abs" && ! -L "$abs" ]]; then
+    links="$(count_store_links "$abs" 3)"
+    if [[ "$links" != "0" ]]; then
+      printf 'PARTIAL|%s managed file(s) inside — adopt individually\n' "$links"
+      return
+    fi
+    printf 'CANDIDATE|directory\n'
+    return
+  fi
+  printf 'CANDIDATE|file\n'
+}
+
+cmd_scan() {
+  local -a candidates=() partial=()
+  local skipped=0 managed=0
+  local entry abs rel result status note
+
+  # $HOME: hidden entries only — visible ones are Documents, Desktop, and other
+  # user data that has no business in a dotfiles repo.
+  # ~/.config: everything, since that directory is entirely configuration.
+  while IFS= read -r abs; do
+    [[ -e "$abs" || -L "$abs" ]] || continue
+    rel="${abs#"$HOME_PHYS"/}"
+    result="$(classify "$abs" "$rel")"
+    status="${result%%|*}"
+    note="${result#*|}"
+    case "$status" in
+      CANDIDATE) candidates+=("$rel|$note") ;;
+      PARTIAL)   partial+=("$rel|$note") ;;
+      MANAGED|ADOPTED|PENDING) managed=$(( managed + 1 )) ;;
+      *)         skipped=$(( skipped + 1 )) ;;
+    esac
+  # .config is excluded from the top-level pass and descended into instead —
+  # otherwise it always reports as partially managed, which is true but useless.
+  done < <(
+    find "$HOME_PHYS" -mindepth 1 -maxdepth 1 -name '.*' ! -name '.config' 2>/dev/null
+    [[ -d "$HOME_PHYS/.config" ]] \
+      && find "$HOME_PHYS/.config" -mindepth 1 -maxdepth 1 2>/dev/null
+  )
+
+  section "Adoption candidates"
+  if (( ${#candidates[@]} == 0 )); then
+    pass "Nothing unmanaged found under \$HOME or ~/.config"
+  else
+    printf '\n  %-40s %s\n' "PATH" "KIND"
+    printf '  %-40s %s\n' "----------------------------------------" "---------"
+    for entry in "${candidates[@]}"; do
+      # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+      printf '  %-40s %s\n' "~/${entry%%|*}" "${entry#*|}"
+    done
+    printf '\n'
+    log_info "Adopt one with:  dot adopt ~/<path>"
+  fi
+
+  if (( ${#partial[@]} > 0 )); then
+    section "Partially managed — not adoptable as a whole"
+    printf '\n'
+    for entry in "${partial[@]}"; do
+      # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+      printf '  %-40s %s\n' "~/${entry%%|*}" "${entry#*|}"
+    done
+    printf '\n'
+    log_warning "Home Manager already owns files inside these directories."
+    log_warning "Adopt the specific unmanaged file instead, never the directory."
+  fi
+
+  section "Summary"
+  pass "$managed already managed or adopted"
+  pass "$skipped skipped (credentials, caches, repositories)"
+  pass "${#candidates[@]} available to adopt"
+  echo ""
+}
+
+# ── adopt ─────────────────────────────────────────────────────────────────────
+
+ensure_home_nix() {
+  [[ -f "$HOME_NIX" ]] && return 0
+
+  log_step "Creating $HOME_NIX"
+  cat > "$HOME_NIX" <<EOF
+# Home Manager mappings for files adopted out of \$HOME.
+#
+# Generated and appended to by \`dot adopt\`. Each entry moves a real file into
+# ./$ADOPT_SUBDIR/ and hands ownership of the \$HOME path to Home Manager, which
+# materialises it as a read-only symlink into /nix/store.
+#
+# To change an adopted file, edit the copy under ./$ADOPT_SUBDIR/ and run
+# \`dot rebuild\` — the deployed symlink is not writable.
+{ ... }:
+
+{
+  home.file = {
+    $SENTINEL
+  };
+}
+EOF
+}
+
+# The mapping is inserted above the sentinel rather than appended to the end of
+# the file, so the generated Nix stays syntactically valid without parsing it.
+append_mapping() {
+  local rel="$1" tmp
+
+  grep -qF "$SENTINEL" "$HOME_NIX" || die \
+    "$HOME_NIX has no dot-adopt sentinel. Add this line inside its home.file block:
+    $SENTINEL"
+
+  tmp="$(mktemp -t dot-adopt.XXXXXX)"
+  while IFS= read -r line; do
+    if [[ "$line" == *"$SENTINEL"* ]]; then
+      printf '    "%s".source = ./%s/%s;\n' "$rel" "$ADOPT_SUBDIR" "$rel"
+    fi
+    printf '%s\n' "$line"
+  done < "$HOME_NIX" > "$tmp"
+  mv "$tmp" "$HOME_NIX"
+}
+
+# home.nix is inert unless a host module imports it. Silence here would mean a
+# successful adoption that never deploys.
+warn_if_unwired() {
+  local hits
+  hits="$(grep -rl 'home\.nix' "$PRIVATE_ROOT" \
+    --include='*.nix' --exclude='home.nix' 2>/dev/null || true)"
+  [[ -n "$hits" ]] && return 0
+
+  log_warning "No module in $PRIVATE_ROOT imports home.nix — adoptions will NOT deploy."
+  log_warning "Add ./home.nix to the Home Manager user module in your host file:"
+  echo ""
+  echo "    users.\${user}.imports = ["
+  echo "      inputs.dotfiles.darwinModules.homeEnvironment"
+  echo "      ./home.nix"
+  echo "    ];"
+  echo ""
+}
+
+cmd_adopt() {
+  local target="" dry_run=false arg
+  for arg in "$@"; do
+    case "$arg" in
+      --dry-run) dry_run=true ;;
+      -*)        die "Unknown option: $arg" ;;
+      *)
+        [[ -n "$target" ]] && die "Adopt takes exactly one path (got '$target' and '$arg')"
+        target="$arg"
+        ;;
+    esac
+  done
+  [[ -n "$target" ]] || die "Usage: dot adopt <path-in-home> [--dry-run]"
+
+  require_private_repo
+
+  local abs rel dest links
+  abs="$(to_abs "$target")" || die "Cannot resolve path: $target"
+
+  # ── Guards ──
+  [[ -e "$abs" || -L "$abs" ]] || die "Path does not exist: $abs"
+
+  [[ "$abs" == "$HOME_PHYS"/* ]] \
+    || die "Path is outside \$HOME, so it has no home-relative mapping: $abs"
+
+  rel="${abs#"$HOME_PHYS"/}"
+
+  valid_rel "$rel" \
+    || die "Refusing '$rel' — path contains characters that cannot be safely quoted in Nix"
+
+  [[ "$abs" == "$DOTFILES_ROOT"/* || "$abs" == "$PRIVATE_ROOT"/* ]] \
+    && die "Path is already inside a dotfiles repository: $abs"
+
+  if list_match "$rel" "${SECRET_PATHS[@]}"; then
+    die "Refusing to adopt '$rel' — credential material must never enter git history"
+  fi
+
+  is_store_symlink "$abs" \
+    && die "Already managed: $rel is a symlink into /nix/store"
+
+  is_adopted_symlink "$abs" \
+    && die "Already adopted: $rel points into $PRIVATE_ROOT"
+
+  dest="$ADOPT_DIR/$rel"
+  [[ -e "$dest" ]] \
+    && die "Destination already exists: $dest (adopted previously — run 'dot rebuild')"
+
+  if [[ -f "$HOME_NIX" ]] && grep -qF "\"$rel\".source" "$HOME_NIX"; then
+    die "A mapping for '$rel' already exists in $HOME_NIX"
+  fi
+
+  # The guard that matters most: adopting a directory Home Manager already
+  # writes into would move its store symlinks here and create a second owner.
+  if [[ -d "$abs" && ! -L "$abs" ]]; then
+    links="$(count_store_links "$abs")"
+    if [[ "$links" != "0" ]]; then
+      die "Refusing to adopt directory '$rel' — it contains $links Home Manager symlink(s).
+    Adopting it would move /nix/store links into the private repo and give those
+    paths two owners. Adopt the individual unmanaged files inside it instead."
+    fi
+  fi
+
+  # ── Report ──
+  log_info "Adopting: ~/$rel"
+  log_info "  from:   $abs"
+  log_info "  to:     $dest"
+  log_info "  map:    home.file.\"$rel\".source = ./$ADOPT_SUBDIR/$rel;"
+
+  if [[ "$dry_run" == true ]]; then
+    echo ""
+    log_success "Dry run — nothing was moved or written."
+    return 0
+  fi
+
+  # ── Mutate ──
+  log_step "Moving into $PRIVATE_ROOT"
+  mkdir -p "$(dirname "$dest")"
+  mv "$abs" "$dest"
+
+  ensure_home_nix
+
+  # If declaring the mapping fails, put the file back rather than leaving the
+  # user with a moved file and no declaration (R7 — no stacking on a broken state).
+  if ! append_mapping "$rel"; then
+    log_error "Failed to write the mapping — restoring $abs"
+    mv "$dest" "$abs"
+    exit 1
+  fi
+
+  log_step "Staging in $PRIVATE_ROOT (R2 — the evaluator ignores untracked files)"
+  git -C "$PRIVATE_ROOT" add -- "$ADOPT_SUBDIR/$rel" "home.nix"
+
+  echo ""
+  log_success "Adopted ~/$rel"
+  echo ""
+  # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+  log_info "~/$rel no longer exists on disk — Home Manager recreates it on rebuild."
+  log_info "Staged in $PRIVATE_ROOT but NOT committed; review and commit yourself."
+  echo ""
+  warn_if_unwired
+  log_info "Next:  dot rebuild"
+  echo ""
+}
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+
+  case "$cmd" in
+    scan-unmapped) cmd_scan "$@" ;;
+    adopt)         cmd_adopt "$@" ;;
+    *)             die "dot-adopt: expected 'adopt' or 'scan-unmapped', got '$cmd'" ;;
+  esac
+}
+
+main "$@"

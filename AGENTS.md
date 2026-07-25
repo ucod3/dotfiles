@@ -45,9 +45,16 @@ dot rebuild     # resolve the private flake first, then this repo, and switch
 dot update      # update flake inputs + Homebrew, then rebuild
 dot validate    # full syntax + common-mistake checks (--quick skips Nix eval)
 dot apps        # add/remove/list applications
+dot scan-unmapped  # list unmanaged $HOME paths available for adoption
+dot adopt <path>   # move a $HOME path into the private flake and declare it
 dot secrets     # scan for leaked secrets
 dot hooks       # (re)install git pre-commit hooks
 ```
+
+`dot adopt` writes to `~/dotfiles-private`, never to this repo, and stages what
+it moves (R2). It refuses any directory Home Manager already owns files inside —
+adopting one would move `/nix/store` symlinks into the private repo and leave
+two owners for the same paths. See `docs/OPERATIONS.md`.
 
 ---
 
