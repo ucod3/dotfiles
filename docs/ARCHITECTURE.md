@@ -10,7 +10,8 @@ This document outlines the operational boundaries for each system management fra
 
 ### 2. Home Manager (`nix/home/home.nix`)
 - **Responsibility:** Isolated user-space configurations, explicit application settings (Neovim init files, custom Zsh plugin initializers), environment variables (`.zshenv`), paths, and user-space binaries.
-- **Nix Target:** `home.packages`, `programs.zsh`, `xdg.configFile`.
+- **Nix Target:** `home.packages`, `programs.zsh`, `xdg.configFile`, `home.file`.
+- **XDG vs native macOS paths:** `xdg.configFile` is correct for tools that read `$XDG_CONFIG_HOME` (git, nvim, ghostty). It is **wrong** for macOS-native apps: VS Code, Cursor and their forks read `~/Library/Application Support/<Variant>/User/`, never `$XDG_CONFIG_HOME`. Those go through `home.file "Library/Application Support/…"`. Writing them to the XDG path produces a settings file no editor ever opens.
 
 ### 3. Homebrew / nix-homebrew
 - **Responsibility:** Graphical User Interface (GUI) `.app` bundles, closed-source dependencies, proprietary utilities, and Mac App Store (MAS) targets.
@@ -24,8 +25,27 @@ When adding software to the Mac, follow this exact prioritization tree:
 
 ## 🛑 Common Anti-Patterns to Avoid
 - **Duplicate Declarations:** Do not install a tool via Home Manager packages if it is already provisioned globally inside nix-darwin.
-- **Hardcoded Home Directory Strings:** Never use explicit strings like `/Users/<you>/` in any framework module or Zsh configuration. Always parse dynamically using `$HOME` or `$DOTFILES_ROOT`.
+- **Hardcoded Home Directory Strings:** Never use explicit strings like `/Users/<you>/` in any framework module or Zsh configuration. Always parse dynamically using `$HOME` or `$DOTFILES_ROOT`. In shell scripts, call the accessors in `lib/paths.sh` (`dotfiles_root`, `private_flake_root`, `local_dir`) rather than re-deriving a fallback — eight scripts once hardcoded `$HOME/dotfiles` and two of them disagreed about the private flake's variable name.
 - **Pure Evaluation Breaks:** Never introduce `builtins.getEnv` into a Nix module. `lib/local.nix` is the single sanctioned exception (ADR-004) and `dot validate` enforces exactly that scope — see below.
+- **Imperative Writes from Declarative Config:** Never have a shell rc, activation script or module write a file the system cannot later retract. `config/zsh/modules/utils.zsh` used to create `~/.local/bin/{npm,npx,yarn}` on first shell start; no rebuild or generation rollback could remove them (ADR-011).
+
+## 🧩 What the framework manages, and what it does not
+
+The framework **installs applications** (casks, Nix packages, MAS apps) and owns
+a small set of **core configs**: git, Neovim, zsh, and — behind `dotfiles.home.*`
+toggles — VS Code/Cursor settings and the Ghostty config.
+
+It does **not** aim to manage every tool's dotfile. Two mechanisms exist for
+everything else, and neither involves adding cases to this repo:
+
+| Need | Mechanism |
+|---|---|
+| A config that already exists in `$HOME` | `dot adopt <path>` — moves it into the private flake under declarative management |
+| Shell aliases, exports, tool init | `config/zsh/custom.local.zsh` or `~/.zshrc.local` — gitignored, sourced last, never clobbered |
+
+Anything opinionated that *does* ship here is gated behind a `dotfiles.*` option
+defaulting to off, and `checks.cold-is-nondestructive` asserts the resolved cold
+values so a regression fails evaluation rather than shipping (ADR-007, ADR-011).
 
 ## 4. The `.local/` settings layer — verified Nix constraints
 
@@ -43,9 +63,10 @@ revision, so the `git+file:` working-tree semantics below apply to
   distinction that matters day to day: a *dirty* tree's **staged** changes are
   visible; only **untracked** files are not. Hence R2, "stage before evaluating".
 - **The `path:` scheme is NOT a safe workaround.** It copies `.git/` into the
-  store and hard-fails on `.git/fsmonitor--daemon.ipc` (this repo sets
-  `core.fsmonitor = true`). With `.local` as an out-of-tree symlink, pure `path:`
-  evaluation still resolves to MISSING.
+  store and hard-fails on `.git/fsmonitor--daemon.ipc` (`core.fsmonitor = true`,
+  now in `config/git/config-opinionated` — but assume any contributor may have it
+  on). With `.local` as an out-of-tree symlink, pure `path:` evaluation still
+  resolves to MISSING.
 - **The working pattern** is an absolute-path read (`/. + "$DIR"`) under
   `--impure`. It is the only approach that works for BOTH a plain gitignored
   `.local/` directory and a `.local -> ~/dotfiles-private` symlink.
@@ -65,4 +86,13 @@ revision, so the `git+file:` working-tree semantics below apply to
 - **`PACKAGE_SOURCE` convention:** `install.sh` maps menu options to
   `nix:<attr>` or `brew:cask:<name>` via a `case` lookup (macOS ships bash 3.2 —
   no associative arrays). Prefer Nixpkgs; fall back to casks for apps that are
-  unfree or broken on darwin.
+  unfree or broken on darwin. The curated lists are a starting point, not a
+  boundary: each menu also takes free-text cask names, which are passed through
+  unmapped.
+- **Reading `.local/` from shell must not be line-oriented.** `dot apps` writes
+  `apps.nix` one entry per line, but `install.sh` writes single-line lists
+  (`casks = [ "firefox" "google-chrome" ];`). A matcher that skips the opening
+  line and stops at a lone `];` reads those as empty and then runs on into the
+  next list. `scripts/bin/apps` scans by bracket depth, tracking string and
+  comment state, and understands both plain attributes and `mkOption` defaults
+  (the app sets use the latter).

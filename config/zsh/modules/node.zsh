@@ -20,6 +20,12 @@
 # PNPM_HOME and its PATH entry are set once in config/zsh/.zshenv, which is
 # sourced before this module for every shell. Do not re-declare them here.
 
+# Global npm installs go to ~/.local rather than the Nix store path npm would
+# otherwise pick (which is read-only). This lives here, not in exports.zsh,
+# because it is part of this opt-in Node workflow: a shell that never enabled
+# `dotfiles.home.zsh.nodeWorkflow` should not have npm's prefix rewritten.
+export npm_config_prefix="$HOME/.local"
+
 # Install a Node.js version via pnpm (pnpm 11+ API)
 _pnpm_install_node() {
   local version="$1"

@@ -1,27 +1,21 @@
 # utils.zsh — General-purpose shell utilities
 # Part of: config/zsh/modules/
-
-# Create npm/npx/yarn shim wrappers in ~/.local/bin (runs once per machine)
-if [ ! -f "$HOME/.local/bin/npm" ]; then
-  mkdir -p "$HOME/.local/bin"
-  cat > "$HOME/.local/bin/npm" << 'EOS'
-#!/bin/sh
-exec pnpm "$@"
-EOS
-  chmod +x "$HOME/.local/bin/npm"
-
-  cat > "$HOME/.local/bin/npx" << 'EOS'
-#!/bin/sh
-exec pnpx "$@"
-EOS
-  chmod +x "$HOME/.local/bin/npx"
-
-  cat > "$HOME/.local/bin/yarn" << 'EOS'
-#!/bin/sh
-exec pnpm "$@"
-EOS
-  chmod +x "$HOME/.local/bin/yarn"
-fi
+#
+# REMOVED (ADR-011): this file used to write executable `npm`, `npx` and `yarn`
+# shims into ~/.local/bin on first shell start, each one `exec pnpm "$@"`. That
+# was wrong three times over. It was imperative — a file written by a shell
+# rc, outside Nix's knowledge, that no rebuild or rollback could ever retract.
+# It was global — ~/.local/bin is early on PATH, so it broke `npm` for every
+# process on the machine, not just interactive shells. And it was unconditional
+# — it ran on a cold fork where pnpm is not even installed, leaving a shim that
+# execs a command that does not exist.
+#
+# If a machine still has them from a previous install, remove them by hand:
+#     rm -f ~/.local/bin/npm ~/.local/bin/npx ~/.local/bin/yarn
+# Declarative config cannot clean up an imperative write it no longer makes.
+#
+# The supported way to prefer pnpm is `dotfiles.home.zsh.personalAliases.enable`,
+# which aliases npm→pnpm for interactive shells only, and only when pnpm exists.
 
 # mkcd — create a directory and cd into it immediately
 mkcd() {
@@ -34,7 +28,13 @@ mkcd() {
 #   aliases git     → filter by keyword
 aliases() {
   local search="${1:-}"
-  local modules_dir="${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/modules"
+  local dotfiles="${DOTFILES_ROOT:-$HOME/dotfiles}"
+  local modules_dir="$dotfiles/config/zsh/modules"
+
+  # Your own unmanaged files are searched too — otherwise `aliases` reports on
+  # the framework's aliases while staying blind to the ones you actually wrote.
+  local -a sources
+  sources=("$modules_dir"/*.zsh(N) "$dotfiles/config/zsh/custom.local.zsh"(N) "$HOME/.zshrc.local"(N))
 
   echo ""
   echo "── Your Aliases ─────────────────────────────"
@@ -42,7 +42,7 @@ aliases() {
   if [[ -n "$search" ]]; then
     echo "  (filtered: '$search')"
     echo ""
-    grep -h "^alias" "$modules_dir"/*.zsh 2>/dev/null \
+    grep -h "^alias" "${sources[@]}" 2>/dev/null \
       | grep -i "$search" \
       | sed "s/^alias /  /" | sort
     echo ""
@@ -50,7 +50,7 @@ aliases() {
     alias | grep -i "$search" | grep -v "^aliases\b" | sed "s/^/  /" | head -20
   else
     echo ""
-    for f in "$modules_dir"/*.zsh; do
+    for f in "${sources[@]}"; do
       local hits
       hits=$(grep "^alias" "$f" 2>/dev/null | sed "s/^alias /  /" | sort)
       if [[ -n "$hits" ]]; then
@@ -62,7 +62,7 @@ aliases() {
     echo "── Tip ──────────────────────────────────────"
     echo "  aliases git    → filter by keyword"
     echo "  alias          → show ALL aliases (including OMZ)"
-    echo "  change         → edit your dotfiles"
+    echo "  change         → edit your own custom.local.zsh"
   fi
   echo "─────────────────────────────────────────────"
   echo ""

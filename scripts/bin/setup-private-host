@@ -1,36 +1,105 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
-PRIVATE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
+PRIVATE_ROOT="$(private_flake_root)"
 HOSTNAME="$(hostname -s)"
 USER_NAME="$(id -un)"
+FORK=""
 
 # Flakes are not enabled by the stock Nix installer, and `nix flake lock` below
 # is one of the first flake commands a fresh machine ever runs.
 # shellcheck source=../../lib/nix.sh
 source "$DOTFILES_ROOT/lib/nix.sh"
+# Shared home.nix stub + adoption sentinel (also used by scripts/bin/dot-adopt)
+# shellcheck source=../../lib/private-flake.sh
+source "$DOTFILES_ROOT/lib/private-flake.sh"
+
+# The upstream this framework is published from. Used ONLY to detect that an
+# adopter is about to pin their live system to someone else's repository — it is
+# never written into a generated flake unless the adopter says so. See ADR-010.
+UPSTREAM_SLUG="ucod3/dotfiles"
 
 usage() {
-  echo "Usage: setup-private-host [--host NAME] [--user NAME]"
+  echo "Usage: setup-private-host [--host NAME] [--user NAME] [--fork OWNER/REPO]"
   echo
   echo "Generates ~/dotfiles-private, the downstream flake holding this machine's"
   echo "hostname and username. This repo ships no darwinConfigurations on purpose."
+  echo
+  echo "Options:"
+  echo "  --host NAME        Host to configure (default: hostname -s)"
+  echo "  --user NAME        macOS username (default: id -un)"
+  echo "  --fork OWNER/REPO  Pin the private flake to this fork of the framework"
+  echo "                     instead of whatever 'origin' happens to be. Also"
+  echo "                     settable as \$DOTFILES_FORK."
+  echo
+  echo "Re-running on a second Mac adds that machine to an existing private"
+  echo "flake; the flake enumerates hosts/ itself, so there is nothing to edit."
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --host) HOSTNAME="$2"; shift 2 ;;
     --user) USER_NAME="$2"; shift 2 ;;
+    --fork) FORK="$2"; shift 2 ;;
+    --fork=*) FORK="${1#*=}"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
+[[ -n "$FORK" ]] || FORK="${DOTFILES_FORK:-}"
+
 if [[ ! "$HOSTNAME" =~ ^[A-Za-z0-9_-]+$ || ! "$USER_NAME" =~ ^[A-Za-z0-9_-]+$ ]]; then
   echo "Unsupported hostname or username for generated Nix configuration." >&2
   exit 1
 fi
+
+# Normalize a git remote URL to an OWNER/REPO slug, or print nothing.
+github_slug() {
+  local remote="$1" path
+  case "$remote" in
+    git@github.com:*/*)
+      path="${remote#git@github.com:}"
+      printf '%s\n' "${path%.git}"
+      ;;
+    https://github.com/*/* | ssh://git@github.com/*/*)
+      path="${remote#*github.com/}"
+      printf '%s\n' "${path%.git}"
+      ;;
+  esac
+}
+
+# Ask, once, whether the adopter really means to pin someone else's repository.
+# Only prompts on a TTY: bootstrap and CI must never block. See ADR-010.
+resolve_fork() {
+  local answer=""
+
+  echo "The 'origin' of $DOTFILES_ROOT is the upstream framework ($UPSTREAM_SLUG)." >&2
+  echo "Pinning your private flake to it means your Mac rebuilds from the" >&2
+  echo "upstream author's repository — you would not own what goes live, and" >&2
+  echo "your own commits could never be promoted." >&2
+  echo >&2
+
+  if [[ -t 0 ]] || { : < /dev/tty; } 2>/dev/null; then
+    echo "Enter YOUR fork as OWNER/REPO, or press Enter to pin upstream anyway." >&2
+    if [[ -t 0 ]]; then
+      read -r -p "  Your fork [OWNER/REPO]: " answer || answer=""
+    else
+      read -r -p "  Your fork [OWNER/REPO]: " answer < /dev/tty || answer=""
+    fi
+  else
+    echo "No TTY — proceeding with the upstream pin." >&2
+  fi
+
+  printf '%s\n' "$answer"
+}
 
 # The flake ref the generated private flake will consume.
 #
@@ -39,32 +108,51 @@ fi
 # unpushed commit cannot reach it (ADR-009). Fall back to the local path only
 # when there is no usable remote — a never-pushed or offline clone — because a
 # generated flake that cannot evaluate at all is worse than a coupled one.
-#
-# Forks matter here: this framework is public and de-opinionated, so the owner
-# is read from the user's own `origin`, never hardcoded.
 dotfiles_flake_ref() {
-  local remote=""
-  remote="$(git -C "$DOTFILES_ROOT" remote get-url origin 2>/dev/null || true)"
+  local slug=""
 
-  case "$remote" in
-    git@github.com:*/*)
-      local path="${remote#git@github.com:}"
-      echo "github:${path%.git}"
-      return 0
-      ;;
-    https://github.com/*/* | ssh://git@github.com/*/*)
-      local path="${remote#*github.com/}"
-      echo "github:${path%.git}"
-      return 0
-      ;;
-  esac
+  # An explicit fork always wins, and is never second-guessed.
+  if [[ -n "$FORK" ]]; then
+    slug="$(github_slug "$FORK")"
+    [[ -n "$slug" ]] || slug="${FORK#github:}"
+    printf 'github:%s\n' "$slug"
+    return 0
+  fi
 
-  echo "git+file://$DOTFILES_ROOT"
+  slug="$(github_slug "$(git -C "$DOTFILES_ROOT" remote get-url origin 2>/dev/null || true)")"
+
+  if [[ -z "$slug" ]]; then
+    printf 'git+file://%s\n' "$DOTFILES_ROOT"
+    return 0
+  fi
+
+  # Cloning upstream directly is the common case for a first-time adopter, and
+  # it is exactly the case where deriving the pin from `origin` produces the
+  # wrong answer: presence of an upstream remote is not consent to build from
+  # it (the same reasoning as ADR-007, applied to ownership rather than
+  # destruction).
+  if [[ "$slug" == "$UPSTREAM_SLUG" ]]; then
+    local chosen from_url
+    chosen="$(resolve_fork)"
+    if [[ -n "$chosen" ]]; then
+      # The answer may be a bare OWNER/REPO or a full clone URL.
+      from_url="$(github_slug "$chosen")"
+      slug="${from_url:-$chosen}"
+      slug="${slug#github:}"
+    else
+      echo "WARNING: pinning to the upstream $UPSTREAM_SLUG. Fork it and re-run" >&2
+      echo "         with --fork OWNER/REPO to own your own configuration." >&2
+    fi
+  fi
+
+  printf 'github:%s\n' "$slug"
 }
 
 write_host_file() {
   mkdir -p "$PRIVATE_ROOT/hosts"
   cat > "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" <<EOF
+# Host identity for $HOSTNAME — generated by \`setup-private-host\`.
+# Yours to edit: add machine-specific casks, packages and overrides here.
 { inputs, ... }:
 
 let
@@ -83,7 +171,15 @@ in
     useUserPackages = true;
     backupFileExtension = "hm-backup";
     extraSpecialArgs = { inherit user; };
-    users.\${user} = import inputs.dotfiles.darwinModules.homeEnvironment;
+
+    # An imports LIST, not a bare \`import\`, so this stays extensible: adding a
+    # module is one line. ../home.nix is where \`dot adopt\` writes the mappings
+    # for files it moves out of \$HOME — it exists from the start (empty is
+    # valid), so the first adoption deploys with no edit to this file.
+    users.\${user}.imports = [
+      inputs.dotfiles.darwinModules.homeEnvironment
+      ../home.nix
+    ];
   };
 
   _module.args.user = user;
@@ -91,19 +187,45 @@ in
 EOF
 }
 
+# Does this private flake build its host list from the hosts/ directory? If so a
+# new machine needs no flake edit at all — dropping in hosts/<name>.nix is the
+# whole operation. Older generated flakes named exactly one host inline; those
+# still get the paste-this-block path below.
+flake_is_host_plural() {
+  grep -q 'builtins.readDir ./hosts' "$PRIVATE_ROOT/flake.nix" 2>/dev/null
+}
+
 if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
-  # Don't silently succeed. `rebuild` points people here when their hostname has
-  # no configuration — usually because macOS renamed the machine — and a bare
-  # "already exists" exit left them with the same failure and no next step.
-  if grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$PRIVATE_ROOT/flake.nix"; then
+  if [[ -f "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" ]] \
+     || grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$PRIVATE_ROOT/flake.nix"; then
     echo "Private configuration already defines '$HOSTNAME' at $PRIVATE_ROOT"
     exit 0
   fi
 
-  echo "Private flake exists at $PRIVATE_ROOT but has no host '$HOSTNAME'." >&2
-  echo >&2
-  echo "Writing hosts/$HOSTNAME.nix. Add this to $PRIVATE_ROOT/flake.nix yourself" >&2
-  echo "(the flake is yours — this script will not rewrite it):" >&2
+  write_home_nix_stub "$PRIVATE_ROOT/home.nix"
+  write_host_file
+
+  if flake_is_host_plural; then
+    # The second-Mac path, and the macOS-renamed-your-machine path. Both used to
+    # end with the operator hand-editing a flake; now the flake already looks in
+    # hosts/, so writing the file IS the configuration.
+    echo "Added host '$HOSTNAME' to $PRIVATE_ROOT"
+    echo "  hosts/$HOSTNAME.nix written for user '$USER_NAME'"
+    # R2: git+file: evaluation excludes untracked files, so an unstaged host
+    # file is invisible to the very rebuild that is supposed to consume it.
+    if git -C "$PRIVATE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+      git -C "$PRIVATE_ROOT" add "hosts/$HOSTNAME.nix" home.nix 2>/dev/null || true
+      echo "  staged (not committed — review and commit yourself)"
+    fi
+    echo
+    echo "Next:  dot rebuild"
+    exit 0
+  fi
+
+  echo "Private flake exists at $PRIVATE_ROOT but has no host '$HOSTNAME'," >&2
+  echo "and it predates the hosts/-directory layout, so it cannot pick the new" >&2
+  echo "file up on its own. Wrote hosts/$HOSTNAME.nix; add this to its" >&2
+  echo "flake.nix yourself (the flake is yours — this script will not rewrite it):" >&2
   echo >&2
   cat >&2 <<EOF
     darwinConfigurations."$HOSTNAME" = nix-darwin.lib.darwinSystem {
@@ -117,7 +239,6 @@ if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
       ];
     };
 EOF
-  write_host_file
   exit 0
 fi
 
@@ -152,21 +273,41 @@ cat > "$PRIVATE_ROOT/flake.nix" <<EOF
     nix-homebrew.follows = "dotfiles/nix-homebrew";
   };
 
-  outputs = inputs@{ self, dotfiles, nix-darwin, home-manager, nix-homebrew, ... }: {
-    darwinConfigurations."$HOSTNAME" = nix-darwin.lib.darwinSystem {
+  outputs = inputs@{ self, dotfiles, nix-darwin, home-manager, nix-homebrew, ... }:
+  let
+    # Every machine is one file in ./hosts. Adding a Mac means dropping in
+    # hosts/<hostname>.nix — there is nothing to edit here, which is the point:
+    # cloning this repo onto a second Mac and running \`setup-private-host\`
+    # must not require hand-editing a flake before the first build. See ADR-010.
+    hostNames =
+      let
+        matched = map (f: builtins.match "(.*)\\\\.nix" f)
+          (builtins.attrNames (builtins.readDir ./hosts));
+      in
+      map builtins.head (builtins.filter (m: m != null) matched);
+
+    mkHost = name: nix-darwin.lib.darwinSystem {
       system = "$(nix_system)";
       specialArgs = { inherit inputs self; };
       modules = [
         dotfiles.darwinModules.coreSystem
         nix-homebrew.darwinModules.nix-homebrew
         home-manager.darwinModules.home-manager
-        ./hosts/$HOSTNAME.nix
+        (./hosts + "/\${name}.nix")
       ];
     };
+  in
+  {
+    darwinConfigurations = builtins.listToAttrs
+      (map (n: { name = n; value = mkHost n; }) hostNames);
   };
 }
 EOF
 
+# The host file imports ../home.nix, so the stub has to exist before the flake
+# is ever evaluated — an import of a missing path is an evaluation error, not a
+# no-op. Empty is valid; `dot adopt` fills it in.
+write_home_nix_stub "$PRIVATE_ROOT/home.nix"
 write_host_file
 
 cat > "$PRIVATE_ROOT/.gitignore" <<'EOF'
@@ -184,3 +325,6 @@ EOF
 )
 
 echo "Private configuration created at $PRIVATE_ROOT"
+echo
+echo "Second Mac? Clone this repo there and run setup-private-host again —"
+echo "it adds hosts/<that-hostname>.nix and the flake picks it up automatically."

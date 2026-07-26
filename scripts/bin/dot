@@ -12,6 +12,7 @@
 # Subcommands:
 #   bootstrap            First-run setup on a fresh Mac (idempotent)
 #   rebuild [opts]       Rebuild the system (darwin-rebuild switch)
+#   promote [opts]       Publish, move the private flake's pin, and rebuild
 #   update  [opts]       Update flake inputs, Homebrew, and rebuild
 #   apps    [opts]       Manage installed applications
 #   scan-unmapped        List unmanaged $HOME files available for adoption
@@ -24,6 +25,7 @@
 # Examples:
 #   dot rebuild
 #   dot rebuild --override-local
+#   dot promote
 #   dot update --dry-run
 #   dot apps list
 #   dot apps add firefox
@@ -35,7 +37,20 @@
 
 set -euo pipefail
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+# Note this dispatcher is also deployed as a /nix/store symlink at
+# ~/.local/bin/dot, where the script's own directory is not a checkout — that
+# case falls through to $DOTFILES_ROOT / $HOME/dotfiles inside dotfiles_root().
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
+# Exported so every subcommand agrees with the dispatcher rather than
+# re-deriving a possibly different root.
+export DOTFILES_ROOT
+
 BIN="$DOTFILES_ROOT/scripts/bin"
 
 # shellcheck source=../../lib/log.sh
@@ -57,6 +72,10 @@ dispatch() {
 
     rebuild)
       exec "$BIN/rebuild" "$@"
+      ;;
+
+    promote)
+      exec "$BIN/promote" "$@"
       ;;
 
     update)
@@ -124,6 +143,12 @@ cmd_help() {
   echo "    rebuild --override-local[=PATH]"
   echo "                         Build a local working tree once, without"
   echo "                         updating the pin. Staged changes only (R2)"
+  echo "    promote              Ship what you have built: validate, push,"
+  echo "                         move the private flake's pin, commit the lock,"
+  echo "                         and rebuild — the one command that makes your"
+  echo "                         work actually go live"
+  echo "    promote --dry-run    Print the plan without changing anything"
+  echo "    promote --no-rebuild Stop after committing the pin"
   echo ""
   echo -e "  ${BLUE}Updates${NC}"
   echo "    update               Update everything and rebuild"
@@ -160,6 +185,7 @@ cmd_help() {
   echo ""
   echo -e "  ${BLUE}Examples${NC}"
   echo "    dot rebuild"
+  echo "    dot promote"
   echo "    dot update --dry-run"
   echo "    dot apps add firefox"
   echo "    dot scan-unmapped"

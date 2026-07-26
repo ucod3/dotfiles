@@ -104,6 +104,12 @@ setup() {
 
 @test "--override-local rejects a path that is not a git repository" {
   # git+file: on a non-repo fails deep inside Nix with an opaque error.
+  #
+  # This must be reachable on ANY machine, which is why the check now runs
+  # beside argument parsing rather than just before the build: behind
+  # `require_nix` and the host lookup, a machine with no matching
+  # darwinConfiguration reported "No configuration found for hostname" instead
+  # — an error about something the user had not done wrong.
   run "$REBUILD" --override-local=/tmp
   [ "$status" -eq 1 ]
   [[ "$output" == *"not one"* ]]
@@ -114,6 +120,6 @@ setup() {
   run grep -q 'dotfiles_flake_ref' "$REPO_ROOT/scripts/bin/setup-private-host"
   [ "$status" -eq 0 ]
 
-  run grep -q 'echo "github:' "$REPO_ROOT/scripts/bin/setup-private-host"
+  run grep -q "printf 'github:%s" "$REPO_ROOT/scripts/bin/setup-private-host"
   [ "$status" -eq 0 ]
 }

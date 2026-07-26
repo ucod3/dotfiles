@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+#
+# promote — publish this repo and move the live system onto the new revision.
+#
+# ADR-009 deliberately decoupled the working tree from the running system: a
+# plain `dot rebuild` builds whatever revision the private flake's lock pins, so
+# an experimental branch cannot reach the machine. The cost is that shipping a
+# change became a four-command ritual documented in docs/OPERATIONS.md, easy to
+# half-perform — push without bumping the pin and the rebuild silently does
+# nothing; bump without pushing and the pin names a revision no one else has.
+#
+# This is that ritual as one auditable command. It does not weaken ADR-009:
+# every step is still explicit, the pin still moves only when asked, and the
+# push still happens before the pin so the pinned revision always exists on the
+# remote.
+#
+# Usage:
+#   dot promote                 # validate → push → bump pin → commit → rebuild
+#   dot promote --dry-run       # print the plan, change nothing
+#   dot promote --no-rebuild    # stop after committing the pin
+#   dot promote --branch NAME   # promote a branch other than the default
+#   dot promote --skip-validate # for a re-run after validate already passed
+#
+
+set -euo pipefail
+
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
+
+# shellcheck source=../../lib/log.sh
+source "$DOTFILES_ROOT/lib/log.sh"
+
+PRIVATE_ROOT="$(private_flake_root)"
+
+DRY_RUN=false
+NO_REBUILD=false
+SKIP_VALIDATE=false
+BRANCH=""
+
+usage() {
+  echo "Usage: promote [OPTIONS]"
+  echo ""
+  echo "Publishes this repo and moves the live system onto the new revision:"
+  echo "  1. dot validate            — refuse to publish a broken tree"
+  echo "  2. git push -u origin      — the pinned revision must exist remotely"
+  echo "  3. nix flake update dotfiles  (in the private flake) — move the pin"
+  echo "  4. git commit flake.lock   — record which revision is live"
+  echo "  5. dot rebuild             — apply it"
+  echo ""
+  echo "Options:"
+  echo "  -n, --dry-run        Print the plan without changing anything"
+  echo "      --no-rebuild     Stop after committing the pin"
+  echo "      --branch NAME    Promote NAME instead of the repo's default branch"
+  echo "      --skip-validate  Skip step 1 (only after it has already passed)"
+  echo "  -h, --help           Show this help message"
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -n | --dry-run)   DRY_RUN=true; shift ;;
+      --no-rebuild)     NO_REBUILD=true; shift ;;
+      --skip-validate)  SKIP_VALIDATE=true; shift ;;
+      --branch)
+        [[ $# -ge 2 ]] || { log_error "--branch needs a branch name"; exit 1; }
+        BRANCH="$2"; shift 2 ;;
+      --branch=*)       BRANCH="${1#*=}"; shift ;;
+      -h | --help)      usage; exit 0 ;;
+      *)
+        log_error "Unknown option: $1"
+        echo ""
+        usage
+        exit 1
+        ;;
+    esac
+  done
+}
+
+# The branch the pin is expected to track. `rebuild`'s staleness check compares
+# the lock against origin/main specifically, so promoting anything else without
+# saying so would leave the two disagreeing forever.
+default_branch() {
+  local ref
+  ref="$(git -C "$DOTFILES_ROOT" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+  if [[ -n "$ref" ]]; then
+    printf '%s\n' "${ref##*/}"
+    return 0
+  fi
+  printf 'main\n'
+}
+
+# Push with the retry policy the rest of this repo uses for network operations.
+push_with_retry() {
+  local branch="$1" delay=2 attempt
+
+  if [[ "$DRY_RUN" == true ]]; then
+    log_info "[DRY RUN] git -C $DOTFILES_ROOT push -u origin $branch"
+    return 0
+  fi
+
+  for attempt in 1 2 3 4 5; do
+    if git -C "$DOTFILES_ROOT" push -u origin "$branch"; then
+      return 0
+    fi
+    if (( attempt == 5 )); then
+      log_error "git push failed after 5 attempts."
+      return 1
+    fi
+    log_warning "Push failed (attempt $attempt) — retrying in ${delay}s."
+    sleep "$delay"
+    delay=$(( delay * 2 ))
+  done
+}
+
+parse_args "$@"
+
+[[ -n "$BRANCH" ]] || BRANCH="$(default_branch)"
+
+section "Promote"
+
+# ── Preconditions ───────────────────────────────────────────────────────────
+git -C "$DOTFILES_ROOT" rev-parse --git-dir >/dev/null 2>&1 \
+  || { log_error "$DOTFILES_ROOT is not a git repository."; exit 1; }
+
+CURRENT_BRANCH="$(git -C "$DOTFILES_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+  log_error "On branch '$CURRENT_BRANCH' but asked to promote '$BRANCH'."
+  log_info "Check out '$BRANCH', or promote this one explicitly:"
+  log_info "  dot promote --branch $CURRENT_BRANCH"
+  exit 1
+fi
+
+# A dirty tree means the revision that goes live is not the one you are looking
+# at. Refuse rather than publish a partial change.
+if [[ -n "$(git -C "$DOTFILES_ROOT" status --porcelain 2>/dev/null)" ]]; then
+  log_error "Working tree is not clean — commit or stash before promoting."
+  log_info "Uncommitted work never reaches the live system anyway (ADR-009);"
+  log_info "to try it out first:  dot rebuild --override-local"
+  exit 1
+fi
+
+if [[ ! -f "$PRIVATE_ROOT/flake.nix" ]]; then
+  log_error "No private flake at $PRIVATE_ROOT — nothing pins this repo."
+  log_info "Create one with: $DOTFILES_ROOT/scripts/bin/setup-private-host"
+  exit 1
+fi
+
+git -C "$PRIVATE_ROOT" rev-parse --git-dir >/dev/null 2>&1 \
+  || { log_error "$PRIVATE_ROOT is not a git repository — the pin cannot be recorded."; exit 1; }
+
+log_info "Repo:    $DOTFILES_ROOT ($BRANCH)"
+log_info "Private: $PRIVATE_ROOT"
+[[ "$DRY_RUN" == true ]] && log_warning "Dry run — nothing will be changed."
+
+# ── 1. Validate ─────────────────────────────────────────────────────────────
+if [[ "$SKIP_VALIDATE" == true ]]; then
+  log_warning "Skipping validation at your request."
+elif [[ "$DRY_RUN" == true ]]; then
+  log_info "[DRY RUN] $DOTFILES_ROOT/scripts/bin/validate"
+else
+  log_step "1/5 Validating"
+  if ! "$DOTFILES_ROOT/scripts/bin/validate"; then
+    log_error "Validation failed — refusing to publish."
+    exit 1
+  fi
+fi
+
+# ── 2. Push ─────────────────────────────────────────────────────────────────
+log_step "2/5 Publishing $BRANCH"
+push_with_retry "$BRANCH"
+
+REV="$(git -C "$DOTFILES_ROOT" rev-parse HEAD)"
+
+# ── 3. Move the pin ─────────────────────────────────────────────────────────
+# `nix flake update dotfiles` re-resolves the input against its declared ref,
+# which is why step 2 has to come first: the pin can only name a revision the
+# remote already has. Bumping it also moves nixpkgs, nix-darwin, home-manager
+# and nix-homebrew, because the private flake `follows` all four from here.
+log_step "3/5 Moving the pin in $PRIVATE_ROOT"
+if [[ "$DRY_RUN" == true ]]; then
+  log_info "[DRY RUN] cd $PRIVATE_ROOT && nix flake update dotfiles"
+else
+  ( cd "$PRIVATE_ROOT" && nix flake update dotfiles )
+fi
+
+# ── 4. Record it ────────────────────────────────────────────────────────────
+log_step "4/5 Committing the lock"
+if [[ "$DRY_RUN" == true ]]; then
+  log_info "[DRY RUN] git -C $PRIVATE_ROOT add flake.lock"
+  log_info "[DRY RUN] git -C $PRIVATE_ROOT commit -m 'chore(lock): bump dotfiles pin to ${REV:0:10}'"
+elif git -C "$PRIVATE_ROOT" diff --quiet -- flake.lock 2>/dev/null \
+  && git -C "$PRIVATE_ROOT" diff --cached --quiet -- flake.lock 2>/dev/null; then
+  log_info "flake.lock is unchanged — the pin was already at ${REV:0:10}."
+else
+  git -C "$PRIVATE_ROOT" add flake.lock
+  git -C "$PRIVATE_ROOT" commit -m "chore(lock): bump dotfiles pin to ${REV:0:10}"
+  log_success "Pin recorded: ${REV:0:10}"
+fi
+
+# ── 5. Apply ────────────────────────────────────────────────────────────────
+if [[ "$NO_REBUILD" == true ]]; then
+  log_step "5/5 Skipped (--no-rebuild)"
+  log_info "Apply it when ready with: dot rebuild"
+elif [[ "$DRY_RUN" == true ]]; then
+  log_info "[DRY RUN] $DOTFILES_ROOT/scripts/bin/rebuild"
+else
+  log_step "5/5 Rebuilding"
+  "$DOTFILES_ROOT/scripts/bin/rebuild"
+fi
+
+echo ""
+if [[ "$DRY_RUN" == true ]]; then
+  log_success "Dry run complete — nothing was pushed, pinned or built."
+else
+  log_success "Promoted ${REV:0:10} to the live system."
+fi

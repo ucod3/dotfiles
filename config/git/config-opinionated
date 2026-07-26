@@ -1,0 +1,42 @@
+# Opinionated git workflow — one example profile, OFF by default.
+#
+# Linked into ~/.config/git/config-opinionated only when
+# `dotfiles.home.git.opinionatedDefaults.enable = true`. The base
+# config/git/config includes it unconditionally, which is safe: git silently
+# ignores an include path that does not exist.
+#
+# Everything here changes the behaviour of a command you already know, so it is
+# opt-in rather than core (ADR-011). Pick and choose by overriding any key from
+# your private host file or `git config --global`.
+
+[core]
+  # Requires Neovim to be installed. It is, via Home Manager — but if you use a
+  # different editor, this silently overrides $EDITOR for every git command.
+  editor = nvim
+
+  # Speeds up `git status` in large repos via a background daemon. Note the
+  # side effect recorded in ADR-004: the daemon's socket at
+  # .git/fsmonitor--daemon.ipc is what makes Nix's `path:` scheme hard-fail on
+  # this repo, which is why the flake uses `git+file:` everywhere.
+  fsmonitor = true
+
+[merge]
+  tool = nvimdiff
+
+[push]
+  default = simple
+
+[rebase]
+  autoStash = true
+
+[branch]
+  # Every new branch tracks with rebase rather than merge.
+  autoSetupRebase = always
+
+[pull]
+  # `git pull` rebases instead of merging. This is a real workflow choice, not a
+  # neutral default — it rewrites local commits.
+  rebase = true
+
+[commit]
+  verbose = true

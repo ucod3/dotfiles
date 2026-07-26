@@ -1,0 +1,52 @@
+# custom.local.zsh — your unmanaged Zsh layer.
+#
+# Copy this file to config/zsh/custom.local.zsh (drop the .example) and it is
+# sourced at the very end of every interactive shell, after every framework
+# module. That means:
+#
+#   * it wins — your alias overrides the framework's
+#   * it is gitignored — nothing here shows up as a diff against upstream
+#   * `dot rebuild` never touches it — no clobbering, no backup files
+#
+# ~/.zshrc.local works the same way and is loaded immediately after this file.
+# Use custom.local.zsh for things that belong to this checkout, and
+# ~/.zshrc.local for things that belong to this one machine.
+#
+# Nothing below is enabled — this is a menu, not a config.
+
+# ── Aliases ──────────────────────────────────────────────────────────────────
+# alias g='git'
+# alias gs='git status -sb'
+# alias k='kubectl'
+# alias ll='eza -l --git'          # or keep plain ls; the framework has no opinion
+
+# ── Editor ───────────────────────────────────────────────────────────────────
+# The framework sets no EDITOR, so whatever your terminal inherits stays in
+# charge. Pick one here if you want a specific editor everywhere.
+# export EDITOR="nvim"
+# export VISUAL="$EDITOR"
+
+# ── Warp ─────────────────────────────────────────────────────────────────────
+# Warp runs its own init; most setups need nothing. Guard anything Warp-specific
+# so it does not fire in other terminals:
+# if [[ "$TERM_PROGRAM" == "WarpTerminal" ]]; then
+#   # e.g. skip a heavyweight prompt Warp already renders itself
+#   :
+# fi
+
+# ── Node via nvm ─────────────────────────────────────────────────────────────
+# The framework's node modules are pnpm-first and opt-in
+# (dotfiles.home.zsh.nodeWorkflow.enable). If you would rather use nvm, leave
+# them off and load it here instead:
+# export NVM_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvm"
+# [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+# [ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"
+
+# ── Rust ─────────────────────────────────────────────────────────────────────
+# CARGO_HOME/RUSTUP_HOME are already set to XDG paths in config/zsh/.zshenv.
+# [ -s "$CARGO_HOME/env" ] && source "$CARGO_HOME/env"
+
+# ── Anything else ────────────────────────────────────────────────────────────
+# Direnv, starship, atuin, work-only PATH entries, secrets you source from a
+# password manager — all of it belongs here rather than in a tracked file.
+# eval "$(starship init zsh)"

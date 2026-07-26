@@ -90,16 +90,33 @@ in
   # dotfiles.nixpkgs.allowUnfree = false;      # strict free-software posture
   #
   # ── 2c. HOME PROFILE — taste-specific user config (Home Manager namespace) ─
-  # These live under home-manager.users.<you>, not at the system level:
+  # These live under home-manager.users.<you>, not at the system level.
+  # Everything here defaults to OFF on a cold fork: a framework must not decide
+  # what `cd`, `npm` or `git pull` do on your machine (ADR-011).
   # home-manager.users.${user}.dotfiles.home = {
   #   ohMyZsh.enable = true;          # omz framework, theme, plugins
   #   ohMyZsh.theme = "agnoster";     # CUSTOMIZE
   #   ghostty.enable = true;          # link the bundled Ghostty config
   #   vscode.enable = true;           # link the bundled settings.json
-  #   vscode.configDir = "Code";      # "Code - Insiders" (default) / "Code" / "VSCodium"
+  #   vscode.configDir = "Code";      # "Code" (default) / "Code - Insiders" / "VSCodium"
+  #   cursor.enable = true;           # same settings.json, Cursor's config dir
   #   languageServers.enable = true;  # lua-language-server, pyright, ts-ls
   #   nodeTooling.enable = true;      # pnpm
+  #
+  #   # Shell composition. The neutral core (dot aliases, mkcd, direnv hook) is
+  #   # always on; these add the layers that redefine existing commands.
+  #   zsh.personalAliases.enable = true;  # ll/la, grep --color, help=man, npm→pnpm
+  #   zsh.nodeWorkflow.enable = true;     # pnpm/pnpx wrappers, ensure-node, real-npm
+  #   zsh.workshop.enable = true;         # EpicWeb helpers — NOTE: its chpwd hook
+  #                                       # writes .workshop.env into matching
+  #                                       # projects. Requires nodeWorkflow.
+  #   zoxide.replaceCd = true;            # zoxide takes over `cd` (default: `z` only)
+  #   git.opinionatedDefaults.enable = true;  # nvim as editor, pull.rebase, nvimdiff
   # };
+  #
+  # For YOUR OWN aliases and tool setup, do not edit this repo at all — use the
+  # unmanaged, gitignored config/zsh/custom.local.zsh or ~/.zshrc.local, which
+  # are sourced last. See config/zsh/custom.local.zsh.example.
 
   # ── 3. MACHINE-SPECIFIC ADDITIONS (examples) ───────────────────────────────
   # Extra Homebrew apps for this machine only:

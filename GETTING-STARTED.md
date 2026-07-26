@@ -8,6 +8,10 @@ Apple Silicon only.
 
 ## 1. Install
 
+**Fork this repo first.** Your private flake pins whatever `origin` turns out to
+be, and that pin is what your Mac rebuilds from — pin upstream and you can never
+push a change of your own to your own machine.
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh)
 ```
@@ -18,12 +22,16 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.
 
 The installer walks you through:
 
-1. **Prerequisites** — Xcode Command Line Tools, Nix, Rosetta.
-2. **Your choices** — browsers, editors, terminal, window manager, via select
-   menus. Written to the gitignored `.local/` layer.
-3. **A private host flake** at `~/dotfiles-private`, holding your hostname and
-   username (see §3).
-4. **The first build.**
+1. **Your fork** — `OWNER/REPO` or a full URL. Pass `--repo YOU/dotfiles` (or set
+   `$DOTFILES_REPO_URL`) to skip the question.
+2. **Prerequisites** — Xcode Command Line Tools, Nix, Rosetta.
+3. **Your choices** — browsers, editors, terminals, window managers. Every menu
+   is multi-select, and each one ends with a free-text prompt so you can name any
+   Homebrew cask that is not on the list. Written to the gitignored `.local/`
+   layer.
+4. **A private host flake** at `~/dotfiles-private`, holding your hostname and
+   username and pinned to your fork (see §3).
+5. **The first build.**
 
 Already cloned the repo by hand? Skip the installer and run:
 
@@ -65,7 +73,7 @@ Everything opinionated is off by default. Edit `.local/settings.nix`, then
 
   homebrew.cleanup = "uninstall";       # prune casks you no longer declare
   system.macosDefaults.enable = true;   # Dock/Finder/key-repeat profile
-  home.exampleProfile.enable = true;    # oh-my-zsh, ghostty, vscode, node tooling
+  home.exampleProfile.enable = true;    # the whole example home profile
 
   casks = [ "ghostty" ];
   nixPackages = [ "htop" ];
@@ -75,6 +83,33 @@ Everything opinionated is off by default. Edit `.local/settings.nix`, then
 `homebrew.cleanup = "uninstall"` makes Homebrew remove every cask you have not
 declared. It stays `"none"` until you ask for it, and the build refuses to
 evaluate if you enable it with an empty cask list.
+
+### The shell you get, and the shell you can have
+
+A cold fork's zsh has completion, autosuggestions, syntax highlighting, history
+search, fzf, zoxide (as `z`) and the `dot` CLI — and changes nothing else. It
+does not redefine `cd`, `npm` or `git pull`, and it does not write to projects
+you `cd` into.
+
+`home.exampleProfile.enable = true` turns on the author's whole profile at once.
+To be selective, set the individual toggles in your private host file under
+`home-manager.users.<you>.dotfiles.home`:
+
+| Toggle | Turns on |
+|---|---|
+| `ohMyZsh.enable` | oh-my-zsh, its theme and plugins |
+| `zsh.personalAliases.enable` | `ll`/`la`, `grep --color`, `help`=`man`, npm→pnpm |
+| `zsh.nodeWorkflow.enable` | pnpm-first `pnpm`/`pnpx` wrappers, `ensure-node` |
+| `zsh.workshop.enable` | EpicWeb helpers **and** the `epic-detect` chpwd hook, which writes `.workshop.env` into matching projects |
+| `zoxide.replaceCd` | zoxide takes over `cd` (otherwise it is `z`) |
+| `git.opinionatedDefaults.enable` | `core.editor=nvim`, `pull.rebase`, `autoSetupRebase`, `merge.tool=nvimdiff` |
+| `vscode.enable` / `cursor.enable` | link the bundled editor `settings.json` |
+| `ghostty.enable`, `languageServers.enable`, `nodeTooling.enable` | as named |
+
+**Your own** aliases and tool setup do not belong in any of these. Copy
+`config/zsh/custom.local.zsh.example` to `config/zsh/custom.local.zsh` (or use
+`~/.zshrc.local`): both are gitignored, sourced last, and never touched by a
+rebuild.
 
 ### Backing it up
 
@@ -122,16 +157,23 @@ running `dot rebuild` therefore changes nothing until you push and bump the pin
 (`docs/OPERATIONS.md`). To try local work first, use
 `dot rebuild --override-local`.
 
-`scripts/bin/setup-private-host` generates it. You rarely touch it again — but
-if macOS renames your machine (it happens on some networks), `dot rebuild` will
-report no configuration for the new hostname. Fix it with:
+`scripts/bin/setup-private-host` generates it, pinned to your fork. Pass
+`--fork OWNER/REPO` (or set `$DOTFILES_FORK`) to be explicit; if it detects that
+`origin` is the upstream framework, it says so and asks.
+
+The generated flake builds its host list from `./hosts`, so you rarely touch it
+again:
 
 ```bash
+# a second Mac: clone your private repo there, then
+./scripts/bin/setup-private-host
+
+# macOS renamed your machine and rebuild reports no configuration
 ./scripts/bin/setup-private-host --host "$(hostname -s)"
 ```
 
-That writes the new host file and prints the block to paste into your private
-`flake.nix`. It will not rewrite that flake for you — it is yours.
+Either writes `hosts/<hostname>.nix`, stages it, and is done — the flake picks it
+up on its own. Nothing to hand-edit.
 
 Full details: [docs/PRIVATE_HOST_SETUP.md](./docs/PRIVATE_HOST_SETUP.md).
 
@@ -172,8 +214,10 @@ issue rather than bypassing it. In a genuine emergency: `git commit --no-verify`
 
 ```bash
 dot rebuild            # apply configuration changes
+dot promote            # ship a change: validate, push, bump the pin, rebuild
 dot update             # update flake inputs + Homebrew, then rebuild
 dot apps add ghostty   # add an app
+dot adopt ~/.foorc     # bring an existing config under management
 dot validate           # syntax + common-mistake checks
 dot help               # full reference
 ```

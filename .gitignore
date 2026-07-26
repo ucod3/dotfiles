@@ -12,7 +12,11 @@ node_modules/
 !.env.example
 config/local/
 secrets/
+
+# Unmanaged Zsh escape hatches, sourced last by config/zsh/custom.zsh.
+# The tracked .example alongside is the template; the real files are yours.
 .zshrc.local
+config/zsh/custom.local.zsh
 
 # Modular local-settings layer (machine identity, app selections).
 # May be a real directory or a symlink to ~/dotfiles-private.
