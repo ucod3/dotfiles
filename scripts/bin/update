@@ -152,6 +152,31 @@ update_flake_inputs() {
     fi
 }
 
+# Tell the truth about what was just updated.
+#
+# This function updates THIS repo's flake.lock. When a private host flake is in
+# use, that lock does not determine the live system — the private flake pins a
+# published revision of this repo, and only bumping that pin changes the Mac
+# (ADR-009). Without this notice, `dot update` reports success while the live
+# system stays exactly where it was.
+#
+# Deliberately advisory: auto-pushing or auto-bumping here would reintroduce the
+# coupling ADR-009 removed, just through a different door.
+notify_private_pin() {
+    local private_root="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+
+    [[ -f "$private_root/flake.nix" ]] || return 0
+
+    echo
+    log_warning "A private host flake is in use: $private_root"
+    log_info "The lock just updated belongs to this repo and does not drive the"
+    log_info "live system. To publish these changes to your Mac:"
+    log_info "  1. git push          (from $DOTFILES_ROOT)"
+    log_info "  2. cd $private_root && nix flake update dotfiles"
+    log_info "  3. git -C $private_root add flake.lock && commit"
+    log_info "To test without publishing: dot rebuild --override-local"
+}
+
 # Commit flake.lock changes
 commit_flake_lock() {
     if [[ "$DRY_RUN" == true ]]; then
@@ -308,6 +333,7 @@ main() {
     check_git_status
     update_flake_inputs
     commit_flake_lock
+    notify_private_pin
     update_homebrew
     rebuild_system
     show_summary

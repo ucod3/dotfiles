@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+#
+# rebuild — switch this Mac to the configuration its flake lock pins.
+#
+# Usage:
+#   rebuild                     # build the locked, pushed revision (default)
+#   rebuild --override-local    # build ~/dotfiles as it is on disk, once
+#   rebuild --override-local=PATH
+#   rebuild --help
+#
+# The default path is deliberately reproducible: the private flake pins a
+# published revision, and nothing in your working tree can reach the live system
+# without an explicit flag. See ADR-009.
+#
 set -euo pipefail
 
 DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
@@ -8,6 +21,55 @@ cd "$DOTFILES_ROOT"
 source "$DOTFILES_ROOT/lib/log.sh"
 # shellcheck source=../../lib/nix.sh
 source "$DOTFILES_ROOT/lib/nix.sh"
+
+OVERRIDE_LOCAL=false
+OVERRIDE_PATH="$DOTFILES_ROOT"
+
+usage() {
+  echo "Usage: rebuild [OPTIONS]"
+  echo ""
+  echo "Options:"
+  echo "      --override-local[=PATH]  Build from a local working tree instead of"
+  echo "                               the revision pinned in the private flake"
+  echo "                               lock. Staged changes are visible; untracked"
+  echo "                               files are not (R2). The lock is NOT written,"
+  echo "                               so the next plain rebuild is pinned again."
+  echo "  -h, --help                   Show this help message"
+  echo ""
+  echo "With no options, rebuild is reproducible: it builds exactly the revision"
+  echo "named in the private flake's lock. See ADR-009."
+}
+
+# An unknown flag must be fatal. A rebuild that silently ignores a typo'd flag
+# is the failure mode ADR-009 exists to remove — until this parser existed,
+# `dot rebuild --override-local` was accepted and quietly did nothing.
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --override-local)
+        OVERRIDE_LOCAL=true
+        shift
+        ;;
+      --override-local=*)
+        OVERRIDE_LOCAL=true
+        OVERRIDE_PATH="${1#*=}"
+        shift
+        ;;
+      --help | -h)
+        usage
+        exit 0
+        ;;
+      *)
+        log_error "Unknown option: $1"
+        echo ""
+        usage
+        exit 1
+        ;;
+    esac
+  done
+}
+
+parse_args "$@"
 
 require_nix
 
@@ -57,12 +119,16 @@ fi
 
 log_info "Building configuration for host: $HOSTNAME"
 
-# If using a private downstream flake, keep its dotfiles input in sync with the
-# local public repository. Otherwise changes committed to ~/dotfiles won't be
-# picked up until the private flake lock is manually refreshed.
+# ── Pin staleness: advisory only ────────────────────────────────────────────
+# This block used to run `nix flake update dotfiles` whenever the lock differed
+# from `git rev-parse HEAD`. HEAD is whatever branch happens to be checked out,
+# so an experimental branch became the live system on the next rebuild, with no
+# confirmation. Never mutate the lock here, and never change the exit status:
+# a stale pin is a fact to report, not an error. Compare against origin/main —
+# the published branch the pin is supposed to track — not HEAD. See ADR-009.
 if [[ "$FLAKE_ROOT" != "$DOTFILES_ROOT" ]] && [[ -f "$FLAKE_ROOT/flake.lock" ]]; then
   if command -v git >/dev/null 2>&1 && [[ -d "$DOTFILES_ROOT/.git" ]]; then
-    local_dotfiles_rev="$(git -C "$DOTFILES_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    published_rev="$(git -C "$DOTFILES_ROOT" rev-parse origin/main 2>/dev/null || true)"
     locked_dotfiles_rev=""
     if command -v jq >/dev/null 2>&1; then
       locked_dotfiles_rev="$(jq -r '.nodes.dotfiles.locked.rev // empty' "$FLAKE_ROOT/flake.lock" 2>/dev/null || true)"
@@ -70,12 +136,16 @@ if [[ "$FLAKE_ROOT" != "$DOTFILES_ROOT" ]] && [[ -f "$FLAKE_ROOT/flake.lock" ]];
     if [[ -z "$locked_dotfiles_rev" ]]; then
       locked_dotfiles_rev="$(grep -A8 '"dotfiles":' "$FLAKE_ROOT/flake.lock" 2>/dev/null | grep '"rev":' | head -n1 | sed -E 's/.*"rev": *"([^"]+)".*/\1/' || true)"
     fi
-    if [[ -n "$local_dotfiles_rev" && -n "$locked_dotfiles_rev" && "$local_dotfiles_rev" != "$locked_dotfiles_rev" ]]; then
-      log_info "Private flake lock is behind local dotfiles (locked: ${locked_dotfiles_rev:0:10}, local: ${local_dotfiles_rev:0:10}). Updating..."
-      (cd "$FLAKE_ROOT" && nix flake update dotfiles)
+    if [[ -z "$published_rev" ]]; then
+      log_info "No origin/main to compare against; building the pinned revision as-is."
+    elif [[ -n "$locked_dotfiles_rev" && "$published_rev" != "$locked_dotfiles_rev" ]]; then
+      log_warning "Private flake pins ${locked_dotfiles_rev:0:10}; origin/main is at ${published_rev:0:10}."
+      log_info "Not updating automatically. To adopt the published revision:"
+      log_info "  cd $FLAKE_ROOT && nix flake update dotfiles && git add flake.lock"
+      log_info "(origin/main is a local ref — 'git fetch' first if it looks stale.)"
     fi
   else
-    log_warning "Cannot verify private flake lock freshness; ensure $FLAKE_ROOT/flake.lock follows $DOTFILES_ROOT"
+    log_warning "Cannot verify private flake pin freshness; ensure $FLAKE_ROOT/flake.lock is deliberate."
   fi
 fi
 
@@ -130,8 +200,29 @@ else
   REBUILD_CMD=( "$NIX_BIN" run "github:LnL7/nix-darwin/master#darwin-rebuild" -- )
 fi
 
+# ── Opt-in local override ───────────────────────────────────────────────────
+# `git+file://` is mandatory here: a bare path selects the `path:` scheme, which
+# copies .git/ into the store and hard-fails on the core.fsmonitor socket this
+# repo enables (ADR-004). git+file: also gives the R2 semantics already in force
+# everywhere else — staged changes are visible, untracked files are not.
+# `--no-write-lock-file` keeps the override out of flake.lock, so the next plain
+# rebuild returns to the pinned revision with no cleanup.
+NIX_FLAGS=()
+if [[ "$OVERRIDE_LOCAL" == true ]]; then
+  if [[ ! -d "$OVERRIDE_PATH/.git" ]]; then
+    log_error "--override-local needs a git repository: $OVERRIDE_PATH is not one."
+    exit 1
+  fi
+  OVERRIDE_ABS="$(cd "$OVERRIDE_PATH" && pwd -P)"
+  NIX_FLAGS+=( --override-input dotfiles "git+file://$OVERRIDE_ABS" --no-write-lock-file )
+  log_warning "Building from a LOCAL working tree: $OVERRIDE_ABS"
+  log_warning "This build is NOT reproducible and the pin is NOT updated."
+  log_info "Untracked files stay invisible — 'git add' them first (R2)."
+fi
+
 sudo env DOTFILES_LOCAL="$DOTFILES_LOCAL" HOME="$HOME" NIX_CONFIG="$NIX_CONFIG" \
-  "${REBUILD_CMD[@]}" switch --flake "${FLAKE_ROOT}#${HOSTNAME}" --impure
+  "${REBUILD_CMD[@]}" switch --flake "${FLAKE_ROOT}#${HOSTNAME}" --impure \
+  ${NIX_FLAGS[@]+"${NIX_FLAGS[@]}"}
 
 # Post-flight advisory. It must never invert the exit status of a system
 # activation that already succeeded.

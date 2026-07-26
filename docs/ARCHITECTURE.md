@@ -32,6 +32,11 @@ When adding software to the Mac, follow this exact prioritization tree:
 These were established by experiment, not inference. Do not "simplify" them away
 (rule R4 in `AGENTS.md`); each bullet is a failure someone already hit.
 
+Scope note: since ADR-009 the default `dot rebuild` builds a pinned published
+revision, so the `git+file:` working-tree semantics below apply to
+`dot rebuild --override-local` and to `nix flake check` in this repo. The
+`--impure` / `sudo env` and content-based-detection rules apply to every build.
+
 - **Gitignored files are invisible to `git+file:` flakes.** Relative reads like
   `builtins.pathExists ./.local/...` silently return `false`, because untracked
   files are excluded from the store copy used for evaluation. Note the

@@ -20,8 +20,8 @@ opt-in, default `false`. `hosts/_template.nix` is the worked example.
 
 1. **`~/dotfiles`** — this repo. Public, generic, safe to distribute.
 2. **`~/dotfiles-private`** — downstream flake holding hostname/username
-   identity, consuming this repo via `git+file://`. This repo ships
-   `darwinConfigurations = { }` on purpose; hosts live downstream.
+   identity, pinning this repo to a pushed `github:` revision (ADR-009). This
+   repo ships `darwinConfigurations = { }` on purpose; hosts live downstream.
 3. **`.local/`** (gitignored) — machine-local settings read by `lib/local.nix`
    (`identity.nix`, `settings.nix`, `apps.nix`, `browsers/`, `editors/`;
    `hosts/` is private-flake-only and never auto-imported). May be a real
@@ -35,7 +35,7 @@ anything deliberate).
 
 ```
 dot bootstrap      # first-run setup on a fresh Mac (idempotent)
-dot rebuild        # resolve the private flake, then this repo, and switch
+dot rebuild        # switch to the pinned revision; --override-local for local
 dot update         # update flake inputs + Homebrew, then rebuild
 dot validate       # full syntax + common-mistake checks (--quick skips Nix eval)
 dot apps           # add/remove/list applications

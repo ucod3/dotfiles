@@ -114,7 +114,13 @@ mv ~/dotfiles/.local "$CLOUD" && ln -s "$CLOUD" ~/dotfiles/.local
 This repo ships `darwinConfigurations = { }` deliberately. Building an actual
 macOS system requires a concrete hostname and username, and a public framework
 must not hardcode either. So your identity lives in a small downstream flake at
-`~/dotfiles-private` that consumes this repo via `git+file://`.
+`~/dotfiles-private` that consumes this repo as a pinned `github:` input.
+
+That pin is what makes rebuilds reproducible: your Mac builds the revision you
+pushed, so an experimental branch cannot leak into it. Editing `~/dotfiles` and
+running `dot rebuild` therefore changes nothing until you push and bump the pin
+(`docs/OPERATIONS.md`). To try local work first, use
+`dot rebuild --override-local`.
 
 `scripts/bin/setup-private-host` generates it. You rarely touch it again — but
 if macOS renames your machine (it happens on some networks), `dot rebuild` will
