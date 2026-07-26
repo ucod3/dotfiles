@@ -14,6 +14,8 @@
 #   rebuild              Rebuild the system (darwin-rebuild switch)
 #   update  [opts]       Update flake inputs, Homebrew, and rebuild
 #   apps    [opts]       Manage installed applications
+#   scan-unmapped        List unmanaged $HOME files available for adoption
+#   adopt   <path>       Move a $HOME path into the private flake and declare it
 #   validate [--quick]   Run syntax and common-mistake checks
 #   secrets              Scan for leaked secrets (requires gitleaks)
 #   hooks                (Re)install git pre-commit hooks
@@ -24,6 +26,8 @@
 #   dot update --dry-run
 #   dot apps list
 #   dot apps add firefox
+#   dot scan-unmapped
+#   dot adopt ~/.claude/CLAUDE.md
 #   dot validate --quick
 #   dot secrets
 #
@@ -60,6 +64,16 @@ dispatch() {
 
     apps)
       exec "$BIN/apps" "$@"
+      ;;
+
+    # Both adoption subcommands live in one script; the mode is forwarded as
+    # its first argument so `dot-adopt` can be run directly too.
+    adopt)
+      exec "$BIN/dot-adopt" adopt "$@"
+      ;;
+
+    scan-unmapped)
+      exec "$BIN/dot-adopt" scan-unmapped "$@"
       ;;
 
     validate)
@@ -118,6 +132,16 @@ cmd_help() {
   echo "    apps remove <name>   Remove an app from config"
   echo "    apps edit            Open hosts/default.nix in editor"
   echo ""
+  echo -e "  ${BLUE}Adoption${NC}"
+  echo "    scan-unmapped        List unmanaged \$HOME and ~/.config paths"
+  echo "                         available for adoption"
+  echo "    adopt <path>         Move a \$HOME path into ~/dotfiles-private,"
+  echo "                         declare it in home.nix, and stage it. After"
+  echo "                         'dot rebuild' the path is a read-only symlink"
+  echo "                         into /nix/store — edit the private copy instead"
+  echo "    adopt <path> --dry-run"
+  echo "                         Show what would move, without touching anything"
+  echo ""
   echo -e "  ${BLUE}Safety${NC}"
   echo "    validate             Full syntax + common-mistake checks"
   echo "    validate --quick     Quick checks only (skip slow Nix eval)"
@@ -131,6 +155,8 @@ cmd_help() {
   echo "    dot rebuild"
   echo "    dot update --dry-run"
   echo "    dot apps add firefox"
+  echo "    dot scan-unmapped"
+  echo "    dot adopt ~/.claude/CLAUDE.md"
   echo "    dot validate --quick"
   echo ""
 }
