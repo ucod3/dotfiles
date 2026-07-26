@@ -17,7 +17,13 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 0
 fi
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
 SKIP_FILE="${DOTFILES_ROOT}/config/homebrew/manual-installer-skip.txt"
 
 brew_prefix="$(brew --prefix)"

@@ -13,7 +13,13 @@
 set -euo pipefail
 
 # Configuration
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
 AUTO_MODE=false
 FLAKE_ONLY=false
 DRY_RUN=false
@@ -163,7 +169,7 @@ update_flake_inputs() {
 # Deliberately advisory: auto-pushing or auto-bumping here would reintroduce the
 # coupling ADR-009 removed, just through a different door.
 notify_private_pin() {
-    local private_root="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+    local private_root; private_root="$(private_flake_root)"
 
     [[ -f "$private_root/flake.nix" ]] || return 0
 
@@ -171,6 +177,8 @@ notify_private_pin() {
     log_warning "A private host flake is in use: $private_root"
     log_info "The lock just updated belongs to this repo and does not drive the"
     log_info "live system. To publish these changes to your Mac:"
+    log_info "  dot promote          (validate, push, bump the pin, rebuild)"
+    log_info "or do it by hand:"
     log_info "  1. git push          (from $DOTFILES_ROOT)"
     log_info "  2. cd $private_root && nix flake update dotfiles"
     log_info "  3. git -C $private_root add flake.lock && commit"

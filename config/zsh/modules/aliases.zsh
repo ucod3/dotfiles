@@ -1,17 +1,13 @@
-# Command Aliases
-# `code` is only remapped when the Insiders channel is actually installed —
-# hardcoding it broke stable-VS Code users on a fresh fork (audit finding M2).
-(( $+commands[code-insiders] )) && alias code="code-insiders"
-# pnpm shims, only when pnpm is actually installed — it ships with
-# `dotfiles.home.nodeTooling.enable`, which is off by default on a cold fork,
-# and an unconditional alias makes `npm` a broken command there.
-# `npx` is deliberately absent: the standalone `pnpx` binary was removed from
-# pnpm years ago (superseded by `pnpm dlx`), so aliasing to it dangles.
-if (( $+commands[pnpm] )); then
-  alias npm="pnpm"
-  alias yarn="pnpm"
-  alias pn=pnpm
-fi
+# Framework aliases — the `dot` dispatcher and its subcommands.
+#
+# This module is ALWAYS loaded. It contains only entry points into this repo's
+# own tooling: nothing here redefines a standard command, so it is safe on any
+# machine regardless of what the user has installed.
+#
+# Personal aliases (ls shorthands, npm→pnpm, grep --color, help=man) live in
+# aliases-personal.zsh and load only when `dotfiles.home.zsh.personalAliases`
+# is enabled — they are one person's muscle memory, not a framework contract
+# (ADR-011).
 
 # Unified dotfiles dispatcher (dot <subcommand>)
 # See: dot help   for the full reference
@@ -24,26 +20,9 @@ alias rebuild='dot rebuild'
 alias validate='dot validate'
 alias update='dot update'
 alias apps='dot apps'
-alias change='${VISUAL:-${EDITOR:-nvim}} ${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/custom.zsh'
-alias use-node="pnpm-use-node"
-alias npm-real="real-npm"
+alias promote='dot promote'
 
-# Node.js / pnpm helpers. `pnpm env` was removed from pnpm — the current API is
-# `pnpm runtime`; tests/test_lib_node.bats asserts against the old spelling.
-alias node-setup="echo 'Run: pnpm runtime set lts'"
-alias node-versions="pnpm runtime list"
-
-# File listing (safe replacements from common-aliases, without the buggy global aliases)
-alias l='ls -lFh'
-alias la='ls -lAFh'
-alias ll='ls -l'
-alias lt='ls -ltFh'
-alias ldot='ls -ld .*'
-alias lsr='ls -lARFh'
-
-# Utility
-alias grep='grep --color'
-alias t='tail -f'
-alias ff='find . -type f -name'
-alias h='history'
-alias help='man'
+# `change` opens the unmanaged escape hatch, not a tracked framework file:
+# editing custom.zsh means your edits are overwritten on the next rebuild,
+# whereas custom.local.zsh is yours and is sourced last.
+alias change='${VISUAL:-${EDITOR:-vi}} ${DOTFILES_ROOT:-$HOME/dotfiles}/config/zsh/custom.local.zsh'

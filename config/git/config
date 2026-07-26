@@ -8,32 +8,23 @@
   # (missing include files are silently ignored by git)
   path = config-local
 
+[include]
+  # Workflow opinions — editor, merge tool, rebase-by-default and friends.
+  # Home Manager writes this file ONLY when
+  # `dotfiles.home.git.opinionatedDefaults.enable` is set; without it the
+  # include resolves to nothing and git keeps its own defaults.
+  #
+  # This split exists because the settings it holds change what standard git
+  # commands DO — `git pull` rebasing instead of merging, `git commit` opening
+  # Neovim — and a framework must not impose a workflow on a fork (ADR-011).
+  path = config-opinionated
+
 [core]
   excludesfile = ~/.config/git/.gitignore
-  editor = nvim
   autocrlf = input
-  fsmonitor = true
 
 [init]
   defaultBranch = main
 
-[merge]
-  tool = nvimdiff
-
 [color]
   ui = auto
-
-[push]
-  default = simple
-
-[rebase]
-  autoStash = true
-
-[branch]
-  autoSetupRebase = always
-
-[pull]
-  rebase = true
-
-[commit]
-  verbose = true

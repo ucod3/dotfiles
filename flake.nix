@@ -29,9 +29,14 @@
     # `extraModules` are darwin-level; `extraHomeModules` are Home Manager-level.
     # The two option namespaces are separate module systems — `dotfiles.home.*`
     # is only settable inside the latter.
+    # Named rather than inlined because cold-is-nondestructive has to reach
+    # back into `config.home-manager.users.<user>` to assert the resolved Home
+    # Manager values, and a second literal copy would silently stop matching.
+    dummyUser = "dotfiles-check-user";
+
     mkDummyHost =
       { system
-      , user ? "dotfiles-check-user"
+      , user ? dummyUser
       , extraModules ? [ ]
       , extraHomeModules ? [ ]
       }:
@@ -80,8 +85,9 @@
     #   full — every optional app set and opinionated home module enabled.
     #          Guards the bundled example profiles: every cask name is typed
     #          and every nixPackages attribute must actually exist in nixpkgs.
-    #   cold-is-nondestructive — pins the ADR-007 contract: a fresh fork must
-    #          never resolve to a destructive or opinionated default.
+    #   cold-is-nondestructive — pins the ADR-007 and ADR-011 contracts: a
+    #          fresh fork must never resolve to a destructive default, and
+    #          never to a shell that redefines commands the user already has.
     checks = lib.genAttrs darwinSystems (system: {
       cold = mkEvalCheck "cold-${system}" { inherit system; };
 
@@ -93,9 +99,28 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           host = mkDummyHost { inherit system; };
+          homeCfg = host.config.home-manager.users.${dummyUser};
         in
         assert host.config.homebrew.onActivation.cleanup == "none";
         assert !host.config.dotfiles.system.macosDefaults.enable;
+
+        # ADR-011, the shell half of the same contract. A cold fork must not
+        # get a shell that redefines commands the user already has, and these
+        # are the three that actually reached outside this repo:
+        #
+        #   zoxide --cmd cd  shadowed the `cd` builtin
+        #   workshop.zsh     wrote .workshop.env, and appended to .gitignore,
+        #                    in whatever project you cd'd into
+        #   aliases-personal aliased npm and yarn to pnpm machine-wide
+        #
+        # Asserting the resolved values means re-imposing any of them fails
+        # the check rather than shipping quietly, exactly as the Homebrew
+        # cleanup assertion above does for ADR-007.
+        assert homeCfg.programs.zoxide.options == [ ];
+        assert !homeCfg.dotfiles.home.zsh.workshop.enable;
+        assert !homeCfg.dotfiles.home.zsh.personalAliases.enable;
+        assert !homeCfg.dotfiles.home.zsh.nodeWorkflow.enable;
+        assert !homeCfg.dotfiles.home.git.opinionatedDefaults.enable;
         pkgs.runCommand "dotfiles-check-cold-nondestructive-${system}" { } "touch $out";
 
       full = mkEvalCheck "full-${system}" {
@@ -120,8 +145,19 @@
             ohMyZsh.enable = true;
             ghostty.enable = true;
             vscode.enable = true;
+            cursor.enable = true;
             languageServers.enable = true;
             nodeTooling.enable = true;
+            zoxide.replaceCd = true;
+            git.opinionatedDefaults.enable = true;
+            zsh = {
+              personalAliases.enable = true;
+              nodeWorkflow.enable = true;
+              # workshop.zsh needs the nodeWorkflow helpers; nix/home/home.nix
+              # asserts that, so enabling both here also exercises the assertion
+              # against its satisfied case.
+              workshop.enable = true;
+            };
           };
         }];
       };

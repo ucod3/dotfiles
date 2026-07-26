@@ -22,7 +22,14 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_URL="https://github.com/ucod3/dotfiles.git"
+#
+# UPSTREAM_URL is where this framework is published. REPO_URL is what actually
+# gets cloned, and it is NOT the same thing by default: an adopter should end up
+# owning their own fork, because the private flake pins whatever `origin` turns
+# out to be and that pin is what their Mac rebuilds from (ADR-010). Resolution
+# order: --repo → $DOTFILES_REPO_URL → interactive prompt → upstream.
+UPSTREAM_URL="https://github.com/ucod3/dotfiles.git"
+REPO_URL="${DOTFILES_REPO_URL:-}"
 DOTFILES_DIR="${HOME}/dotfiles"
 BACKUP_DIR="${HOME}/dotfiles.backup.$(date +%Y%m%d_%H%M%S)"
 
@@ -179,16 +186,57 @@ backup_existing() {
     fi
 }
 
+# Decide which repository this machine will track.
+#
+# Cloning upstream directly is a dead end for anyone who wants to change
+# anything: the private flake pins `origin`, so their Mac would rebuild from a
+# repository they cannot push to, and their own commits could never be promoted.
+# Ask once, up front, where it is cheap to answer.
+resolve_repo_url() {
+    if [[ -n "$REPO_URL" ]]; then
+        log_info "Using repository: $REPO_URL"
+        return 0
+    fi
+
+    local answer=""
+    echo
+    log_info "This framework is meant to be forked — your fork is what your Mac"
+    log_info "will rebuild from, and it is the only place you can push changes."
+    log_info "Fork https://github.com/ucod3/dotfiles first if you have not yet."
+    echo
+    prompt_read answer "  Your fork (OWNER/REPO or full URL) [upstream]: " ""
+
+    case "$answer" in
+        "")
+            REPO_URL="$UPSTREAM_URL"
+            log_warning "Tracking upstream. You will not be able to push changes;"
+            log_warning "fork it later and update 'origin' in $DOTFILES_DIR."
+            ;;
+        *://* | git@*)
+            REPO_URL="$answer"
+            ;;
+        */*)
+            REPO_URL="https://github.com/${answer%.git}.git"
+            ;;
+        *)
+            log_error "Not a repository: '$answer' (expected OWNER/REPO or a URL)"
+            exit 1
+            ;;
+    esac
+
+    log_info "Using repository: $REPO_URL"
+}
+
 # Clone the dotfiles repository
 clone_dotfiles() {
     log_info "Cloning dotfiles repository..."
-    
+
     if ! git clone "$REPO_URL" "$DOTFILES_DIR"; then
         log_error "Failed to clone repository"
         log_info "Please check your internet connection and try again."
         exit 1
     fi
-    
+
     log_success "Dotfiles cloned to $DOTFILES_DIR"
 }
 
@@ -218,19 +266,47 @@ package_source() {
         ghostty)   echo "brew:cask:ghostty" ;;            # nixpkgs ghostty is broken on darwin
         iterm2)    echo "brew:cask:iterm2" ;;
         wezterm)   echo "brew:cask:wezterm" ;;
+        warp)      echo "brew:cask:warp" ;;               # not in nixpkgs
+        alacritty) echo "brew:cask:alacritty" ;;          # cask keeps auto-update
         kitty)     echo "nix:kitty" ;;
         # Window managers
         amethyst)  echo "brew:cask:amethyst" ;;
         rectangle) echo "brew:cask:rectangle" ;;
         aerospace) echo "brew:cask:nikitabobko/tap/aerospace" ;;
+        yabai)     echo "brew:cask:koekeishiya/formulae/yabai" ;;
         *)         echo "" ;;
     esac
 }
 
+# Anything the menus do not know about is taken at face value as a Homebrew
+# cask. The curated lists are a starting point, not the boundary of what this
+# framework will install — an adopter whose editor is not on the list should not
+# have to edit the installer to get it.
+FREEFORM_CASKS=""
+prompt_extra_casks() {
+    local label="$1" raw="" name
+    prompt_read raw "  Other $label as Homebrew casks (space-separated, optional): " ""
+    for name in $raw; do
+        case "$name" in
+            # Cask tokens, including tap-qualified ones like owner/tap/name.
+            *[!A-Za-z0-9@._/-]*)
+                log_warning "Ignoring '$name' — not a valid cask name"
+                ;;
+            "") ;;
+            *) FREEFORM_CASKS="$FREEFORM_CASKS \"$name\"" ;;
+        esac
+    done
+}
+
 # Present a numbered menu; sets REPLY_SELECTION to space-separated choices.
-# Args: <category label> <allow-multi: yes/no> <options...>
+# Args: <category label> <options...>
+#
+# Every category is multi-select. Terminal and window manager used to accept one
+# answer each, which is not how people actually work — plenty of setups want
+# Ghostty and Warp, or Rectangle alongside Aerospace — and a single-choice menu
+# silently discarded the rest.
 select_menu() {
-    local label="$1" multi="$2"; shift 2
+    local label="$1"; shift
     local options=("$@") i raw selection=""
     echo "" >&2
     echo "  Choose your $label:" >&2
@@ -240,11 +316,7 @@ select_menu() {
         i=$((i + 1))
     done
     echo "    0) none / skip" >&2
-    if [ "$multi" = "yes" ]; then
-        prompt_read raw "  Selection (numbers, comma-separated) [0]: " "0"
-    else
-        prompt_read raw "  Selection [0]: " "0"
-    fi
+    prompt_read raw "  Selection (numbers, comma- or space-separated) [0]: " "0"
     raw="${raw//,/ }"
     for n in $raw; do
         case "$n" in
@@ -314,32 +386,35 @@ EOF
     fi
 
     # Category selections → .local/{browsers,editors}/choices.nix
-    select_menu "browser(s)" yes brave firefox chrome arc zen
-    LOCAL_CASKS="" LOCAL_NIXPKGS=""
+    select_menu "browser(s)" brave firefox chrome arc zen
+    LOCAL_CASKS="" LOCAL_NIXPKGS="" FREEFORM_CASKS=""
     collect_packages "$REPLY_SELECTION"
+    prompt_extra_casks "browsers"
     cat > "$local_dir/browsers/choices.nix" <<EOF
 {
-  casks = [$LOCAL_CASKS ];
+  casks = [$LOCAL_CASKS$FREEFORM_CASKS ];
   nixPackages = [$LOCAL_NIXPKGS ];
 }
 EOF
 
-    select_menu "editor(s)" yes vscode zed cursor neovim
-    LOCAL_CASKS="" LOCAL_NIXPKGS=""
+    select_menu "editor(s)" vscode zed cursor neovim
+    LOCAL_CASKS="" LOCAL_NIXPKGS="" FREEFORM_CASKS=""
     collect_packages "$REPLY_SELECTION"
+    prompt_extra_casks "editors"
     cat > "$local_dir/editors/choices.nix" <<EOF
 {
-  casks = [$LOCAL_CASKS ];
+  casks = [$LOCAL_CASKS$FREEFORM_CASKS ];
   nixPackages = [$LOCAL_NIXPKGS ];
 }
 EOF
 
     # Terminal + window manager → flat lists in settings.nix
-    select_menu "terminal" no ghostty iterm2 wezterm kitty
+    select_menu "terminal(s)" ghostty warp iterm2 wezterm alacritty kitty
     local term_sel="$REPLY_SELECTION"
-    select_menu "window manager" no amethyst rectangle aerospace
-    LOCAL_CASKS="" LOCAL_NIXPKGS=""
+    select_menu "window manager(s)" amethyst rectangle aerospace yabai
+    LOCAL_CASKS="" LOCAL_NIXPKGS="" FREEFORM_CASKS=""
     collect_packages "$term_sel $REPLY_SELECTION"
+    prompt_extra_casks "apps"
 
     # Optional toggles
     local enable_ai="false" enable_sets="n"
@@ -363,7 +438,7 @@ EOF
   };
 
   # Flat selections from the installer (terminal, window manager, extras)
-  casks = [$LOCAL_CASKS ];
+  casks = [$LOCAL_CASKS$FREEFORM_CASKS ];
   nixPackages = [$LOCAL_NIXPKGS ];
 }
 EOF
@@ -422,6 +497,7 @@ run_installation() {
     
     # Step 6: Backup and clone
     log_info "Step 6/8: Setting up dotfiles repository..."
+    resolve_repo_url
     backup_existing
     clone_dotfiles
     # NOTE: git hooks are installed by bootstrap AFTER the first build. The
@@ -533,11 +609,30 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
+        --repo)
+            REPO_URL="${2:-}"
+            if [[ -z "$REPO_URL" ]]; then
+                log_error "--repo needs a repository (OWNER/REPO or a URL)"
+                exit 1
+            fi
+            case "$REPO_URL" in
+                *://* | git@*) ;;
+                */*) REPO_URL="https://github.com/${REPO_URL%.git}.git" ;;
+                *) log_error "Not a repository: '$REPO_URL'"; exit 1 ;;
+            esac
+            shift 2
+            ;;
+        --repo=*)
+            set -- --repo "${1#*=}" "${@:2}"
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  -v, --verbose    Enable verbose output"
+            echo "      --repo REPO  Clone this fork instead of prompting."
+            echo "                   OWNER/REPO or a full clone URL. Also settable"
+            echo "                   as \$DOTFILES_REPO_URL."
             echo "  -h, --help       Show this help message"
             echo ""
             echo "This installer sets up a complete macOS development environment"

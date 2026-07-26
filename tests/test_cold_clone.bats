@@ -19,6 +19,12 @@ setup() {
   # It is a post-rebuild advisory. Exiting non-zero here made a SUCCESSFUL
   # darwin-rebuild switch report overall failure, because rebuild runs under
   # `set -euo pipefail`.
+  #
+  # The script refuses to run as root before it ever checks for brew, which is
+  # its own deliberate guard — so as root there is no brew-absent path to
+  # observe. Skip rather than weaken either behaviour. CI runs unprivileged.
+  [ "$(id -u)" -ne 0 ] || skip "runs as root; the script's root guard fires first"
+
   run env PATH="$BARE_PATH" "$REPO_ROOT/scripts/bin/check-brew-manual-installers"
   [ "$status" -eq 0 ]
 }

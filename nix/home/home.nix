@@ -11,13 +11,25 @@
 # when a `.local/` settings layer exists (you ran install.sh or linked a
 # private flake), and default to off on a cold public fork.
 #
-# What stays UNGATED is the framework core: git config, the bundled Neovim
-# config, fzf/zoxide, base zsh, the `dot` dispatcher, and the two tools
-# `scripts/bin/validate` itself depends on (shellcheck, bats).
+# A second pass (ADR-011) extended the same treatment to the shell itself,
+# which was still imposing plenty: zoxide replacing `cd`, `epic-detect` writing
+# .workshop.env into whatever repo you cd'd into, npm/yarn aliased to pnpm, and
+# a global git config that forced Neovim and rebase-on-pull. Those now sit
+# behind `dotfiles.home.zsh.*`, `dotfiles.home.zoxide.replaceCd` and
+# `dotfiles.home.git.opinionatedDefaults`.
+#
+# What stays UNGATED is the framework core: the neutral half of the git config,
+# the bundled Neovim config, fzf, zoxide (as `z`, not as `cd`), base zsh, the
+# `dot` dispatcher and its aliases, and the two tools `scripts/bin/validate`
+# itself depends on (shellcheck, bats).
+#
+# Whatever the toggles say, config/zsh/custom.local.zsh and ~/.zshrc.local are
+# sourced last and are never managed — that is where your own aliases and tool
+# setup belong.
 #
 # CUSTOMIZE, from your private host file:
 #   home-manager.users.<you>.dotfiles.home.ohMyZsh.enable = true;
-#   home-manager.users.<you>.dotfiles.home.vscode.configDir = "Code";
+#   home-manager.users.<you>.dotfiles.home.vscode.configDir = "Code - Insiders";
 # or via `.local/settings.nix` — see lib/local.nix for the schema.
 
 { config, pkgs, lib, ... }:
@@ -34,6 +46,21 @@ let
   # tooling — the user must ask for it explicitly (ADR-007).
   exampleProfile = dotfilesLocal.homeProfile != null && dotfilesLocal.homeProfile;
   exampleProfileText = lib.literalExpression ".local/settings.nix `home.exampleProfile.enable`, else false";
+
+  # The zsh modules config/zsh/custom.zsh should source, in dependency order.
+  # `init`, `utils`, `aliases` and `exports` are the neutral core: none of them
+  # redefines a standard command or writes to the directory you are standing in.
+  # The rest are gated (ADR-011). Order matters — aliases-personal references
+  # helpers defined in node.zsh/npm-compat.zsh.
+  zshModules =
+    [ "init" ]
+    ++ lib.optionals cfg.zsh.nodeWorkflow.enable [ "node" ]
+    ++ [ "utils" ]
+    ++ lib.optionals cfg.zsh.nodeWorkflow.enable [ "npm-compat" ]
+    ++ [ "aliases" ]
+    ++ lib.optionals cfg.zsh.personalAliases.enable [ "aliases-personal" ]
+    ++ lib.optionals cfg.zsh.workshop.enable [ "workshop" ]
+    ++ [ "exports" ];
 in
 {
   options.dotfiles.home = {
@@ -88,13 +115,118 @@ in
 
       configDir = lib.mkOption {
         type = lib.types.str;
-        # CUSTOMIZE: "Code" for stable, "VSCodium" for the FOSS build.
-        default = "Code - Insiders";
+        # CUSTOMIZE: "Code - Insiders" for the Insiders channel, "VSCodium" for
+        # the FOSS build. Stable is the neutral default; the Insiders channel
+        # used to be it, which is a preference, not a baseline.
+        default = "Code";
         description = ''
-          XDG config directory name for the VS Code variant to configure.
-          The default targets the Insiders channel; stable users want "Code".
+          Application-support directory name for the VS Code variant to
+          configure, under ~/Library/Application Support.
         '';
       };
+    };
+
+    cursor = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = exampleProfile;
+        defaultText = exampleProfileText;
+        description = ''
+          Link the bundled editor settings.json into Cursor's macOS config
+          directory. Cursor is a VS Code fork and reads the same schema, so it
+          shares config/vscode/settings.json.
+        '';
+      };
+
+      configDir = lib.mkOption {
+        type = lib.types.str;
+        default = "Cursor";
+        description = ''
+          Application-support directory name for Cursor, under
+          ~/Library/Application Support.
+        '';
+      };
+    };
+
+    # ── Shell composition ─────────────────────────────────────────────────────
+    # config/zsh/custom.zsh is read verbatim into .zshrc and cannot see these
+    # options, so the enabled set is passed to it as DOTFILES_ZSH_MODULES (see
+    # programs.zsh.initContent below). Each toggle here adds one module name.
+    zsh = {
+      personalAliases.enable = lib.mkOption {
+        type = lib.types.bool;
+        default = exampleProfile;
+        defaultText = exampleProfileText;
+        description = ''
+          Load config/zsh/modules/aliases-personal.zsh: ls shorthands,
+          `grep --color`, `help` as `man`, and npm/yarn aliased to pnpm.
+
+          Off by default because every entry redefines a command the system
+          already provides. The `dot`/`rebuild`/`validate` aliases are NOT part
+          of this — those are framework entry points and always load.
+        '';
+      };
+
+      nodeWorkflow.enable = lib.mkOption {
+        type = lib.types.bool;
+        default = exampleProfile;
+        defaultText = exampleProfileText;
+        description = ''
+          Load the pnpm-first Node modules (node.zsh, npm-compat.zsh): the
+          `pnpm`/`pnpx` wrapper functions that auto-install a Node runtime, plus
+          `ensure-node`, `real-npm` and `setup-pnpm-workspace`.
+
+          Off by default: it makes `pnpm` a shell function that can install
+          software as a side effect of running it.
+        '';
+      };
+
+      workshop.enable = lib.mkOption {
+        type = lib.types.bool;
+        default = exampleProfile;
+        defaultText = exampleProfileText;
+        description = ''
+          Load config/zsh/modules/workshop.zsh — the EpicWeb workshop helpers,
+          including the `epic-detect` and `_detect_npm_project` chpwd hooks.
+
+          Off by default, and the strongest case for gating in this file:
+          `epic-detect` WRITES to the directory you just cd'd into. It creates
+          .workshop.env and appends a line to that project's .gitignore, in any
+          repository, without being asked. Requires nodeWorkflow for the
+          helpers it calls.
+        '';
+      };
+    };
+
+    zoxide.replaceCd = lib.mkOption {
+      type = lib.types.bool;
+      default = exampleProfile;
+      defaultText = exampleProfileText;
+      description = ''
+        Let zoxide take over the `cd` command (`zoxide init --cmd cd`).
+
+        zoxide itself is framework core and always installed; this option is
+        only about whether it shadows the shell builtin. Off by default because
+        a `cd` that jumps to a frecency-ranked directory instead of the literal
+        path is surprising in scripts and to anyone who did not ask for it.
+        With this off, use `z` to jump.
+      '';
+    };
+
+    git.opinionatedDefaults.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = exampleProfile;
+      defaultText = exampleProfileText;
+      description = ''
+        Link config/git/config-opinionated, which sets `core.editor = nvim`,
+        `merge.tool = nvimdiff`, `pull.rebase = true`,
+        `branch.autoSetupRebase = always`, `rebase.autoStash`, `push.default`,
+        `commit.verbose` and `core.fsmonitor`.
+
+        Off by default: these change what `git pull` and `git commit` do. The
+        neutral part of the git config (identity include, excludesfile,
+        `init.defaultBranch = main`, colour) always applies.
+      '';
     };
 
     languageServers = {
@@ -136,6 +268,22 @@ in
     home.stateVersion = "24.05";
     xdg.enable = true;
 
+    # workshop.zsh calls real-npm, ensure-node and setup-pnpm-workspace, all of
+    # which are defined in the nodeWorkflow modules. Enabling it alone produces
+    # a shell whose chpwd hook fails with "command not found" on every cd into
+    # a project — fail the evaluation instead of shipping that.
+    assertions = [
+      {
+        assertion = cfg.zsh.workshop.enable -> cfg.zsh.nodeWorkflow.enable;
+        message = ''
+          dotfiles.home.zsh.workshop.enable requires
+          dotfiles.home.zsh.nodeWorkflow.enable — workshop.zsh calls
+          `real-npm`, `ensure-node` and `setup-pnpm-workspace`, which
+          node.zsh and npm-compat.zsh define.
+        '';
+      }
+    ];
+
     xdg.configFile = {
       # ── Framework core (always applied) ───────────────────────────────────
       "git/config".source = ../../config/git/config;
@@ -146,9 +294,10 @@ in
         recursive = true;
       };
     }
-    // lib.optionalAttrs cfg.vscode.enable {
-      "${cfg.vscode.configDir}/User/settings.json".source =
-        ../../config/vscode/settings.json;
+    // lib.optionalAttrs cfg.git.opinionatedDefaults.enable {
+      # config/git/config includes this path unconditionally; git ignores a
+      # missing include, so not writing it here IS the off switch.
+      "git/config-opinionated".source = ../../config/git/config-opinionated;
     }
     // lib.optionalAttrs cfg.ghostty.enable {
       "ghostty/config".source = ../../config/ghostty/config;
@@ -185,7 +334,24 @@ in
           sha256 = "sha256-1ojmr9+Wg5+X5Dip4sKjP4IKKACMncPQDZ8RtYQSQ80=";
         };
       };
-    } // {
+    }
+    # ── Editors: native macOS paths, not XDG ────────────────────────────────
+    # VS Code and its forks read ~/Library/Application Support/<variant>/User/
+    # on macOS. They do NOT read $XDG_CONFIG_HOME — the `--user-data-dir` flag
+    # is the only way to move them, and nothing here passes it. These mappings
+    # used to go through xdg.configFile, so the file landed in
+    # ~/.config/Code - Insiders/User/settings.json, which no editor has ever
+    # read: the settings silently did nothing.
+    // lib.optionalAttrs cfg.vscode.enable {
+      "Library/Application Support/${cfg.vscode.configDir}/User/settings.json".source =
+        ../../config/vscode/settings.json;
+    }
+    // lib.optionalAttrs cfg.cursor.enable {
+      # Cursor is a VS Code fork and reads the same settings schema.
+      "Library/Application Support/${cfg.cursor.configDir}/User/settings.json".source =
+        ../../config/vscode/settings.json;
+    }
+    // {
       # Expose the dot dispatcher on PATH for non-interactive scripts
       ".local/bin/dot" = {
         source = ../../scripts/bin/dot;
@@ -220,7 +386,9 @@ in
     programs.zoxide = {
       enable = true;
       enableZshIntegration = true;
-      options = [ "--cmd" "cd" ];
+      # `--cmd cd` makes zoxide shadow the shell builtin. Framework core ships
+      # zoxide but not that takeover — see dotfiles.home.zoxide.replaceCd.
+      options = lib.optionals cfg.zoxide.replaceCd [ "--cmd" "cd" ];
     };
 
     programs.zsh = {
@@ -252,7 +420,19 @@ in
 
       envExtra = builtins.readFile ../../config/zsh/.zshenv;
       profileExtra = builtins.readFile ../../config/zsh/.zprofile;
-      initContent = builtins.readFile ../../config/zsh/custom.zsh;
+
+      # custom.zsh is a plain file read verbatim into .zshrc, so it cannot read
+      # Nix options. The enabled module list is handed to it as an environment
+      # variable emitted immediately above it — mkBefore guarantees the export
+      # lands first, which `home.sessionVariables` would not (those are sourced
+      # from a profile file whose ordering relative to initContent is not ours
+      # to depend on).
+      initContent = lib.mkMerge [
+        (lib.mkBefore ''
+          export DOTFILES_ZSH_MODULES="${lib.concatStringsSep " " zshModules}"
+        '')
+        (builtins.readFile ../../config/zsh/custom.zsh)
+      ];
     };
 
     home.packages =

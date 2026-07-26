@@ -23,7 +23,13 @@ set -euo pipefail
 ERRORS=0
 WARNINGS=0
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
 cd "$DOTFILES_ROOT"
 
 # shellcheck source=../../lib/log.sh
@@ -132,10 +138,21 @@ fi
 section "Unit tests"
 if [[ -d "tests" ]]; then
   if command -v bats >/dev/null 2>&1; then
-    if bats tests/ 2>/dev/null; then
+    # HARD failure — deliberately not a warning.
+    #
+    # This used to `warn`, so a red test suite still exited 0. Everything built
+    # on top of validate inherited that: the fail-closed pre-commit hook let the
+    # commit through, `dot update`'s pre-flight proceeded, and `dot apps`
+    # reported "Config is valid" against broken behaviour. The suite covers the
+    # adoption guards that move real files out of $HOME — advisory is the wrong
+    # severity for those.
+    #
+    # stderr is no longer discarded: `2>/dev/null` hid the very output the old
+    # "see output above" message pointed at.
+    if bats tests/; then
       pass "All bats tests passed"
     else
-      warn "Some bats tests failed (see output above)"
+      fail "bats tests failed (see output above)"
     fi
   else
     pass "bats not installed — skipping unit tests (install with: nix-env -iA nixpkgs.bats)"

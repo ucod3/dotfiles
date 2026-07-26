@@ -18,16 +18,22 @@ Homebrew). That identity lives in a separate, private, local flake:
 └── nix/home/home.nix   shared Home Manager config
 
 ~/dotfiles-private       (private, local-only, not published)
-├── flake.nix           imports dotfiles as a git input, defines your host
-└── hosts/<hostname>.nix   sets `user = "<macos-username>"`
+├── flake.nix           imports dotfiles as a git input; enumerates ./hosts
+├── home.nix            home.file mappings written by `dot adopt`
+└── hosts/<hostname>.nix   one file per Mac; sets `user = "<macos-username>"`
 ```
 
 The private flake consumes the shared repo as a **published** input —
 `github:OWNER/REPO`, pinned to an exact revision in its `flake.lock`. Your live
 system therefore builds only from what you have pushed; a local branch or an
-uncommitted edit cannot reach it (ADR-009). `setup-private-host` reads the owner
-from your own `origin` remote, and falls back to `git+file://` when the repo has
-no GitHub remote yet.
+uncommitted edit cannot reach it (ADR-009).
+
+**It must be your fork.** `setup-private-host` reads the owner from your own
+`origin` remote, and when that owner is the upstream framework it says so and
+asks for your fork instead — pinning upstream gives you a Mac that rebuilds from
+a repository you cannot push to (ADR-010). Override with `--fork OWNER/REPO` or
+`$DOTFILES_FORK`. It falls back to `git+file://` only when there is no GitHub
+remote at all.
 
 Use `dot rebuild --override-local` to test local work without publishing it.
 That path evaluates your working tree's **staged** changes; untracked files stay
@@ -56,18 +62,48 @@ exists yet, it tells you to run `setup-private-host`.
 
 ## Adding a second machine
 
-Run `./scripts/bin/setup-private-host` on that machine too — it uses the
-local hostname/username automatically. Each machine gets its own entry in
-`~/dotfiles-private/hosts/`.
+Push `~/dotfiles-private` to a private repo (see below), clone it on the new
+Mac, and run:
 
-If the flake already exists but lacks an entry for the current hostname — which
-also happens when macOS renames a machine on a new network — the script writes
-`hosts/<name>.nix` and prints the `darwinConfigurations` block to paste in. It
-deliberately does not rewrite your private `flake.nix`; that file is yours.
+```bash
+cd ~/dotfiles && ./scripts/bin/setup-private-host
+```
+
+It uses the local hostname and username automatically, writes
+`hosts/<hostname>.nix`, and stages it. **There is nothing to edit**: the
+generated `flake.nix` builds `darwinConfigurations` from `builtins.readDir
+./hosts`, so a new file in that directory is a new machine (ADR-010).
+
+The same applies when macOS renames a machine on a new network and `dot rebuild`
+reports no configuration for the new hostname:
 
 ```bash
 ./scripts/bin/setup-private-host --host "$(hostname -s)"
 ```
+
+Because `readDir` treats every `.nix` file in `hosts/` as a host, keep other
+modules out of that directory.
+
+A private flake generated before this layout existed names one host inline. The
+script detects that, still writes the host file, and prints the
+`darwinConfigurations` block for you to paste — it will not rewrite a flake it
+did not generate.
+
+## What the host file wires up
+
+The generated `hosts/<hostname>.nix` imports Home Manager modules as a **list**:
+
+```nix
+users.${user}.imports = [
+  inputs.dotfiles.darwinModules.homeEnvironment
+  ../home.nix
+];
+```
+
+`../home.nix` is where `dot adopt` writes the mappings for files it moves out of
+`$HOME`. `setup-private-host` creates it up front — empty but valid — so the
+first adoption deploys without you editing the host file. Add your own modules to
+that list the same way.
 
 ## Manual setup & customization
 

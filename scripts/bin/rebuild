@@ -14,7 +14,13 @@
 #
 set -euo pipefail
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
 cd "$DOTFILES_ROOT"
 
 # shellcheck source=../../lib/log.sh
@@ -71,10 +77,25 @@ parse_args() {
 
 parse_args "$@"
 
+# Validate --override-local's argument immediately, before Nix, hostname
+# resolution or host lookup. A bad flag value is a usage error and should read
+# like one; it used to be checked just before the build, so on any machine
+# without a matching darwinConfiguration the user got "No configuration found
+# for hostname" — an error about something they had not done wrong — while the
+# actual problem, a path that is not a git repository, was never reported.
+OVERRIDE_ABS=""
+if [[ "$OVERRIDE_LOCAL" == true ]]; then
+  if [[ ! -d "$OVERRIDE_PATH/.git" ]]; then
+    log_error "--override-local needs a git repository: $OVERRIDE_PATH is not one."
+    exit 1
+  fi
+  OVERRIDE_ABS="$(cd "$OVERRIDE_PATH" && pwd -P)"
+fi
+
 require_nix
 
 HOSTNAME="$(hostname -s 2>/dev/null || true)"
-PRIVATE_FLAKE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+PRIVATE_FLAKE_ROOT="$(private_flake_root)"
 FLAKE_ROOT="$DOTFILES_ROOT"
 
 if [[ -z "$HOSTNAME" ]]; then
@@ -176,7 +197,7 @@ has_settings_layer() {
      || -e "$d/browsers/choices.nix" || -e "$d/editors/choices.nix" ]]
 }
 
-DOTFILES_LOCAL="${DOTFILES_LOCAL:-$DOTFILES_ROOT/.local}"
+DOTFILES_LOCAL="$(local_dir)"
 if has_settings_layer "$DOTFILES_LOCAL"; then
   log_info "Using local settings layer: $DOTFILES_LOCAL"
 else
@@ -207,13 +228,9 @@ fi
 # everywhere else — staged changes are visible, untracked files are not.
 # `--no-write-lock-file` keeps the override out of flake.lock, so the next plain
 # rebuild returns to the pinned revision with no cleanup.
+# $OVERRIDE_ABS was resolved and validated up front, next to argument parsing.
 NIX_FLAGS=()
 if [[ "$OVERRIDE_LOCAL" == true ]]; then
-  if [[ ! -d "$OVERRIDE_PATH/.git" ]]; then
-    log_error "--override-local needs a git repository: $OVERRIDE_PATH is not one."
-    exit 1
-  fi
-  OVERRIDE_ABS="$(cd "$OVERRIDE_PATH" && pwd -P)"
   NIX_FLAGS+=( --override-input dotfiles "git+file://$OVERRIDE_ABS" --no-write-lock-file )
   log_warning "Building from a LOCAL working tree: $OVERRIDE_ABS"
   log_warning "This build is NOT reproducible and the pin is NOT updated."

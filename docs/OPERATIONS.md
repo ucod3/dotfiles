@@ -45,13 +45,27 @@ dot update --auto       # no prompts (CI-friendly)
 
 When you use a private host flake, its `dotfiles` input is what pins this repo,
 and `dot update` updates *this* repo's lock — which does not drive your Mac on
-its own. Promoting a change to the live system is explicit (ADR-009):
+its own. Promoting a change to the live system is explicit (ADR-009).
+
+## Promoting a change to the live system
 
 ```bash
-git -C ~/dotfiles push                                   # 1. publish
-cd ~/dotfiles-private && nix flake update dotfiles       # 2. move the pin
+dot promote                 # validate → push → bump the pin → commit → rebuild
+dot promote --dry-run       # print the plan, change nothing
+dot promote --no-rebuild    # stop after committing the pin
+dot promote --branch NAME   # promote a branch other than the default
+```
+
+`dot promote` is the five steps below as one command. It refuses a dirty working
+tree, and it pushes *before* moving the pin, because the pin can only name a
+revision the remote already has.
+
+```bash
+dot validate                                             # 1. don't publish a broken tree
+git -C ~/dotfiles push -u origin main                    # 2. publish
+cd ~/dotfiles-private && nix flake update dotfiles       # 3. move the pin
 git -C ~/dotfiles-private add flake.lock && git -C ~/dotfiles-private commit -m "chore(lock): bump dotfiles pin"
-dot rebuild                                              # 3. apply
+dot rebuild                                              # 4. apply
 ```
 
 Bumping the pin also moves `nixpkgs`, `nix-darwin`, `home-manager` and
@@ -67,10 +81,26 @@ dot apps add ghostty     # add to .local/apps.nix
 dot apps remove ghostty
 ```
 
+`dot apps list` reports two things separately: **your selections**, read from
+every file in the `.local/` layer (`apps.nix`, `settings.nix`,
+`browsers/choices.nix`, `editors/choices.nix`), and the **framework app sets**
+shipped in `nix/modules/apps/`.
+
 `dot apps` owns `.local/apps.nix` exclusively — it is generated and rewritten
 wholesale, so do not hand-edit it. Hand-written selections belong in
 `.local/settings.nix`. Apps that come from a framework example set cannot be
 removed this way; disable or override the set in `.local/settings.nix` instead.
+
+### What the framework manages, and what you adopt
+
+The framework installs **applications** (casks, Nix packages, App Store apps) and
+owns a small set of **core configs**: git, Neovim, zsh, and — when you enable the
+matching `dotfiles.home.*` toggle — VS Code/Cursor settings and the Ghostty
+config. It does not try to manage every tool's dotfile.
+
+Everything else is `dot adopt`: point it at a config that already exists in your
+`$HOME` and it moves into your private flake under declarative management. That
+is the intended path for personal tool configs, not adding cases to this repo.
 
 Whether removal actually uninstalls anything depends on `homebrew.cleanup`,
 which is `"none"` unless you opted in.
@@ -200,12 +230,45 @@ Home Manager writes `*.hm-backup` files when it would otherwise clobber
 something it does not manage. If activation fails complaining about an existing
 file, that is what to look for.
 
+## Customising the shell
+
+Framework modules are chosen by `dotfiles.home.zsh.*` and friends (see
+[GETTING-STARTED.md](../GETTING-STARTED.md#turning-things-on)). Your own aliases,
+exports and tool setup go in either of two **unmanaged, gitignored** files,
+sourced last so they win over everything the framework sets:
+
+```bash
+cp config/zsh/custom.local.zsh.example config/zsh/custom.local.zsh
+$EDITOR config/zsh/custom.local.zsh    # or: change
+$EDITOR ~/.zshrc.local                 # machine-specific instead of checkout-specific
+```
+
+Neither is touched by `dot rebuild`, and neither needs one — open a new shell.
+
+### Upgrading from a pre-ADR-011 install
+
+Older versions wrote `npm`, `npx` and `yarn` shims into `~/.local/bin` from the
+shell rc. That code is gone, but a declarative config cannot retract an
+imperative write it no longer makes. Remove them by hand:
+
+```bash
+rm -f ~/.local/bin/npm ~/.local/bin/npx ~/.local/bin/yarn
+```
+
+If your shell now feels bare — no `ll`, `cd` no longer jumping, `git pull`
+merging instead of rebasing — that is the new neutral default. Set
+`home.exampleProfile.enable = true;` in `.local/settings.nix` to get the previous
+behaviour back, or enable the individual `dotfiles.home.*` toggles you want.
+
 ## Secrets
 
 ```bash
 dot secrets      # scan the working tree
 dot hooks        # (re)install the pre-commit hook
 ```
+
+Note `dot validate` now **fails** when the bats suite fails; it used to warn and
+exit 0, which let the fail-closed hook commit against a red suite.
 
 The pre-commit hook runs `dot validate --quick` plus gitleaks and fails closed.
 Do not weaken it to make a commit pass. Note that a clean gitleaks result only

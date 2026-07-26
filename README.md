@@ -13,12 +13,19 @@ Apple Silicon only.
 
 ## Install
 
+**Fork this repository first.** Your fork is what your Mac rebuilds from, and
+it is the only place you can push changes to — the installer asks for it, and
+pinning upstream instead leaves you unable to promote your own work.
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh)
+# non-interactive:
+bash <(curl -fsSL .../install.sh) --repo YOU/dotfiles
 ```
 
 The installer checks prerequisites (Xcode CLT, Nix, Rosetta), asks what you
-want, generates your private host flake, and runs the first build.
+want, generates your private host flake pinned to *your* fork, and runs the
+first build.
 
 Already cloned by hand? Run `./scripts/bin/bootstrap` — it is idempotent and
 handles the same first-run concerns.
@@ -45,15 +52,24 @@ That is what the private flake is for — see
 
 ```bash
 dot rebuild            # apply configuration changes
+dot promote            # ship it: validate, push, bump the pin, rebuild
 dot update             # update flake inputs + Homebrew, then rebuild
 dot apps add ghostty   # add an app to your selections
 dot apps list          # see what's declared
+dot adopt ~/.foorc     # bring an existing config under management
 dot validate           # syntax + common-mistake checks
 dot secrets            # scan for leaked secrets
 dot help               # full reference
 ```
 
-`rebuild`, `update`, `validate` and `apps` are also available as bare aliases.
+`rebuild`, `promote`, `update`, `validate` and `apps` are also available as bare
+aliases.
+
+### More than one Mac
+
+Push `~/dotfiles-private` to a private repo, clone it on the second machine, and
+run `./scripts/bin/setup-private-host`. It adds `hosts/<that-hostname>.nix` and
+the private flake picks it up automatically — there is no flake to hand-edit.
 
 ## Turning things on
 
@@ -68,20 +84,39 @@ Everything opinionated is off until you ask. Edit `.local/settings.nix` and run
 
   homebrew.cleanup = "uninstall";       # prune casks you no longer declare
   system.macosDefaults.enable = true;   # Dock/Finder/key-repeat profile
-  home.exampleProfile.enable = true;    # oh-my-zsh, ghostty, vscode, node tooling
+  home.exampleProfile.enable = true;    # the whole example home profile at once
+                                        # (oh-my-zsh, ghostty, vscode/cursor,
+                                        #  node tooling, personal aliases,
+                                        #  zoxide-as-cd, git workflow, workshop)
 
   casks = [ "ghostty" "rectangle" ];    # any Homebrew casks
   nixPackages = [ "htop" ];             # any nixpkgs attributes
 }
 ```
 
-Each app set is fully overridable (`dotfiles.apps.<set>.casks = [ ... ];`).
-Look for `# CUSTOMIZE:` comments throughout the tree.
-[`hosts/_template.nix`](./hosts/_template.nix) is the complete worked example.
+Each app set is fully overridable (`dotfiles.apps.<set>.casks = [ ... ];`), and
+each home toggle can be set individually from your private host file instead of
+all at once — see [`hosts/_template.nix`](./hosts/_template.nix), the complete
+worked example. Look for `# CUSTOMIZE:` comments throughout the tree.
 
-> **Nothing here defaults to destructive.** `homebrew.cleanup` stays `"none"`
-> until you opt in, and a build that would prune against an empty cask list
-> refuses to evaluate. See ADR-007.
+> **Nothing here defaults to destructive, and nothing redefines your commands.**
+> `homebrew.cleanup` stays `"none"` until you opt in, and a build that would
+> prune against an empty cask list refuses to evaluate (ADR-007). A cold fork's
+> shell leaves `cd`, `npm` and `git pull` alone, and touches no project you
+> `cd` into (ADR-011).
+
+## Making it yours
+
+| You want to… | Do this |
+|---|---|
+| Add aliases, exports, tool setup | `cp config/zsh/custom.local.zsh.example config/zsh/custom.local.zsh` — gitignored, sourced last, never clobbered by a rebuild |
+| Install an app | `dot apps add <name>`, or add it to `.local/settings.nix` |
+| Bring an existing config under management | `dot adopt ~/.config/whatever` — it moves into your private flake |
+| Ship a change to your Mac | `dot promote` |
+
+The framework installs applications and owns a few core configs (git, Neovim,
+zsh, optionally VS Code/Cursor and Ghostty). Everything else that lives in your
+`$HOME` is `dot adopt`'s job, not this repo's.
 
 ## Documentation
 
@@ -118,4 +153,4 @@ the same rules. See ADR-008.
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE).

@@ -13,7 +13,13 @@
 # `install.sh` delegates here. Run it directly if you cloned by hand.
 set -euo pipefail
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/dotfiles}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(dotfiles_root)"
 cd "$DOTFILES_ROOT"
 
 # shellcheck source=../../lib/log.sh
@@ -97,7 +103,7 @@ fi
 # This repo ships `darwinConfigurations = { }` on purpose: a host needs a
 # concrete hostname and username, which a public framework must not hardcode.
 HOSTNAME_SHORT="$(hostname -s 2>/dev/null || true)"
-PRIVATE_FLAKE_ROOT="${DOTFILES_PRIVATE_FLAKE:-$HOME/dotfiles-private}"
+PRIVATE_FLAKE_ROOT="$(private_flake_root)"
 
 if [[ -f "$PRIVATE_FLAKE_ROOT/flake.nix" ]] \
    && grep -q "darwinConfigurations\.\"${HOSTNAME_SHORT}\"" "$PRIVATE_FLAKE_ROOT/flake.nix" 2>/dev/null; then
