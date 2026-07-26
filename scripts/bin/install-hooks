@@ -9,7 +9,15 @@
 #   ./scripts/bin/install-hooks --quiet   # silent unless error
 #
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo "$HOME/dotfiles")}"
+# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+# `git rev-parse` first: hooks belong to whichever checkout is being committed
+# in, which is not necessarily the one this script was invoked from.
+_SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+_PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
+[[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$_PATHS"
+DOTFILES_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || dotfiles_root)"
 HOOKS_DIR="$DOTFILES_ROOT/.git/hooks"
 QUIET=false
 
