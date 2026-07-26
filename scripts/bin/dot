@@ -11,7 +11,7 @@
 #
 # Subcommands:
 #   bootstrap            First-run setup on a fresh Mac (idempotent)
-#   rebuild              Rebuild the system (darwin-rebuild switch)
+#   rebuild [opts]       Rebuild the system (darwin-rebuild switch)
 #   update  [opts]       Update flake inputs, Homebrew, and rebuild
 #   apps    [opts]       Manage installed applications
 #   scan-unmapped        List unmanaged $HOME files available for adoption
@@ -23,6 +23,7 @@
 #
 # Examples:
 #   dot rebuild
+#   dot rebuild --override-local
 #   dot update --dry-run
 #   dot apps list
 #   dot apps add firefox
@@ -117,6 +118,12 @@ cmd_help() {
   echo "    rebuild              Rebuild macOS system configuration"
   echo "                         (resolves the private flake first, then this"
   echo "                          repo, for darwinConfigurations.\$(hostname -s))"
+  echo "                         Builds the revision the private flake pins —"
+  echo "                         your working tree does not reach the live"
+  echo "                         system unless you ask for it"
+  echo "    rebuild --override-local[=PATH]"
+  echo "                         Build a local working tree once, without"
+  echo "                         updating the pin. Staged changes only (R2)"
   echo ""
   echo -e "  ${BLUE}Updates${NC}"
   echo "    update               Update everything and rebuild"

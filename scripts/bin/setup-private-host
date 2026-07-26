@@ -32,6 +32,36 @@ if [[ ! "$HOSTNAME" =~ ^[A-Za-z0-9_-]+$ || ! "$USER_NAME" =~ ^[A-Za-z0-9_-]+$ ]]
   exit 1
 fi
 
+# The flake ref the generated private flake will consume.
+#
+# Prefer the published remote: the live system should build from a revision that
+# exists somewhere other than this laptop, so an experimental branch or an
+# unpushed commit cannot reach it (ADR-009). Fall back to the local path only
+# when there is no usable remote — a never-pushed or offline clone — because a
+# generated flake that cannot evaluate at all is worse than a coupled one.
+#
+# Forks matter here: this framework is public and de-opinionated, so the owner
+# is read from the user's own `origin`, never hardcoded.
+dotfiles_flake_ref() {
+  local remote=""
+  remote="$(git -C "$DOTFILES_ROOT" remote get-url origin 2>/dev/null || true)"
+
+  case "$remote" in
+    git@github.com:*/*)
+      local path="${remote#git@github.com:}"
+      echo "github:${path%.git}"
+      return 0
+      ;;
+    https://github.com/*/* | ssh://git@github.com/*/*)
+      local path="${remote#*github.com/}"
+      echo "github:${path%.git}"
+      return 0
+      ;;
+  esac
+
+  echo "git+file://$DOTFILES_ROOT"
+}
+
 write_host_file() {
   mkdir -p "$PRIVATE_ROOT/hosts"
   cat > "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" <<EOF
@@ -94,12 +124,28 @@ fi
 mkdir -p "$PRIVATE_ROOT/hosts"
 git init "$PRIVATE_ROOT" >/dev/null
 
+DOTFILES_REF="$(dotfiles_flake_ref)"
+case "$DOTFILES_REF" in
+  git+file://*)
+    echo "No GitHub 'origin' remote found for $DOTFILES_ROOT." >&2
+    echo "Pinning the private flake to the local path instead. Once you have" >&2
+    echo "pushed this repo, switch the 'dotfiles' input to github:OWNER/REPO" >&2
+    echo "so the live system builds only from published revisions (ADR-009)." >&2
+    ;;
+  *)
+    echo "Pinning the private flake to $DOTFILES_REF"
+    ;;
+esac
+
 cat > "$PRIVATE_ROOT/flake.nix" <<EOF
 {
   description = "Private host configuration for the shared dotfiles framework";
 
   inputs = {
-    dotfiles.url = "git+file://$DOTFILES_ROOT";
+    # Pinned to a published revision so nothing uncommitted or unpushed in a
+    # local working tree can reach the live system. \`dot rebuild
+    # --override-local\` is the deliberate escape hatch. See ADR-009.
+    dotfiles.url = "$DOTFILES_REF";
     nixpkgs.follows = "dotfiles/nixpkgs";
     nix-darwin.follows = "dotfiles/nix-darwin";
     home-manager.follows = "dotfiles/home-manager";

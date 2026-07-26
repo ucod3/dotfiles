@@ -13,9 +13,26 @@ Resolves your private flake first, then this repo, and switches to
 `darwinConfigurations.$(hostname -s)`. It runs with `--impure` so the gitignored
 `.local/` layer is readable (ADR-004).
 
-**Changes must be staged.** `git+file:` evaluation reads a dirty working tree's
-*staged* changes but skips untracked files entirely, so a new file that is not
-`git add`ed is silently invisible to the build.
+**`dot rebuild` builds the revision your private flake pins — not your working
+tree.** Editing files in `~/dotfiles` and rebuilding changes nothing until those
+changes are pushed and the pin is bumped. That is deliberate: an experimental
+branch must not be able to reach the live system (ADR-009). If the pin is behind
+`origin/main`, rebuild says so and carries on building the pinned revision.
+
+To test uncommitted work without publishing it:
+
+```bash
+dot rebuild --override-local          # build ~/dotfiles as it is on disk
+dot rebuild --override-local=/path    # or some other checkout
+```
+
+This is a one-off. It never writes `flake.lock`, so the next plain `dot rebuild`
+is pinned again.
+
+**Changes must be staged.** Under `--override-local`, `git+file:` evaluation
+reads a dirty working tree's *staged* changes but skips untracked files
+entirely, so a new file that is not `git add`ed is silently invisible to the
+build (R2). The same applies to `nix flake check` in this repo.
 
 ## Updating
 
@@ -26,9 +43,20 @@ dot update --flake-only # inputs only, skip the rebuild
 dot update --auto       # no prompts (CI-friendly)
 ```
 
-When you use a private host flake, its `dotfiles` input is what pins this repo.
-`dot rebuild` re-locks it automatically when it notices your local `HEAD` has
-moved ahead of the lock.
+When you use a private host flake, its `dotfiles` input is what pins this repo,
+and `dot update` updates *this* repo's lock — which does not drive your Mac on
+its own. Promoting a change to the live system is explicit (ADR-009):
+
+```bash
+git -C ~/dotfiles push                                   # 1. publish
+cd ~/dotfiles-private && nix flake update dotfiles       # 2. move the pin
+git -C ~/dotfiles-private add flake.lock && git -C ~/dotfiles-private commit -m "chore(lock): bump dotfiles pin"
+dot rebuild                                              # 3. apply
+```
+
+Bumping the pin also moves `nixpkgs`, `nix-darwin`, `home-manager` and
+`nix-homebrew`, because the private flake `follows` all four from this repo.
+Diff `flake.lock` before committing if you want to know what is about to change.
 
 ## Managing apps
 

@@ -22,8 +22,16 @@ Homebrew). That identity lives in a separate, private, local flake:
 └── hosts/<hostname>.nix   sets `user = "<macos-username>"`
 ```
 
-The private flake consumes the shared repo as a `git+file://` input, so it
-always builds against your **committed** `~/dotfiles` state.
+The private flake consumes the shared repo as a **published** input —
+`github:OWNER/REPO`, pinned to an exact revision in its `flake.lock`. Your live
+system therefore builds only from what you have pushed; a local branch or an
+uncommitted edit cannot reach it (ADR-009). `setup-private-host` reads the owner
+from your own `origin` remote, and falls back to `git+file://` when the repo has
+no GitHub remote yet.
+
+Use `dot rebuild --override-local` to test local work without publishing it.
+That path evaluates your working tree's **staged** changes; untracked files stay
+invisible, so `git add` first (R2).
 
 ## Setting up a new machine
 

@@ -14,7 +14,10 @@
 #
 #   {
 #     inputs = {
-#       dotfiles.url = "git+file:///path/to/your/dotfiles";
+#       # Pin a PUBLISHED revision. Your live system should never depend on a
+#       # branch or working tree that exists only on one machine (ADR-009).
+#       # `dot rebuild --override-local` is the opt-in way to test local work.
+#       dotfiles.url = "github:<your-github-user>/dotfiles";
 #       nixpkgs.follows = "dotfiles/nixpkgs";
 #       nix-darwin.follows = "dotfiles/nix-darwin";
 #       home-manager.follows = "dotfiles/home-manager";
