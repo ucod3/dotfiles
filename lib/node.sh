@@ -19,6 +19,21 @@
 #   node_bin=$(_find_node) || return 1
 #   npm_bin=$(_find_npm_path)
 
+# Standard macOS/Homebrew locations searched when node is not on PATH, one per
+# line. Split out as its own function purely to give tests a seam: these are
+# absolute paths, so no amount of PATH isolation can hide a node that a CI
+# runner image installed at /usr/local/bin/node. Tests override this function
+# to simulate a machine with no node at all.
+#
+# Emitted as lines rather than an array or a space-separated string because
+# this file is also sourced from zsh (config/zsh/modules/npm-compat.zsh), where
+# unquoted parameter expansion does not word-split by default.
+_node_fallback_paths() {
+  echo /usr/local/bin/node
+  echo /opt/homebrew/bin/node
+  echo /usr/bin/node
+}
+
 _find_node() {
   # Prefer node already on PATH
   if command -v node >/dev/null 2>&1; then
@@ -27,13 +42,15 @@ _find_node() {
   fi
 
   # Fall back to standard macOS/Homebrew locations
-  local candidate
-  for candidate in /usr/local/bin/node /opt/homebrew/bin/node /usr/bin/node; do
+  local candidate candidates
+  candidates="$(_node_fallback_paths)"
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
     if [[ -x "$candidate" ]]; then
       echo "$candidate"
       return 0
     fi
-  done
+  done <<< "$candidates"
 
   echo "Node.js not found. Install it with: pnpm runtime set node lts -g" >&2
   return 1
