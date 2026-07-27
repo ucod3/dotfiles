@@ -81,22 +81,28 @@ dot apps add ghostty     # add to .local/apps.nix
 dot apps remove ghostty
 ```
 
-`dot apps list` reports two things separately: **your selections**, read from
-every file in the `.local/` layer (`apps.nix`, `settings.nix`,
-`browsers/choices.nix`, `editors/choices.nix`), and the **framework app sets**
-shipped in `nix/modules/apps/`.
+`dot apps list` reports **your applications** — `casks`, `nixPackages` and
+`masApps` read from the `.local/` layer (`settings.nix` and the generated
+`apps.nix`) — plus the handful of Nix packages the framework itself needs to
+function (`mkalias`, `direnv`, `gitleaks`, `jq`, `sqlite`).
+
+There is no third category. The framework declares no GUI application, so
+everything installed on your machine is named in a file you can edit, and
+deleting the line removes the app.
 
 `dot apps` owns `.local/apps.nix` exclusively — it is generated and rewritten
 wholesale, so do not hand-edit it. Hand-written selections belong in
-`.local/settings.nix`. Apps that come from a framework example set cannot be
-removed this way; disable or override the set in `.local/settings.nix` instead.
+`.local/settings.nix`.
 
 ### What the framework manages, and what you adopt
 
 The framework installs **applications** (casks, Nix packages, App Store apps) and
 owns a small set of **core configs**: git, Neovim, zsh, and — when you enable the
-matching `dotfiles.home.*` toggle — VS Code/Cursor settings and the Ghostty
-config. It does not try to manage every tool's dotfile.
+matching `dotfiles.home.*` toggle — the Ghostty config. It does not try to
+manage every tool's dotfile, and it ships no editor settings: it used to link a
+bundled `settings.json` containing `{}` over VS Code and Cursor, which replaced
+real settings with an empty file and made it read-only. Editor settings are user
+content, so they go through `dot adopt --mutable` like anything else.
 
 Everything else is `dot adopt`: point it at a config that already exists in your
 `$HOME` and it moves into your private flake under declarative management. That
@@ -119,6 +125,29 @@ dot rebuild
 Adoption **moves** the file to `~/dotfiles-private/home/<rel>`, appends a
 mapping to `~/dotfiles-private/home.nix`, and stages both. Nothing is written
 to this repo, and nothing is committed for you.
+
+### Read-only or writable: `--mutable`
+
+| | Default | `--mutable` |
+|---|---|---|
+| Deployed as | symlink into `/nix/store` | symlink to the real file in your private repo |
+| Writable in place | No | **Yes** |
+| To change it | edit `~/dotfiles-private/home/<rel>`, `dot rebuild` | edit it anywhere, including from the app's own UI |
+| Versioned & portable | Yes | Yes |
+
+Use `--mutable` for any file its own application rewrites — editor and CLI
+`settings.json` files are the common case. Without it the app hits a read-only
+path and silently fails to save its settings:
+
+```bash
+dot adopt ~/.config/zed/settings.json --mutable
+dot adopt "~/Library/Application Support/Cursor/User/settings.json" --mutable
+```
+
+The app then writes straight through the symlink into your private repo, so
+`git -C ~/dotfiles-private diff` shows every settings change you make. Paths
+containing spaces are fine — required, since every macOS app config lives under
+`~/Library/Application Support/`.
 
 ```nix
 home.file.".claude/CLAUDE.md".source = ./home/.claude/CLAUDE.md;

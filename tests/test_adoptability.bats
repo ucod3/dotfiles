@@ -53,7 +53,13 @@ set_origin() {
 }
 
 # Generate a private flake against the sandbox, with the stub `nix` on PATH.
-# stdin is closed so the upstream-fork prompt takes its non-interactive branch.
+#
+# The upstream-fork prompt is suppressed by DOTFILES_NONINTERACTIVE, exported
+# suite-wide in tests/setup_suite.bash and inherited through `env`. Closing
+# stdin is NOT sufficient and this comment used to claim it was: the process
+# still holds a controlling terminal, so the script's `< /dev/tty` fallback
+# opened fine and blocked the whole suite. Kept here only to pin that stdin is
+# never a source of input.
 run_sph() {
   run env HOME="$TMP" \
           PATH="$STUB_BIN:$PATH" \
@@ -95,6 +101,26 @@ run_sph() {
   run_sph --host mac --user alice
   [[ "$output" == *"upstream framework"* ]]
   [[ "$output" == *"--fork"* ]]
+}
+
+@test "DOTFILES_NONINTERACTIVE suppresses the fork prompt entirely" {
+  # Behaviour, not script text: with an upstream origin and no --fork, the
+  # script must reach its non-interactive branch and EXIT. When this guard was
+  # missing the same call blocked forever on `read < /dev/tty`, hanging
+  # `dot validate`, `dot promote` and the pre-commit hook. CI could not catch
+  # it — with no controlling terminal the /dev/tty probe fails there anyway.
+  PRIVATE="$TMP/priv"
+  set_origin "git@github.com:ucod3/dotfiles.git"
+  run_sph --host mac --user alice
+
+  # Reaching any assertion at all is half the point: a regression here does not
+  # fail, it hangs. (Status is not asserted — the stub `nix` writes no
+  # flake.lock, so the script's `git add flake.lock` fails on a first run in
+  # the sandbox, exactly as it does for the neighbouring first-run tests.)
+  [[ "$output" == *"Non-interactive"* ]]
+  # The warning still has to reach the adopter; only the blocking read is gone.
+  [[ "$output" == *"upstream framework"* ]]
+  grep -q 'dotfiles.url = "github:ucod3/dotfiles"' "$PRIVATE/flake.nix"
 }
 
 @test "a fork's own origin is pinned without any warning" {
@@ -261,9 +287,9 @@ run_sph() {
   # install.sh writes `casks = [ "firefox" "google-chrome" ];` on one line;
   # a line-oriented parser reads that as an empty list.
   LOCAL="$TMP/local"
-  mkdir -p "$LOCAL/browsers"
+  mkdir -p "$LOCAL"
   printf '{\n  casks = [ "firefox" "google-chrome" ];\n  nixPackages = [ "brave" ];\n}\n' \
-    > "$LOCAL/browsers/choices.nix"
+    > "$LOCAL/settings.nix"
 
   run env DOTFILES_ROOT="$REPO_ROOT" DOTFILES_LOCAL="$LOCAL" "$APPS" list
   [ "$status" -eq 0 ]
@@ -275,9 +301,9 @@ run_sph() {
   # The same line-oriented parser ran past the end of one list into the next,
   # filing Nix packages under Homebrew casks.
   LOCAL="$TMP/local"
-  mkdir -p "$LOCAL/browsers"
+  mkdir -p "$LOCAL"
   printf '{\n  casks = [ "firefox" ];\n  nixPackages = [ "brave" ];\n}\n' \
-    > "$LOCAL/browsers/choices.nix"
+    > "$LOCAL/settings.nix"
 
   run env DOTFILES_ROOT="$REPO_ROOT" DOTFILES_LOCAL="$LOCAL" "$APPS" list
   [ "$status" -eq 0 ]
@@ -285,16 +311,36 @@ run_sph() {
   [[ "$casks_section" != *"brave"* ]]
 }
 
-@test "apps list reports the framework sets' mkOption defaults" {
-  # App sets declare their lists as option defaults, not literal attributes.
+@test "apps list reports masApps from .local/" {
+  LOCAL="$TMP/local"
+  mkdir -p "$LOCAL"
+  printf '{\n  casks = [ ];\n  masApps = {\n    Notability = 360593530;\n  };\n}\n' \
+    > "$LOCAL/settings.nix"
+
+  run env DOTFILES_ROOT="$REPO_ROOT" DOTFILES_LOCAL="$LOCAL" "$APPS" list
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Notability"* ]]
+  [[ "$output" == *"360593530"* ]]
+}
+
+@test "the framework declares no application of its own" {
+  # The inverse of the test this replaces, which asserted that `apps list`
+  # surfaced arc and raycast from the app sets' mkOption defaults. Those
+  # defaults WERE the problem: enabling a category installed the upstream
+  # author's apps, and .local/ could only append to them, never remove them.
+  # With an empty settings layer the answer must now be nothing at all.
   LOCAL="$TMP/local"
   mkdir -p "$LOCAL"
   printf '{ }\n' > "$LOCAL/settings.nix"
 
   run env DOTFILES_ROOT="$REPO_ROOT" DOTFILES_LOCAL="$LOCAL" "$APPS" list
   [ "$status" -eq 0 ]
-  [[ "$output" == *"arc"* ]]        # nix/modules/apps/browsers.nix
-  [[ "$output" == *"raycast"* ]]    # nix/modules/apps/productivity.nix
+  for app in arc raycast zen amethyst insync devin-desktop Notability; do
+    [[ "$output" != *"$app"* ]] || {
+      echo "framework still ships '$app'"
+      return 1
+    }
+  done
 }
 
 # ── validate reliability ─────────────────────────────────────────────────────
@@ -494,16 +540,22 @@ run_sph() {
 
 # ── macOS editor integration ─────────────────────────────────────────────────
 
-@test "editor settings target the macOS path, not XDG" {
-  # VS Code and its forks read ~/Library/Application Support on macOS and never
-  # look at $XDG_CONFIG_HOME, so the old xdg.configFile mapping did nothing.
-  home_nix="$REPO_ROOT/nix/home/home.nix"
-  run grep -q '"Library/Application Support/${cfg.vscode.configDir}/User/settings.json"' "$home_nix"
-  [ "$status" -eq 0 ]
-  run grep -q '"Library/Application Support/${cfg.cursor.configDir}/User/settings.json"' "$home_nix"
-  [ "$status" -eq 0 ]
-  run grep -q '"${cfg.vscode.configDir}/User/settings.json".source' "$home_nix"
-  [ "$status" -ne 0 ]
+@test "the framework ships no editor settings to clobber yours with" {
+  # This replaces a test that asserted the OPPOSITE — that home.nix mapped
+  # settings.json into ~/Library/Application Support for VS Code and Cursor.
+  # It did, and the file it mapped there was `{}`: enabling the example profile
+  # replaced a real settings file with an empty object as a read-only symlink,
+  # so the editor could not even write it back. Editor settings are user
+  # content; `dot adopt --mutable` is how they get versioned.
+  [ ! -e "$REPO_ROOT/config/vscode/settings.json" ]
+
+  # Strip comments first. Grepping the raw file matched the comment that
+  # explains this very removal — a text-matching test failing on prose about
+  # itself is the whole reason these assertions are being cut back.
+  code="$(grep -v '^[[:space:]]*#' "$REPO_ROOT/nix/home/home.nix")"
+  [[ "$code" != *"User/settings.json"* ]]
+  [[ "$code" != *"cfg.vscode"* ]]
+  [[ "$code" != *"cfg.cursor"* ]]
 }
 
 # ── Installer ────────────────────────────────────────────────────────────────
@@ -515,13 +567,32 @@ run_sph() {
   [ "$status" -eq 0 ]
 }
 
-@test "every installer menu is multi-select" {
-  # Terminal and window manager took a single answer and silently discarded
-  # the rest of the selection.
-  run grep -q 'select_menu "terminal(s)"' "$REPO_ROOT/install.sh"
-  [ "$status" -eq 0 ]
-  run grep -qE 'select_menu "[^"]+" (yes|no) ' "$REPO_ROOT/install.sh"
-  [ "$status" -ne 0 ]
+@test "installer menus are multi-select" {
+  # Terminal and window manager once took a single answer and silently
+  # discarded the rest of the selection.
+  #
+  # This used to grep install.sh for the literal string
+  # `select_menu "terminal(s)"`, which broke the moment the call sites were
+  # refactored into a loop — while the behaviour it claimed to protect was
+  # completely unaffected. So run the function instead: extract it, stub its
+  # two collaborators, and answer with more than one number.
+  eval "$(sed -n '/^select_menu()/,/^}/p' "$REPO_ROOT/install.sh")"
+  prompt_read() { eval "$1=\"\$STUB_ANSWER\""; }
+  log_warning() { :; }
+
+  STUB_ANSWER="1 3" REPLY_SELECTION=""
+  select_menu "terminal(s)" ghostty warp iterm2 2>/dev/null
+  [ "$REPLY_SELECTION" = "ghostty iterm2" ]
+
+  # Comma-separated answers and out-of-range entries behave too.
+  STUB_ANSWER="2,3" REPLY_SELECTION=""
+  select_menu "editor(s)" vscode zed cursor 2>/dev/null
+  [ "$REPLY_SELECTION" = "zed cursor" ]
+
+  # "none" really means none.
+  STUB_ANSWER="0" REPLY_SELECTION="stale"
+  select_menu "browser(s)" arc zen 2>/dev/null
+  [ -z "$REPLY_SELECTION" ]
 }
 
 @test "the installer offers Warp and accepts free-text casks" {

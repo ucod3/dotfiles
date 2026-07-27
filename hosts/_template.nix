@@ -65,19 +65,20 @@ in
   # Inject your username into every framework module that needs it
   _module.args.user = user;
 
-  # ── 2. APPLICATION SETS — everything is OPT-IN (default: false) ───────────
-  # A fresh clone installs nothing opinionated. Enable sets here, or via the
-  # gitignored `.local/settings.nix` written by install.sh (see lib/local.nix).
-  # The bundled lists are one example profile; override the `casks` /
-  # `nixPackages` options per set to make them your own.
+  # ── 2. APPLICATIONS — declared in .local/settings.nix, not here ───────────
+  # The framework names no application anywhere, so there is nothing here to
+  # opt out of. Everything you want goes in the gitignored
+  # `.local/settings.nix` (written by install.sh, then yours to edit):
   #
-  # dotfiles.apps.browsers.enable = true;      # example: Arc, Edge Canary, Zen, Brave
-  # dotfiles.apps.browsers.casks = [ "firefox" ];   # CUSTOMIZE: your own list
-  # dotfiles.apps.development.enable = true;   # example: Codex, Zed, gh
-  # dotfiles.apps.productivity.enable = true;  # example: Amethyst, Insync, WPS, Raycast
-  # dotfiles.apps.utilities.enable = true;     # example: Acrobat, Antigravity, AnyDesk, Windscribe
-  # dotfiles.apps.mas.enable = true;           # example: Mac App Store apps (Notability)
-  # dotfiles.ai.enable = true;                 # AI tooling: Devin Desktop + editor configs
+  #   casks       = [ "firefox" "ghostty" ];   # https://formulae.brew.sh/cask/
+  #   nixPackages = [ "htop" ];                # https://search.nixos.org/packages
+  #   masApps     = { Notability = 360593530; };
+  #
+  # Keeping them in one list — rather than five per-category modules whose
+  # defaults named the upstream author's own apps — is what makes deleting an
+  # entry actually uninstall it.
+  #
+  # dotfiles.ai.enable = true;                 # AI editor config symlinks
 
   # ── 2b. SYSTEM POSTURE — safe defaults on a cold fork ─────────────────────
   # Homebrew pruning is OFF unless a .local/ layer exists, because the core

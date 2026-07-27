@@ -24,9 +24,13 @@ in
 
     casks = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      # CUSTOMIZE: example profile — AI desktop apps
-      default = [ "devin-desktop" ];
-      description = "Homebrew casks installed when AI tooling is enabled.";
+      # Empty on purpose. This used to default to [ "devin-desktop" ], so
+      # `ai.enable = true` silently installed a specific vendor's desktop app.
+      # Applications belong in `.local/settings.nix` `casks`, where you can see
+      # and remove them; this toggle now governs only the editor config
+      # symlinks in nix/home/home.nix.
+      default = [ ];
+      description = "Extra Homebrew casks to install when AI tooling is enabled.";
     };
   };
 

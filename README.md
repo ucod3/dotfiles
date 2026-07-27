@@ -3,11 +3,12 @@
 A declarative, reproducible macOS environment built on Nix flakes, nix-darwin,
 Home Manager, nix-homebrew, and native Homebrew.
 
-**It is de-opinionated.** The framework core installs no GUI apps and changes no
-macOS settings. Shell, Neovim, and core CLI tooling come as standard; everything
-else — browsers, editors, terminal, window manager, macOS defaults — is opt-in
-and asked for at install time. Fork it and you get a working system that looks
-like *your* choices, not the author's.
+**The framework names no application.** There is no bundled browser, editor,
+terminal or window manager anywhere in this repo — not as a default, not behind
+a toggle. Every GUI app, CLI package and App Store item on your machine comes
+from one file you own: `.local/settings.nix`. Add a line and it installs;
+delete the line and it goes away. Shell, Neovim and core CLI tooling come as
+standard; macOS defaults and the example home profile are opt-in.
 
 Apple Silicon only.
 
@@ -78,9 +79,7 @@ Everything opinionated is off until you ask. Edit `.local/settings.nix` and run
 
 ```nix
 {
-  ai.enable = true;                     # AI tooling configs
-  apps.browsers.enable = true;          # example app sets — see nix/modules/apps/
-  apps.development.enable = true;
+  ai.enable = true;                     # AI editor config symlinks
 
   homebrew.cleanup = "uninstall";       # prune casks you no longer declare
   system.macosDefaults.enable = true;   # Dock/Finder/key-repeat profile
@@ -89,15 +88,34 @@ Everything opinionated is off until you ask. Edit `.local/settings.nix` and run
                                         #  node tooling, personal aliases,
                                         #  zoxide-as-cd, git workflow, workshop)
 
-  casks = [ "ghostty" "rectangle" ];    # any Homebrew casks
-  nixPackages = [ "htop" ];             # any nixpkgs attributes
+  # Your applications. This list is the whole of what gets installed.
+  casks = [ "firefox" "ghostty" "rectangle" ];  # https://formulae.brew.sh/cask/
+  nixPackages = [ "htop" ];                     # https://search.nixos.org/packages
+  masApps = { Notability = 360593530; };        # App Store → Copy Link → number
 }
 ```
 
-Each app set is fully overridable (`dotfiles.apps.<set>.casks = [ ... ];`), and
-each home toggle can be set individually from your private host file instead of
-all at once — see [`hosts/_template.nix`](./hosts/_template.nix), the complete
-worked example. Look for `# CUSTOMIZE:` comments throughout the tree.
+With `homebrew.cleanup = "uninstall"`, that cask list is authoritative:
+anything you installed by hand and did not list is removed on the next rebuild.
+
+Each home toggle can also be set individually from your private host file
+instead of all at once — see [`hosts/_template.nix`](./hosts/_template.nix),
+the complete worked example.
+
+## Where do I put things?
+
+| What | Where | Notes |
+|---|---|---|
+| Apps, packages, App Store items | `.local/settings.nix` | `casks` / `nixPackages` / `masApps` |
+| Your aliases, functions, `PATH` | `config/zsh/custom.local.zsh` | Unmanaged and untracked — yours alone |
+| Git name and email | `.local/identity.nix` | |
+| A `$HOME` config file you want versioned | `dot adopt ~/path` | Moves it into the private flake and symlinks it back |
+| …one the app rewrites itself (editor `settings.json`) | `dot adopt ~/path --mutable` | Same, but the file stays **writable** — the app keeps saving, straight into your repo |
+| What is *not* yet versioned | `dot scan-unmapped` | Lists adoption candidates |
+| Hostname / username | `.local/hosts/<host>.nix` | Written by `setup-private-host` |
+
+`.local/` is a symlink to your private repo, so everything above is versioned
+there and travels to your next Mac — while the public repo stays generic.
 
 > **Nothing here defaults to destructive, and nothing redefines your commands.**
 > `homebrew.cleanup` stays `"none"` until you opt in, and a build that would

@@ -127,25 +127,20 @@
         inherit system;
         extraModules = [{
           dotfiles = {
-            apps.browsers.enable = true;
-            apps.development.enable = true;
-            apps.productivity.enable = true;
-            apps.utilities.enable = true;
-            apps.mas.enable = true;
             ai.enable = true;
             homebrew.cleanup = "uninstall";
             system.macosDefaults.enable = true;
           };
           # The cleanup assertion refuses "uninstall" against an empty cask
           # list, so a fully-enabled host must declare at least one cask.
+          # Applications now come only from `.local/`, which is absent under
+          # pure evaluation — so this check declares one directly.
           homebrew.casks = [ "ghostty" ];
         }];
         extraHomeModules = [{
           dotfiles.home = {
             ohMyZsh.enable = true;
             ghostty.enable = true;
-            vscode.enable = true;
-            cursor.enable = true;
             languageServers.enable = true;
             nodeTooling.enable = true;
             zoxide.replaceCd = true;

@@ -107,11 +107,11 @@ that list the same way.
 
 ## Manual setup & customization
 
-If you prefer to write the private flake by hand — or want to disable the
-upstream author's application sets (`dotfiles.apps.<set>.enable = false;`)
-and add per-machine overrides — start from the fully documented template at
-`hosts/_template.nix`. The optional app-set modules live in
-`nix/modules/apps/`.
+If you prefer to write the private flake by hand, or want per-machine
+overrides, start from the fully documented template at `hosts/_template.nix`.
+
+There are no upstream application sets to disable: applications come only from
+the `casks` / `nixPackages` / `masApps` lists in your own `.local/settings.nix`.
 
 ## Backing up the private configuration
 

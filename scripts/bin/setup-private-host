@@ -77,7 +77,20 @@ github_slug() {
 }
 
 # Ask, once, whether the adopter really means to pin someone else's repository.
-# Only prompts on a TTY: bootstrap and CI must never block. See ADR-010.
+#
+# Nothing that is not a human at a keyboard may block here. Three distinct
+# non-interactive callers exist and each needs a different check:
+#
+#   * CI and `curl | bash` piped input   — stdin is not a TTY.
+#   * The bats suite                     — stdin is /dev/null, but the process
+#     still inherits a controlling terminal from the shell that ran
+#     `dot validate`, so the /dev/tty probe below SUCCEEDS and the read blocks
+#     forever with its prompt swallowed by bats. `DOTFILES_NONINTERACTIVE`
+#     (exported by tests/setup_suite.bash) is the only reliable signal there.
+#
+# The /dev/tty fallback itself must stay: under `curl … | bash` stdin is the
+# script, so `-t 0` is false while a human IS present and must be asked.
+# See ADR-010.
 resolve_fork() {
   local answer=""
 
@@ -87,12 +100,16 @@ resolve_fork() {
   echo "your own commits could never be promoted." >&2
   echo >&2
 
-  if [[ -t 0 ]] || { : < /dev/tty; } 2>/dev/null; then
+  if [[ -n "${DOTFILES_NONINTERACTIVE:-}" || -n "${CI:-}" ]]; then
+    echo "Non-interactive — proceeding with the upstream pin." >&2
+  elif [[ -t 0 ]] || { : < /dev/tty; } 2>/dev/null; then
     echo "Enter YOUR fork as OWNER/REPO, or press Enter to pin upstream anyway." >&2
+    # -t 120: a prompt nobody can see must fail loudly rather than hang. Ample
+    # for a human, finite for anything else that slips past the guards above.
     if [[ -t 0 ]]; then
-      read -r -p "  Your fork [OWNER/REPO]: " answer || answer=""
+      read -r -t 120 -p "  Your fork [OWNER/REPO]: " answer || answer=""
     else
-      read -r -p "  Your fork [OWNER/REPO]: " answer < /dev/tty || answer=""
+      read -r -t 120 -p "  Your fork [OWNER/REPO]: " answer < /dev/tty || answer=""
     fi
   else
     echo "No TTY — proceeding with the upstream pin." >&2

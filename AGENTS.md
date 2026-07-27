@@ -41,6 +41,8 @@ dot validate       # full syntax + common-mistake checks (--quick skips Nix eval
 dot apps           # add/remove/list applications
 dot scan-unmapped  # list unmanaged $HOME paths available for adoption
 dot adopt <path>   # move a $HOME path into the private flake and declare it
+                   #   --mutable keeps it writable (apps that rewrite their own
+                   #   settings.json); default is a read-only /nix/store symlink
 dot secrets / hooks   # scan for leaked secrets / (re)install pre-commit hooks
 ```
 

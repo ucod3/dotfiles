@@ -20,14 +20,13 @@ let
   pkgsByName = import ../lib/pkgs.nix;
 in
 {
-  # Optional application sets — each exposes dotfiles.apps.<set>.enable
-  # (default: false, opt-in). Enable sets via `.local/settings.nix` or your
-  # private host file:
-  #   dotfiles.apps.browsers.enable = true;
-  # See nix/modules/apps/, nix/modules/ai.nix, and hosts/_template.nix.
+  # Applications are declared in ONE place — the `casks` / `nixPackages` /
+  # `masApps` lists in your `.local/settings.nix`. The framework itself names
+  # no application anywhere; see lib/local.nix for why the old per-category
+  # app-set modules were removed.
   imports = [
-    ../nix/modules/apps
-    ../nix/modules/ai.nix
+    ../nix/modules/mas.nix      # Mac App Store apps, from .local/ masApps
+    ../nix/modules/ai.nix       # dotfiles.ai.enable — editor config symlinks
     ../nix/modules/homebrew.nix # dotfiles.homebrew.cleanup (safe default, ADR-006)
     ../nix/modules/system.nix   # dotfiles.system.macosDefaults, dotfiles.nixpkgs.allowUnfree
   ];
@@ -78,7 +77,6 @@ in
 
     # Framework-core command-line tools (no GUI)
     # Find at: https://formulae.brew.sh/formula/
-    # Taste-specific app sets live in nix/modules/apps/ (see imports above).
     # CUSTOMIZE: the framework core ships no brews. Tooling the repo itself
     # depends on (gitleaks, jq, sqlite) comes from Nix instead — see
     # environment.systemPackages below — so a cold clone is not gated on
@@ -108,7 +106,7 @@ in
     pkgs.jq # flake.lock parsing in scripts/bin/rebuild
     pkgs.sqlite
     # neovim removed - installed via Home Manager to prevent duplication
-    # Taste-specific packages (brave, gh, raycast) live in nix/modules/apps/
+    # Everything else you want comes from `.local/` nixPackages, below.
   ]
   # Nix packages selected by the interactive installer (from .local/)
   ++ pkgsByName pkgs ".local/ nixPackages" dotfilesLocal.nixPackages;
