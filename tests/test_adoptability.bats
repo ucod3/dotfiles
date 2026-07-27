@@ -424,6 +424,10 @@ run_sph() {
 promote_sandbox() {
   git -C "$FAKE_ROOT" config user.email test@example.com
   git -C "$FAKE_ROOT" config user.name Test
+  # promote scans the private flake with THIS repo's gitleaks config before
+  # publishing it, so the sandbox root has to carry one for that path to be
+  # exercised honestly rather than only surviving because gitleaks is stubbed.
+  ln -sf "$(cd "$REPO_ROOT" && pwd -P)/.gitleaks.toml" "$FAKE_ROOT/.gitleaks.toml"
   git -C "$FAKE_ROOT" add -A
   git -C "$FAKE_ROOT" commit -qm init
 
