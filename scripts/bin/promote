@@ -210,6 +210,16 @@ publish_private() {
   log_info "Publishing $PRIVATE_ROOT ($branch)"
   if push_with_retry "$PRIVATE_ROOT" "$branch"; then
     PRIVATE_PUBLISHED=true
+    # A push publishes commits, not the working tree. `dot adopt` stages without
+    # committing, so the files the user most recently protected are exactly the
+    # ones a bare "published" claim would be wrong about.
+    local pending
+    pending="$(git -C "$PRIVATE_ROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || true)"
+    [[ "$pending" =~ ^[0-9]+$ ]] || pending=0
+    if (( pending > 0 )); then
+      log_warning "$pending uncommitted change(s) in $PRIVATE_ROOT were NOT published."
+      log_info "  git -C $PRIVATE_ROOT status     # then commit and re-run: dot promote"
+    fi
   else
     log_error "$PRIVATE_ROOT was NOT published — it exists only on this Mac."
     log_info "Retry with:  git -C $PRIVATE_ROOT push -u origin $branch"
@@ -301,7 +311,11 @@ elif git -C "$PRIVATE_ROOT" diff --quiet -- flake.lock 2>/dev/null \
   log_info "flake.lock is unchanged — the pin was already at ${REV:0:10}."
 else
   git -C "$PRIVATE_ROOT" add flake.lock
-  git -C "$PRIVATE_ROOT" commit -m "chore(lock): bump dotfiles pin to ${REV:0:10}"
+  # Scoped to the lockfile. `dot adopt` stages what it moves without committing
+  # it (R2), so a bare `git commit` here sweeps whatever the user has staged —
+  # config files they have not reviewed — into a commit labelled as a pin bump,
+  # and now pushes it too.
+  git -C "$PRIVATE_ROOT" commit -m "chore(lock): bump dotfiles pin to ${REV:0:10}" -- flake.lock
   log_success "Pin recorded: ${REV:0:10}"
 fi
 

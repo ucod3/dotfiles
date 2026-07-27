@@ -408,6 +408,21 @@ run_adopt() {
   [[ "$output" == *".claude/CLAUDE.md"* ]]
 }
 
+@test "scan counts adopted paths written in the flat home.file form" {
+  # Both forms are valid Nix, and this script advertises the flat one in its
+  # own header and in `dot adopt`'s closing hint. A pattern anchored to the
+  # nested form drops hand-written entries out of the count AND the list —
+  # under-reporting what is protected, which is the direction that hurts.
+  publish_private_sandbox
+  printf '{ config, ... }:\n{\n  home.file."%s".source = ./home/%s;\n}\n' \
+    ".gitconfig" ".gitconfig" > "$FAKE_PRIVATE/home.nix"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 config path(s) adopted"* ]]
+  [[ "$output" == *"~/.gitconfig"* ]]
+}
+
 @test "an unknown subcommand fails loudly" {
   run_adopt frobnicate
   [ "$status" -ne 0 ]

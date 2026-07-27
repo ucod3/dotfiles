@@ -248,7 +248,7 @@ private_backup_risks() {
   # Counted, never echoed: `git status --porcelain` output contains real path
   # names, and this block prints after the "would be LOST" marker the tests
   # slice on.
-  dirty="$(git -C "$PRIVATE_ROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  dirty="$(git -C "$PRIVATE_ROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || true)"
   [[ "$dirty" =~ ^[0-9]+$ ]] || dirty=0
   (( dirty > 0 )) && printf 'DIRTY|%s\n' "$dirty"
 
@@ -258,19 +258,34 @@ private_backup_risks() {
 # The AT RISK half of the verdict. Prints nothing when there is nothing wrong.
 report_backup_risks() {
   local -a risks=()
-  local line reason detail
+  local line reason detail out
+
+  # Captured with its status CHECKED, not read from `< <(private_backup_risks)`:
+  # a process substitution discards the exit status, so a crash inside the check
+  # would arrive here as an empty risk list — indistinguishable from "everything
+  # is fine" — and the caller would print the very reassurance this function
+  # exists to withhold. That is the bug this whole file was rewritten to kill,
+  # re-entering through the back door. Fail closed.
+  out="$(private_backup_risks)" || out='UNKNOWN|'
+
   while IFS= read -r line; do
     [[ -n "$line" ]] && risks+=("$line")
-  done < <(private_backup_risks)
+  done <<< "$out"
 
   (( ${#risks[@]} == 0 )) && return 1
 
-  warn "AT RISK — the repo holding all of it is not published:"
+  # Not "is not published": a repo can be fully pushed and still hold
+  # uncommitted adoptions. The heading has to be true in every branch below.
+  warn "AT RISK — the repo holding your adopted files is not fully protected:"
   printf '\n'
   for line in "${risks[@]}"; do
     reason="${line%%|*}"
     detail="${line#*|}"
     case "$reason" in
+      UNKNOWN)
+        printf '      The backup check itself could not run — assume UNPROTECTED.\n'
+        printf '      Inspect it by hand:  git -C %s status -sb\n' "$PRIVATE_ROOT"
+        ;;
       NOREPO)
         printf '      %s is not a git repository — backed up to NOWHERE.\n' "$PRIVATE_ROOT"
         printf '      Create it with:  %s/scripts/bin/setup-private-host\n' "$DOTFILES_ROOT"
@@ -544,7 +559,12 @@ cmd_scan() {
   if [[ -f "$HOME_NIX" ]]; then
     while IFS= read -r line; do
       [[ -n "$line" ]] && adopted_paths+=("$line")
-    done < <(sed -n 's/^[[:space:]]*"\([^"]*\)"\.source.*/\1/p' "$HOME_NIX" 2>/dev/null || true)
+    # The `home.file.` prefix is optional because both forms are valid and this
+    # script advertises the flat one in its own header and in `dot adopt`'s
+    # closing hint — a pattern that only matched the nested form silently
+    # dropped hand-written entries from both the count and the list.
+    done < <(sed -n 's/^[[:space:]]*\(home\.file\.\)\{0,1\}"\([^"]*\)"\.source.*/\2/p' \
+      "$HOME_NIX" 2>/dev/null || true)
     adopted="${#adopted_paths[@]}"
   fi
   # Listed, not just counted: every adopted path is at least one level deep, so

@@ -541,6 +541,37 @@ promote_sandbox() {
   [ "$status" -eq 0 ]
 }
 
+@test "promote does not call the private flake published while work is uncommitted" {
+  # A push publishes commits, not the working tree, and `dot adopt` stages what
+  # it moves without committing it (R2). So the files just protected are exactly
+  # the ones an unqualified "published" would be wrong about — the same
+  # overconfident verdict this whole change removed from `dot scan-unmapped`.
+  promote_sandbox
+  git init -q --bare "$TMP/root-origin.git"
+  git -C "$FAKE_ROOT" remote add origin "$TMP/root-origin.git"
+  git -C "$PRIVATE" add -A
+  git -C "$PRIVATE" commit -qm init
+  git init -q --bare "$TMP/priv-origin.git"
+  git -C "$PRIVATE" remote add origin "$TMP/priv-origin.git"
+
+  printf '#!/bin/sh\nexit 0\n' > "$STUB_BIN/gitleaks"
+  chmod +x "$STUB_BIN/gitleaks"
+
+  # An adoption that has been staged but not yet committed.
+  printf 'adopted\n' > "$PRIVATE/pending.conf"
+  git -C "$PRIVATE" add pending.conf
+
+  run env PATH="$STUB_BIN:$PATH" \
+          DOTFILES_ROOT="$FAKE_ROOT" DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
+          "$PROMOTE" --skip-validate --no-rebuild --branch "$BRANCH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"were NOT published"* ]]
+
+  # And it really did stay behind: the remote must not have that file.
+  run git -C "$TMP/priv-origin.git" cat-file -e "HEAD:pending.conf"
+  [ "$status" -ne 0 ]
+}
+
 @test "dot dispatches promote" {
   run grep -q 'exec "$BIN/promote"' "$REPO_ROOT/scripts/bin/dot"
   [ "$status" -eq 0 ]
