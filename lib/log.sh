@@ -35,6 +35,16 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # ── Validation-style helpers ───────────────────────────────────────────────
+#
+# The counters are seeded here rather than assumed. `validate` sets ERRORS and
+# WARNINGS itself, so nobody noticed that `fail`/`warn` referenced them
+# unconditionally — but under `set -u` (every script in scripts/bin) the first
+# call from any OTHER consumer aborts with "WARNINGS: unbound variable", in the
+# middle of printing a message. The `|| true` only ever guarded the arithmetic
+# result, never the expansion.
+: "${ERRORS:=0}"
+: "${WARNINGS:=0}"
+
 pass()    { echo -e "  ${GREEN}✓${NC} $1"; }
 fail()    { echo -e "  ${RED}✗${NC} $1"; ((ERRORS++))   || true; }
 warn()    { echo -e "  ${YELLOW}!${NC} $1"; ((WARNINGS++)) || true; }

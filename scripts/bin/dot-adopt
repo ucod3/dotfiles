@@ -213,9 +213,110 @@ require_private_repo() {
 
 # ── scan-unmapped ─────────────────────────────────────────────────────────────
 
+# Look INSIDE a directory before offering it for adoption. Prints "STATUS|NOTE"
+# when it should never be offered, and nothing when it looks like real config.
+#
+# WHY THIS EXISTS
+#   Classification used to be the SECRET_PATHS / NOISE_PATHS name lists and
+#   nothing else, so anything an author had not thought to name was reported as
+#   "available to adopt". On a real machine that meant offering ~/.gemini —
+#   which holds oauth_creds.json and google_accounts.json — alongside
+#   ~/.vscode-insiders, ~/.cursor, ~/.devin and ~/.windsurf, together roughly
+#   3 GB of reinstallable editor extensions. Adopting any of them would have
+#   put credentials or binaries into git.
+#
+#   These signals are heuristics and will sometimes be wrong in both
+#   directions. That is exactly why every verdict carries a reason and is
+#   printed: a silent skip is how the previous version misled people. A human
+#   who disagrees can still adopt the path explicitly.
+# Credential-shaped CONTENT, regardless of what the file is called.
+#
+# Filename matching is not enough and this is not hypothetical: on this machine
+# ~/.software/extensions.json — an innocuous name, 182 bytes — holds a live
+# JWT. A name-only check offered that directory for adoption, i.e. recommended
+# committing a working token to git. gitleaks would have caught it at commit
+# time, but a tool that RECOMMENDS the leak has already failed.
+SECRET_CONTENT_RE='eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|"(access_token|refresh_token|client_secret|api_?key)"[[:space:]]*:[[:space:]]*"[^"]{8,}'
+
+# Prints the offending file when one of the patterns matches a small text file
+# at or just below `$1`. Bounded to files under 64 KB and a shallow depth so
+# this stays cheap enough to run on every scan.
+secret_content_hit() {
+  local root="$1"
+  find "$root" -maxdepth 2 -type f -size -64k 2>/dev/null \
+    | head -200 \
+    | while IFS= read -r f; do
+        if LC_ALL=C grep -qE "$SECRET_CONTENT_RE" "$f" 2>/dev/null; then
+          printf '%s\n' "$f"
+          return 0
+        fi
+      done
+}
+
+content_verdict() {
+  local abs="$1" hits count
+
+  # A lone file can carry a credential just as easily as a directory can.
+  if [[ -f "$abs" && ! -L "$abs" ]]; then
+    if [[ "$(stat -f%z "$abs" 2>/dev/null || echo 0)" -lt 65536 ]] \
+       && LC_ALL=C grep -qE "$SECRET_CONTENT_RE" "$abs" 2>/dev/null; then
+      printf 'SECRET|contains credential-shaped content\n'
+    fi
+    return
+  fi
+
+  [[ -d "$abs" && ! -L "$abs" ]] || return 0
+
+  # 0. Nothing in it. Reporting an empty directory as something you would
+  #    "lose" is noise — four of the five editor `snippets/` directories on
+  #    this machine are empty.
+  if [[ -z "$(find "$abs" -type f -print -quit 2>/dev/null)" ]]; then
+    printf 'EMPTY|no files in it\n'
+    return
+  fi
+
+  # 1. Credential material anywhere near the top. Cheap and the highest stakes:
+  #    a leaked token cannot be un-pushed.
+  hits="$(find "$abs" -maxdepth 2 \( \
+      -iname '*cred*' -o -iname '*oauth*' -o -iname '*token*' -o -iname '*secret*' \
+      -o -iname '*.pem' -o -iname '*.key' -o -iname 'id_rsa*' -o -iname 'id_ed25519*' \
+    \) -print -quit 2>/dev/null || true)"
+  if [[ -n "$hits" ]]; then
+    printf 'SECRET|contains %s\n' "$(basename "$hits")"
+    return
+  fi
+
+  # 1b. …and the same check by content, for credentials in blandly named files.
+  hits="$(secret_content_hit "$abs")"
+  if [[ -n "$hits" ]]; then
+    printf 'SECRET|credential-shaped content in %s\n' "$(basename "$hits")"
+    return
+  fi
+
+  # 2. Installed payload. An `extensions/` or cache child is the giveaway for
+  #    every VS Code fork, and it is reinstallable by definition.
+  hits="$(find "$abs" -maxdepth 1 -type d \( \
+      -iname 'extensions' -o -iname 'cache' -o -iname 'cached*' -o -iname 'logs' \
+    \) -print -quit 2>/dev/null || true)"
+  if [[ -n "$hits" ]]; then
+    printf 'PAYLOAD|reinstallable (%s/) — not config\n' "$(basename "$hits")"
+    return
+  fi
+
+  # 3. Too many files to be hand-written configuration. `head` short-circuits,
+  #    so this does not walk a 2 GB tree to find that out.
+  count="$(find "$abs" -type f 2>/dev/null | head -501 | wc -l | tr -d ' ')"
+  if (( count > 500 )); then
+    printf 'PAYLOAD|%s+ files — app data, not config\n' "500"
+    return
+  fi
+
+  return 0
+}
+
 # Classify one home-relative path. Prints "STATUS|NOTE".
 classify() {
-  local abs="$1" rel="$2" links
+  local abs="$1" rel="$2" links verdict
 
   if list_match "$rel" "${SECRET_PATHS[@]}"; then
     printf 'SECRET|credential material — never adopt\n'
@@ -248,14 +349,27 @@ classify() {
       printf 'PARTIAL|%s managed file(s) inside — adopt individually\n' "$links"
       return
     fi
+    # Only now look at what is actually inside. Doing this last keeps the
+    # cheap name and symlink checks in front of any directory walk.
+    verdict="$(content_verdict "$abs")"
+    if [[ -n "$verdict" ]]; then
+      printf '%s\n' "$verdict"
+      return
+    fi
     printf 'CANDIDATE|directory\n'
+    return
+  fi
+
+  verdict="$(content_verdict "$abs")"
+  if [[ -n "$verdict" ]]; then
+    printf '%s\n' "$verdict"
     return
   fi
   printf 'CANDIDATE|file\n'
 }
 
 cmd_scan() {
-  local -a candidates=() partial=()
+  local -a candidates=() partial=() skipped_why=()
   local skipped=0 managed=0
   local entry abs rel result status note
 
@@ -272,7 +386,10 @@ cmd_scan() {
       CANDIDATE) candidates+=("$rel|$note") ;;
       PARTIAL)   partial+=("$rel|$note") ;;
       MANAGED|ADOPTED|PENDING) managed=$(( managed + 1 )) ;;
-      *)         skipped=$(( skipped + 1 )) ;;
+      # Genuinely nothing there. Not listed and not counted — an empty
+      # directory is neither at risk nor a decision anyone needs to review.
+      EMPTY) ;;
+      *)         skipped=$(( skipped + 1 )); skipped_why+=("$rel|$note") ;;
     esac
   # .config is excluded from the top-level pass and descended into instead —
   # otherwise it always reports as partially managed, which is true but useless.
@@ -280,21 +397,24 @@ cmd_scan() {
     find "$HOME_PHYS" -mindepth 1 -maxdepth 1 -name '.*' ! -name '.config' 2>/dev/null
     [[ -d "$HOME_PHYS/.config" ]] \
       && find "$HOME_PHYS/.config" -mindepth 1 -maxdepth 1 2>/dev/null
+    # ~/Library/Application Support/<App>/User/ — where macOS GUI applications
+    # actually keep their settings.
+    #
+    # Omitting this made the scan structurally unable to see the configuration
+    # most worth keeping: on this machine six editor settings/keybindings files
+    # (Cursor, Code - Insiders, Windsurf, Devin, Antigravity) were invisible to
+    # every `dot scan-unmapped` ever run, on a framework that targets macOS
+    # exclusively.
+    #
+    # Only the `<App>/User/` convention is walked, not all of Application
+    # Support. The rest is binary app state — `Arc/` alone holds dozens of
+    # `Storable*.json` session files including StorableAuthState.json.
+    [[ -d "$HOME_PHYS/Library/Application Support" ]] \
+      && find "$HOME_PHYS/Library/Application Support" -mindepth 3 -maxdepth 3 \
+           -path '*/User/*' \
+           \( -name 'settings.json' -o -name 'keybindings.json' -o -name 'snippets' \) \
+           2>/dev/null
   )
-
-  section "Adoption candidates"
-  if (( ${#candidates[@]} == 0 )); then
-    pass "Nothing unmanaged found under \$HOME or ~/.config"
-  else
-    printf '\n  %-40s %s\n' "PATH" "KIND"
-    printf '  %-40s %s\n' "----------------------------------------" "---------"
-    for entry in "${candidates[@]}"; do
-      # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
-      printf '  %-40s %s\n' "~/${entry%%|*}" "${entry#*|}"
-    done
-    printf '\n'
-    log_info "Adopt one with:  dot adopt ~/<path>"
-  fi
 
   if (( ${#partial[@]} > 0 )); then
     section "Partially managed — not adoptable as a whole"
@@ -308,10 +428,53 @@ cmd_scan() {
     log_warning "Adopt the specific unmanaged file instead, never the directory."
   fi
 
-  section "Summary"
-  pass "$managed already managed or adopted"
-  pass "$skipped skipped (credentials, caches, repositories)"
-  pass "${#candidates[@]} available to adopt"
+  # Every skip, with its reason. Printed rather than hidden: these heuristics
+  # are fallible, and a person who disagrees can adopt the path anyway. The old
+  # output collapsed all of this to "N skipped (credentials, caches,
+  # repositories)", which told nobody what had been decided on their behalf.
+  if (( ${#skipped_why[@]} > 0 )); then
+    section "Deliberately skipped"
+    printf '\n'
+    for entry in "${skipped_why[@]}"; do
+      # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+      printf '  %-40s %s\n' "~/${entry%%|*}" "${entry#*|}"
+    done
+    printf '\n'
+    log_info "Disagree? Adopt it explicitly:  dot adopt ~/<path>"
+  fi
+
+  # ── The question this command exists to answer ─────────────────────────────
+  section "If this Mac died today"
+  printf '\n'
+  # Counted from the declarations in home.nix, NOT from what is currently in
+  # $HOME. Adoption moves the real file out of $HOME until the next rebuild, so
+  # a $HOME-based count drops by one for every file you just protected — the
+  # exact opposite of the truth.
+  local adopted=0
+  [[ -f "$HOME_NIX" ]] && adopted="$(grep -c '\.source' "$HOME_NIX" 2>/dev/null || echo 0)"
+  # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+  pass "$adopted config path(s) adopted into ~/dotfiles-private"
+  pass "plus the shell, git, Neovim and terminal config the framework manages"
+  log_info "Applications are listed separately by:  dot apps list"
+  printf '\n'
+
+  if (( ${#candidates[@]} == 0 )); then
+    pass "Nothing would be lost. Every config found is backed up."
+  else
+    warn "${#candidates[@]} would be LOST — not backed up anywhere:"
+    printf '\n'
+    for entry in "${candidates[@]}"; do
+      # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+      printf '      ~/%s\n' "${entry%%|*}"
+    done
+    printf '\n'
+    log_info "Back them up with:"
+    log_info "  dot adopt \"~/<path>\" --mutable    # if an app rewrites the file"
+    log_info "  dot adopt \"~/<path>\"              # for everything else"
+  fi
+  printf '\n'
+  log_warning "Never covered here: SSH keys, app logins, licences."
+  log_warning "Those belong in a password manager or Time Machine, not in git."
   echo ""
 }
 
@@ -407,7 +570,7 @@ cmd_adopt() {
 
   require_private_repo
 
-  local abs rel dest links
+  local abs rel dest links adopt_verdict
   abs="$(to_abs "$target")" || die "Cannot resolve path: $target"
 
   # ── Guards ──
@@ -426,6 +589,18 @@ cmd_adopt() {
 
   if list_match "$rel" "${SECRET_PATHS[@]}"; then
     die "Refusing to adopt '$rel' — credential material must never enter git history"
+  fi
+
+  # The same content check `scan-unmapped` uses. Without it the two commands
+  # disagree: the scan would decline to recommend a path holding a live token
+  # while `dot adopt <that path>` still moved it into git without comment.
+  # Only SECRET blocks — PAYLOAD and EMPTY are wasteful, not dangerous, and a
+  # human asking for them explicitly may have a reason.
+  adopt_verdict="$(content_verdict "$abs")"
+  if [[ "${adopt_verdict%%|*}" == "SECRET" ]]; then
+    die "Refusing to adopt '$rel' — ${adopt_verdict#*|}.
+    Credential material must never enter git history. Adopt the specific
+    non-secret file inside it instead, if there is one."
   fi
 
   is_store_symlink "$abs" \

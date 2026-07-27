@@ -1,16 +1,58 @@
 # macOS Dotfiles
 
-A declarative, reproducible macOS environment built on Nix flakes, nix-darwin,
-Home Manager, nix-homebrew, and native Homebrew.
+**What this does:** you write down which apps you want and which config files
+matter to you. One command makes any Mac match that. Wipe the machine, buy a
+new one, run the command — you get your setup back.
+
+That's it. Three ideas:
+
+**1. A list of what you want.** One file, `settings.nix`, names your apps:
+
+```nix
+casks = [ "firefox" "ghostty" ];
+```
+
+Add a line, run `dot rebuild`, the app installs. Delete the line, it's removed.
+No clicking through installers, no remembering what you had.
+
+**2. Your config files, kept in a git repo.**
+
+```bash
+dot adopt ~/.config/zed/settings.json --mutable
+```
+
+That moves the real file into `~/dotfiles-private` and leaves a link behind.
+Zed still finds it and you still edit it normally — but now it has history and
+travels to your next Mac.
+
+**3. One command to apply it all:** `dot rebuild`.
+
+### Am I actually backed up?
+
+```bash
+dot scan-unmapped
+```
+
+It tells you, in plain terms, what would be lost if this Mac died — and it
+looks in `~/Library/Application Support`, where macOS apps really keep their
+settings. It will not offer you extension folders or anything holding a
+credential, and it prints its reasoning so you can disagree with it.
+
+**What it will never restore:** SSH keys, app logins, licence keys. Those
+belong in a password manager or Time Machine. Anything claiming otherwise is
+setting you up to lose them.
 
 **The framework names no application.** There is no bundled browser, editor,
 terminal or window manager anywhere in this repo — not as a default, not behind
-a toggle. Every GUI app, CLI package and App Store item on your machine comes
-from one file you own: `.local/settings.nix`. Add a line and it installs;
-delete the line and it goes away. Shell, Neovim and core CLI tooling come as
-standard; macOS defaults and the example home profile are opt-in.
+a toggle. Fork it and you get your choices, not the author's.
 
 Apple Silicon only.
+
+---
+
+Underneath, this is Nix flakes, nix-darwin, Home Manager, nix-homebrew and
+native Homebrew. You do not need to understand any of that to use it, and the
+rest of this file is written for when you do.
 
 ## Install
 
