@@ -20,6 +20,9 @@ setup() {
 
   FAKE_HOME="$(mktemp -d -t dot_adopt_home.XXXXXX)"
   FAKE_PRIVATE="$(mktemp -d -t dot_adopt_priv.XXXXXX)"
+  # Somewhere to put a stand-in `origin` that is not $HOME — a bare repo under
+  # the sandbox home would itself be scanned as an adoption candidate.
+  FAKE_SCRATCH="$(mktemp -d -t dot_adopt_scratch.XXXXXX)"
 
   # The script requires a real git repo (R2 — it stages what it moves).
   git -C "$FAKE_PRIVATE" init -q
@@ -33,6 +36,18 @@ setup() {
 teardown() {
   [[ -n "${FAKE_HOME:-}" ]] && rm -rf "$FAKE_HOME"
   [[ -n "${FAKE_PRIVATE:-}" ]] && rm -rf "$FAKE_PRIVATE"
+  [[ -n "${FAKE_SCRATCH:-}" ]] && rm -rf "$FAKE_SCRATCH"
+}
+
+# Give the sandbox private repo a local remote and a first published commit,
+# so tests can then diverge from it deliberately.
+publish_private_sandbox() {
+  git init -q --bare "$FAKE_SCRATCH/origin.git"
+  printf 'seed\n' > "$FAKE_PRIVATE/seed"
+  git -C "$FAKE_PRIVATE" add -A
+  git -C "$FAKE_PRIVATE" commit -qm "init"
+  git -C "$FAKE_PRIVATE" remote add origin "$FAKE_SCRATCH/origin.git"
+  git -C "$FAKE_PRIVATE" push -q -u origin HEAD
 }
 
 # Write a file whose CONTENT looks like a credential, without this test file
@@ -321,6 +336,76 @@ run_adopt() {
   run_adopt scan-unmapped
   [ "$status" -eq 0 ]
   [[ "$output" != *".emptyconfig"* ]]
+}
+
+# ── "would anything be lost" must account for the repo, not just $HOME ───────
+#
+# The verdict reasoned only about $HOME and home.nix: adopt every candidate and
+# it printed "Nothing would be lost. Every config found is backed up." while
+# the repo holding those files had never been pushed anywhere. On the machine
+# this was found on it was 14 commits ahead of a remote that had never seen
+# them — a confident reassurance covering a total loss.
+
+@test "scan reports unpushed private commits as AT RISK" {
+  publish_private_sandbox
+  git -C "$FAKE_PRIVATE" commit -q --allow-empty -m "adopted something"
+  git -C "$FAKE_PRIVATE" commit -q --allow-empty -m "adopted something else"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AT RISK"* ]]
+  [[ "$output" == *"2 commit(s) exist only on this Mac"* ]]
+  [[ "$output" != *"Nothing would be lost"* ]]
+}
+
+@test "scan reports a private repo with no remote as backed up to nowhere" {
+  # setup() leaves FAKE_PRIVATE with no origin — the state of anyone who has
+  # not created their private GitHub repo yet.
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AT RISK"* ]]
+  [[ "$output" == *"backed up to NOWHERE"* ]]
+  [[ "$output" != *"Nothing would be lost"* ]]
+}
+
+@test "scan reports uncommitted private changes as AT RISK" {
+  # `dot adopt` stages what it moves but does not commit it. A staged-only
+  # adoption is on exactly one disk.
+  publish_private_sandbox
+  printf 'adopted\n' > "$FAKE_PRIVATE/pending"
+  git -C "$FAKE_PRIVATE" add -A
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AT RISK"* ]]
+  [[ "$output" == *"uncommitted change(s)"* ]]
+}
+
+@test "scan says nothing would be lost only when the private repo is published" {
+  # The one state that earns the reassurance: no candidates left in $HOME AND
+  # a private repo that is clean and fully pushed.
+  publish_private_sandbox
+  rm -f "$FAKE_HOME/.plainfile"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Nothing would be lost"* ]]
+  [[ "$output" != *"AT RISK"* ]]
+}
+
+@test "scan lists the adopted paths rather than only counting them" {
+  # Every adopted path is at least one level deep, so `ls ~` cannot show them.
+  # A bare count is a number the user has no way to check.
+  publish_private_sandbox
+  # printf, not a heredoc: bats ends a test body at the first line that is a
+  # bare `}`, which Nix source has plenty of.
+  printf '{ config, ... }:\n{\n  home.file = {\n    ".claude/CLAUDE.md".source = ./home/.claude/CLAUDE.md;\n  };\n}\n' \
+    > "$FAKE_PRIVATE/home.nix"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 config path(s) adopted"* ]]
+  [[ "$output" == *".claude/CLAUDE.md"* ]]
 }
 
 @test "an unknown subcommand fails loudly" {

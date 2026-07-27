@@ -418,13 +418,123 @@ run_sph() {
   [ "$status" -ne 0 ]
 }
 
+# Set up a committed FAKE_ROOT and a private flake. Sets $PRIVATE and $BRANCH
+# in the caller — deliberately NOT called in a command substitution, which
+# would run it in a subshell and drop both.
+promote_sandbox() {
+  git -C "$FAKE_ROOT" config user.email test@example.com
+  git -C "$FAKE_ROOT" config user.name Test
+  git -C "$FAKE_ROOT" add -A
+  git -C "$FAKE_ROOT" commit -qm init
+
+  PRIVATE="$TMP/priv"
+  mkdir -p "$PRIVATE"
+  git -C "$PRIVATE" init -q
+  git -C "$PRIVATE" config user.email test@example.com
+  git -C "$PRIVATE" config user.name Test
+  printf '{ }\n' > "$PRIVATE/flake.nix"
+  printf 'original\n' > "$PRIVATE/flake.lock"
+
+  BRANCH="$(git -C "$FAKE_ROOT" rev-parse --abbrev-ref HEAD)"
+}
+
 @test "promote pushes before moving the pin" {
-  # The pin can only name a revision the remote already has.
-  push_line="$(grep -n 'git -C "\$DOTFILES_ROOT" push -u origin' "$PROMOTE" | head -1 | cut -d: -f1)"
-  pin_line="$(grep -n 'nix flake update dotfiles' "$PROMOTE" | tail -1 | cut -d: -f1)"
+  # The pin can only name a revision the remote already has. Asserted on the
+  # command's own output rather than on its source text, so it keeps holding
+  # when the push helper is refactored.
+  promote_sandbox
+  run env DOTFILES_ROOT="$FAKE_ROOT" DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
+          "$PROMOTE" --dry-run --skip-validate --branch "$BRANCH"
+  [ "$status" -eq 0 ]
+
+  push_line="$(printf '%s\n' "$output" | grep -n "push -u origin $BRANCH" | head -1 | cut -d: -f1)"
+  pin_line="$(printf '%s\n' "$output" | grep -n 'nix flake update dotfiles' | head -1 | cut -d: -f1)"
   [ -n "$push_line" ]
   [ -n "$pin_line" ]
   [ "$push_line" -lt "$pin_line" ]
+}
+
+# ── promote publishes BOTH halves of the system ──────────────────────────────
+#
+# `promote` pushed this repo and committed the private flake's lock without
+# ever pushing that repo. The private flake holds the identity, the app
+# selections and every adopted config file — so five promote runs left the
+# irreplaceable half on one laptop while `dot scan-unmapped` called the machine
+# fully backed up.
+
+@test "promote publishes the private flake, not just this repo" {
+  promote_sandbox
+  git -C "$PRIVATE" add -A
+  git -C "$PRIVATE" commit -qm init
+  git init -q --bare "$TMP/priv-origin.git"
+  git -C "$PRIVATE" remote add origin "$TMP/priv-origin.git"
+
+  run env DOTFILES_ROOT="$FAKE_ROOT" DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
+          "$PROMOTE" --dry-run --skip-validate --branch "$BRANCH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$PRIVATE push -u origin"* ]]
+  # And it is scanned before it goes anywhere.
+  [[ "$output" == *"scan-secrets $PRIVATE"* ]]
+}
+
+@test "promote warns but still completes when the private flake has no remote" {
+  # A user who has not created their private GitHub repo yet must still be able
+  # to rebuild. Never create the remote for them (R5) — say what is missing.
+  promote_sandbox
+
+  run env DOTFILES_ROOT="$FAKE_ROOT" DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
+          "$PROMOTE" --dry-run --skip-validate --branch "$BRANCH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"backed up to NOWHERE"* ]]
+  [[ "$output" == *"remote add origin"* ]]
+}
+
+@test "promote refuses to publish the private flake when gitleaks finds something" {
+  # This step sends user config to GitHub automatically, and credential-shaped
+  # content turns up in blandly named config files. A finding must stop the
+  # push — a leaked token cannot be un-pushed.
+  promote_sandbox
+  git init -q --bare "$TMP/root-origin.git"
+  git -C "$FAKE_ROOT" remote add origin "$TMP/root-origin.git"
+  git -C "$PRIVATE" add -A
+  git -C "$PRIVATE" commit -qm init
+  git init -q --bare "$TMP/priv-origin.git"
+  git -C "$PRIVATE" remote add origin "$TMP/priv-origin.git"
+
+  printf '#!/bin/sh\necho "finding"\nexit 1\n' > "$STUB_BIN/gitleaks"
+  chmod +x "$STUB_BIN/gitleaks"
+
+  run env PATH="$STUB_BIN:$PATH" \
+          DOTFILES_ROOT="$FAKE_ROOT" DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
+          "$PROMOTE" --skip-validate --no-rebuild --branch "$BRANCH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"NOT pushing"* ]]
+
+  # The assertion that matters: nothing reached the private remote.
+  run git -C "$TMP/priv-origin.git" rev-parse --verify --quiet HEAD
+  [ "$status" -ne 0 ]
+}
+
+@test "promote publishes the private flake once the scan is clean" {
+  promote_sandbox
+  git init -q --bare "$TMP/root-origin.git"
+  git -C "$FAKE_ROOT" remote add origin "$TMP/root-origin.git"
+  git -C "$PRIVATE" add -A
+  git -C "$PRIVATE" commit -qm init
+  git init -q --bare "$TMP/priv-origin.git"
+  git -C "$PRIVATE" remote add origin "$TMP/priv-origin.git"
+
+  printf '#!/bin/sh\nexit 0\n' > "$STUB_BIN/gitleaks"
+  chmod +x "$STUB_BIN/gitleaks"
+
+  run env PATH="$STUB_BIN:$PATH" \
+          DOTFILES_ROOT="$FAKE_ROOT" DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
+          "$PROMOTE" --skip-validate --no-rebuild --branch "$BRANCH"
+  [ "$status" -eq 0 ]
+
+  # The private repo's commit is now on its remote.
+  run git -C "$TMP/priv-origin.git" rev-parse --verify --quiet HEAD
+  [ "$status" -eq 0 ]
 }
 
 @test "dot dispatches promote" {
