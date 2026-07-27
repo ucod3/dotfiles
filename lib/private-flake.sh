@@ -1,26 +1,40 @@
 #!/usr/bin/env bash
 # lib/private-flake.sh — shared shape of the private downstream flake
 #
-# Two scripts write into ~/dotfiles-private and must agree on its layout:
-#
-#   scripts/bin/setup-private-host  creates the flake, the hosts/ directory and
-#                                   the home.nix stub the host file imports
-#   scripts/bin/dot-adopt           appends home.file mappings to that home.nix
-#
-# They previously each carried their own copy of the home.nix heredoc — and only
-# dot-adopt's had the insertion sentinel, so a freshly generated private flake
-# had no home.nix at all and the first `dot adopt` had to create one that the
-# host file did not import. Both now call into here.
+# setup-private-host and dot-adopt both write into ~/dotfiles-private and must
+# agree on where adopted files live. Existing profiles use home/<path>; readable
+# modular profiles use home/files/<path> and import the generated root home.nix
+# from home/default.nix.
 
 # Insertion marker. `dot adopt` puts new mappings directly above this line, so
 # appending never has to parse the surrounding attribute set to find its end.
 DOT_ADOPT_SENTINEL="# dot-adopt:entries — new mappings are inserted directly above this line."
 
-# Subdirectory of the private flake that adopted files are moved into.
-DOT_ADOPT_SUBDIR="home"
+# Print the private-profile layout understood by the compatibility layer.
+#
+# A modular profile always has home/default.nix. Existing profiles deliberately
+# remain legacy until they are migrated; a plain home/ directory is not enough
+# evidence because it already stores adopted files in the old layout.
+private_profile_layout() {
+  local root="${1:-${PRIVATE_ROOT:-}}"
+
+  if [[ -n "$root" && -f "$root/home/default.nix" ]]; then
+    printf 'modular\n'
+  else
+    printf 'legacy\n'
+  fi
+}
+
+# Subdirectory of the private flake that adopted files are moved into. Resolve it
+# when this library is sourced: dot-adopt has already set PRIVATE_ROOT by then.
+if [[ "$(private_profile_layout)" == "modular" ]]; then
+  DOT_ADOPT_SUBDIR="home/files"
+else
+  DOT_ADOPT_SUBDIR="home"
+fi
 
 # write_home_nix_stub <home.nix path> — no-op when the file already exists, so
-# it is safe to call from both scripts and on every re-run.
+# it is safe to call from setup-private-host and dot-adopt on every re-run.
 write_home_nix_stub() {
   local home_nix="$1"
   [[ -f "$home_nix" ]] && return 0
@@ -49,9 +63,8 @@ write_home_nix_stub() {
 # Both kinds are versioned here and both travel to your next Mac. The mutable
 # form assumes this repository is at \${config.home.homeDirectory}/dotfiles-private.
 #
-# This file is imported by hosts/<hostname>.nix. It is valid while empty, which
-# is the point: the import exists from the moment the private flake is created,
-# so the first \`dot adopt\` deploys without a manual host-file edit.
+# This file is imported by the private Home Manager configuration. It is valid
+# while empty, so the first \`dot adopt\` deploys without a manual module edit.
 { config, ... }:
 
 {

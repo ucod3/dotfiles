@@ -1,11 +1,12 @@
-# Private Home Manager configuration and adopted files.
+# Private Home Manager configuration.
 #
-# `dot adopt` may insert mappings directly above the sentinel below. Stored files
-# live under ./files/ and mirror their destination beneath $HOME where practical.
-{ config, ... }:
+# Add your own Home Manager settings here. Adopted-file mappings live in the
+# generated ../home.nix compatibility module, and their stored files live under
+# ./files/. Keeping the generated boundary separate makes this file safe to edit.
+{ ... }:
 
 {
-  home.file = {
-    # dot-adopt:entries — new mappings are inserted directly above this line.
-  };
+  imports = [
+    ../home.nix
+  ];
 }
