@@ -17,30 +17,33 @@ FORK=""
 # is one of the first flake commands a fresh machine ever runs.
 # shellcheck source=../../lib/nix.sh
 source "$DOTFILES_ROOT/lib/nix.sh"
-# Shared home.nix stub + adoption sentinel (also used by scripts/bin/dot-adopt)
+# Shared private-profile layout detection and adoption stub.
 # shellcheck source=../../lib/private-flake.sh
 source "$DOTFILES_ROOT/lib/private-flake.sh"
 
-# The upstream this framework is published from. Used ONLY to detect that an
-# adopter is about to pin their live system to someone else's repository — it is
-# never written into a generated flake unless the adopter says so. See ADR-010.
-UPSTREAM_SLUG="ucod3/dotfiles"
+UPSTREAM_REF="github:ucod3/dotfiles"
+GENERATOR="$DOTFILES_ROOT/scripts/lib/generate-private-profile.sh"
+HOST_TEMPLATE="$DOTFILES_ROOT/templates/private-profile/hosts/host.nix"
 
 usage() {
-  echo "Usage: setup-private-host [--host NAME] [--user NAME] [--fork OWNER/REPO]"
-  echo
-  echo "Generates ~/dotfiles-private, the downstream flake holding this machine's"
-  echo "hostname and username. This repo ships no darwinConfigurations on purpose."
-  echo
-  echo "Options:"
-  echo "  --host NAME        Host to configure (default: hostname -s)"
-  echo "  --user NAME        macOS username (default: id -un)"
-  echo "  --fork OWNER/REPO  Pin the private flake to this fork of the framework"
-  echo "                     instead of whatever 'origin' happens to be. Also"
-  echo "                     settable as \$DOTFILES_FORK."
-  echo
-  echo "Re-running on a second Mac adds that machine to an existing private"
-  echo "flake; the flake enumerates hosts/ itself, so there is nothing to edit."
+  cat <<'EOF'
+Usage: setup-private-host [--host NAME] [--user NAME] [--fork OWNER/REPO]
+
+Creates ~/dotfiles-private, the private profile containing this Mac's identity,
+application choices, preferences, Home Manager configuration, and adopted files.
+
+Ordinary users consume github:ucod3/dotfiles directly. A framework fork is an
+advanced override, not an installation requirement.
+
+Options:
+  --host NAME        Host to configure (default: hostname -s)
+  --user NAME        macOS username (default: id -un)
+  --fork OWNER/REPO  Use a custom framework fork instead of upstream
+                     (also settable as $DOTFILES_FORK)
+
+Re-running on a second Mac adds hosts/<hostname>.nix to the existing private
+profile. Existing legacy profiles keep their current layout.
+EOF
 }
 
 while [[ $# -gt 0 ]]; do
@@ -61,111 +64,46 @@ if [[ ! "$HOSTNAME" =~ ^[A-Za-z0-9_-]+$ || ! "$USER_NAME" =~ ^[A-Za-z0-9_-]+$ ]]
   exit 1
 fi
 
-# Normalize a git remote URL to an OWNER/REPO slug, or print nothing.
+# Normalize a GitHub remote or flake reference to OWNER/REPO, or print nothing.
 github_slug() {
-  local remote="$1" path
-  case "$remote" in
+  local value="$1" path
+  case "$value" in
+    github:*/*)
+      printf '%s\n' "${value#github:}"
+      ;;
     git@github.com:*/*)
-      path="${remote#git@github.com:}"
+      path="${value#git@github.com:}"
       printf '%s\n' "${path%.git}"
       ;;
     https://github.com/*/* | ssh://git@github.com/*/*)
-      path="${remote#*github.com/}"
+      path="${value#*github.com/}"
       printf '%s\n' "${path%.git}"
+      ;;
+    */*)
+      printf '%s\n' "${value%.git}"
       ;;
   esac
 }
 
-# Ask, once, whether the adopter really means to pin someone else's repository.
-#
-# Nothing that is not a human at a keyboard may block here. Three distinct
-# non-interactive callers exist and each needs a different check:
-#
-#   * CI and `curl | bash` piped input   — stdin is not a TTY.
-#   * The bats suite                     — stdin is /dev/null, but the process
-#     still inherits a controlling terminal from the shell that ran
-#     `dot validate`, so the /dev/tty probe below SUCCEEDS and the read blocks
-#     forever with its prompt swallowed by bats. `DOTFILES_NONINTERACTIVE`
-#     (exported by tests/setup_suite.bash) is the only reliable signal there.
-#
-# The /dev/tty fallback itself must stay: under `curl … | bash` stdin is the
-# script, so `-t 0` is false while a human IS present and must be asked.
-# See ADR-010.
-resolve_fork() {
-  local answer=""
+framework_ref() {
+  local slug
 
-  echo "The 'origin' of $DOTFILES_ROOT is the upstream framework ($UPSTREAM_SLUG)." >&2
-  echo "Pinning your private flake to it means your Mac rebuilds from the" >&2
-  echo "upstream author's repository — you would not own what goes live, and" >&2
-  echo "your own commits could never be promoted." >&2
-  echo >&2
-
-  if [[ -n "${DOTFILES_NONINTERACTIVE:-}" || -n "${CI:-}" ]]; then
-    echo "Non-interactive — proceeding with the upstream pin." >&2
-  elif [[ -t 0 ]] || { : < /dev/tty; } 2>/dev/null; then
-    echo "Enter YOUR fork as OWNER/REPO, or press Enter to pin upstream anyway." >&2
-    # -t 120: a prompt nobody can see must fail loudly rather than hang. Ample
-    # for a human, finite for anything else that slips past the guards above.
-    if [[ -t 0 ]]; then
-      read -r -t 120 -p "  Your fork [OWNER/REPO]: " answer || answer=""
-    else
-      read -r -t 120 -p "  Your fork [OWNER/REPO]: " answer < /dev/tty || answer=""
-    fi
-  else
-    echo "No TTY — proceeding with the upstream pin." >&2
-  fi
-
-  printf '%s\n' "$answer"
-}
-
-# The flake ref the generated private flake will consume.
-#
-# Prefer the published remote: the live system should build from a revision that
-# exists somewhere other than this laptop, so an experimental branch or an
-# unpushed commit cannot reach it (ADR-009). Fall back to the local path only
-# when there is no usable remote — a never-pushed or offline clone — because a
-# generated flake that cannot evaluate at all is worse than a coupled one.
-dotfiles_flake_ref() {
-  local slug=""
-
-  # An explicit fork always wins, and is never second-guessed.
-  if [[ -n "$FORK" ]]; then
-    slug="$(github_slug "$FORK")"
-    [[ -n "$slug" ]] || slug="${FORK#github:}"
-    printf 'github:%s\n' "$slug"
+  if [[ -z "$FORK" ]]; then
+    printf '%s\n' "$UPSTREAM_REF"
     return 0
   fi
 
-  slug="$(github_slug "$(git -C "$DOTFILES_ROOT" remote get-url origin 2>/dev/null || true)")"
-
-  if [[ -z "$slug" ]]; then
-    printf 'git+file://%s\n' "$DOTFILES_ROOT"
-    return 0
-  fi
-
-  # Cloning upstream directly is the common case for a first-time adopter, and
-  # it is exactly the case where deriving the pin from `origin` produces the
-  # wrong answer: presence of an upstream remote is not consent to build from
-  # it (the same reasoning as ADR-007, applied to ownership rather than
-  # destruction).
-  if [[ "$slug" == "$UPSTREAM_SLUG" ]]; then
-    local chosen from_url
-    chosen="$(resolve_fork)"
-    if [[ -n "$chosen" ]]; then
-      # The answer may be a bare OWNER/REPO or a full clone URL.
-      from_url="$(github_slug "$chosen")"
-      slug="${from_url:-$chosen}"
-      slug="${slug#github:}"
-    else
-      echo "WARNING: pinning to the upstream $UPSTREAM_SLUG. Fork it and re-run" >&2
-      echo "         with --fork OWNER/REPO to own your own configuration." >&2
-    fi
+  slug="$(github_slug "$FORK")"
+  if [[ ! "$slug" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    echo "Invalid framework fork '$FORK' — expected OWNER/REPO or a GitHub URL." >&2
+    return 1
   fi
 
   printf 'github:%s\n' "$slug"
 }
 
-write_host_file() {
+# Existing legacy profiles keep the host module shape they already understand.
+write_legacy_host_file() {
   mkdir -p "$PRIVATE_ROOT/hosts"
   cat > "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" <<EOF
 # Host identity for $HOSTNAME — generated by \`setup-private-host\`.
@@ -189,10 +127,6 @@ in
     backupFileExtension = "hm-backup";
     extraSpecialArgs = { inherit user; };
 
-    # An imports LIST, not a bare \`import\`, so this stays extensible: adding a
-    # module is one line. ../home.nix is where \`dot adopt\` writes the mappings
-    # for files it moves out of \$HOME — it exists from the start (empty is
-    # valid), so the first adoption deploys with no edit to this file.
     users.\${user}.imports = [
       inputs.dotfiles.darwinModules.homeEnvironment
       ../home.nix
@@ -204,45 +138,65 @@ in
 EOF
 }
 
+# Modular profiles reuse the same readable host template as first-run creation.
+write_modular_host_file() {
+  local content
+  [[ -f "$HOST_TEMPLATE" ]] || {
+    echo "Private-profile host template not found at $HOST_TEMPLATE" >&2
+    return 1
+  }
+
+  content="$(cat "$HOST_TEMPLATE")"
+  content="${content//@HOSTNAME@/$HOSTNAME}"
+  content="${content//@USER@/$USER_NAME}"
+
+  mkdir -p "$PRIVATE_ROOT/hosts"
+  printf '%s\n' "$content" > "$PRIVATE_ROOT/hosts/$HOSTNAME.nix"
+}
+
+write_host_file() {
+  if [[ "$(private_profile_layout "$PRIVATE_ROOT")" == "modular" ]]; then
+    write_modular_host_file
+  else
+    write_legacy_host_file
+  fi
+}
+
 # Does this private flake build its host list from the hosts/ directory? If so a
-# new machine needs no flake edit at all — dropping in hosts/<name>.nix is the
-# whole operation. Older generated flakes named exactly one host inline; those
-# still get the paste-this-block path below.
+# new machine needs no flake edit; dropping in hosts/<name>.nix is sufficient.
 flake_is_host_plural() {
   grep -q 'builtins.readDir ./hosts' "$PRIVATE_ROOT/flake.nix" 2>/dev/null
 }
 
-if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
+add_host_to_existing_profile() {
   if [[ -f "$PRIVATE_ROOT/hosts/$HOSTNAME.nix" ]] \
      || grep -q "darwinConfigurations\.\"${HOSTNAME}\"" "$PRIVATE_ROOT/flake.nix"; then
     echo "Private configuration already defines '$HOSTNAME' at $PRIVATE_ROOT"
-    exit 0
+    return 0
   fi
 
   write_home_nix_stub "$PRIVATE_ROOT/home.nix"
   write_host_file
 
   if flake_is_host_plural; then
-    # The second-Mac path, and the macOS-renamed-your-machine path. Both used to
-    # end with the operator hand-editing a flake; now the flake already looks in
-    # hosts/, so writing the file IS the configuration.
     echo "Added host '$HOSTNAME' to $PRIVATE_ROOT"
     echo "  hosts/$HOSTNAME.nix written for user '$USER_NAME'"
-    # R2: git+file: evaluation excludes untracked files, so an unstaged host
-    # file is invisible to the very rebuild that is supposed to consume it.
+
+    # R2: git+file evaluation excludes untracked files, so stage the new host.
     if git -C "$PRIVATE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
       git -C "$PRIVATE_ROOT" add "hosts/$HOSTNAME.nix" home.nix 2>/dev/null || true
       echo "  staged (not committed — review and commit yourself)"
     fi
+
     echo
     echo "Next:  dot rebuild"
-    exit 0
+    return 0
   fi
 
   echo "Private flake exists at $PRIVATE_ROOT but has no host '$HOSTNAME'," >&2
-  echo "and it predates the hosts/-directory layout, so it cannot pick the new" >&2
-  echo "file up on its own. Wrote hosts/$HOSTNAME.nix; add this to its" >&2
-  echo "flake.nix yourself (the flake is yours — this script will not rewrite it):" >&2
+  echo "and it predates the hosts/-directory layout. Wrote the host file, but" >&2
+  echo "the older flake cannot discover it automatically. Add this block to" >&2
+  echo "flake.nix yourself (the flake is yours, so this script will not rewrite it):" >&2
   echo >&2
   cat >&2 <<EOF
     darwinConfigurations."$HOSTNAME" = nix-darwin.lib.darwinSystem {
@@ -256,92 +210,58 @@ if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
       ];
     };
 EOF
+}
+
+create_fresh_profile() {
+  local dotfiles_ref system
+
+  [[ -x "$GENERATOR" || -f "$GENERATOR" ]] || {
+    echo "Private-profile generator not found at $GENERATOR" >&2
+    return 1
+  }
+
+  dotfiles_ref="$(framework_ref)"
+  system="$(nix_system)"
+
+  if [[ "$dotfiles_ref" == "$UPSTREAM_REF" ]]; then
+    echo "Using public framework: $dotfiles_ref"
+  else
+    echo "Using custom framework: $dotfiles_ref"
+  fi
+
+  # The renderer refuses non-empty destinations. Generate first, then initialize
+  # Git and stage the source before locking because git-backed flakes exclude
+  # untracked files from evaluation.
+  bash "$GENERATOR" \
+    --root "$PRIVATE_ROOT" \
+    --host "$HOSTNAME" \
+    --user "$USER_NAME" \
+    --framework "$dotfiles_ref" \
+    --system "$system"
+
+  git init "$PRIVATE_ROOT" >/dev/null
+  (
+    cd "$PRIVATE_ROOT"
+    git add .
+    nix flake lock
+    git add flake.lock
+    git commit -m "Configure $HOSTNAME host" >/dev/null
+  )
+
+  echo
+  echo "Private configuration created at $PRIVATE_ROOT"
+  echo "  Applications: apps/"
+  echo "  macOS:        macos/"
+  echo "  Home Manager: home/"
+  echo "  This Mac:     hosts/$HOSTNAME.nix"
+  echo
+  echo "Review README.md before changing the profile."
+  echo "Second Mac? Clone this private repo there and run setup-private-host again."
+}
+
+if [[ -e "$PRIVATE_ROOT/flake.nix" ]]; then
+  add_host_to_existing_profile
   exit 0
 fi
 
-mkdir -p "$PRIVATE_ROOT/hosts"
-git init "$PRIVATE_ROOT" >/dev/null
-
-DOTFILES_REF="$(dotfiles_flake_ref)"
-case "$DOTFILES_REF" in
-  git+file://*)
-    echo "No GitHub 'origin' remote found for $DOTFILES_ROOT." >&2
-    echo "Pinning the private flake to the local path instead. Once you have" >&2
-    echo "pushed this repo, switch the 'dotfiles' input to github:OWNER/REPO" >&2
-    echo "so the live system builds only from published revisions (ADR-009)." >&2
-    ;;
-  *)
-    echo "Pinning the private flake to $DOTFILES_REF"
-    ;;
-esac
-
-cat > "$PRIVATE_ROOT/flake.nix" <<EOF
-{
-  description = "Private host configuration for the shared dotfiles framework";
-
-  inputs = {
-    # Pinned to a published revision so nothing uncommitted or unpushed in a
-    # local working tree can reach the live system. \`dot rebuild
-    # --override-local\` is the deliberate escape hatch. See ADR-009.
-    dotfiles.url = "$DOTFILES_REF";
-    nixpkgs.follows = "dotfiles/nixpkgs";
-    nix-darwin.follows = "dotfiles/nix-darwin";
-    home-manager.follows = "dotfiles/home-manager";
-    nix-homebrew.follows = "dotfiles/nix-homebrew";
-  };
-
-  outputs = inputs@{ self, dotfiles, nix-darwin, home-manager, nix-homebrew, ... }:
-  let
-    # Every machine is one file in ./hosts. Adding a Mac means dropping in
-    # hosts/<hostname>.nix — there is nothing to edit here, which is the point:
-    # cloning this repo onto a second Mac and running \`setup-private-host\`
-    # must not require hand-editing a flake before the first build. See ADR-010.
-    hostNames =
-      let
-        matched = map (f: builtins.match "(.*)\\\\.nix" f)
-          (builtins.attrNames (builtins.readDir ./hosts));
-      in
-      map builtins.head (builtins.filter (m: m != null) matched);
-
-    mkHost = name: nix-darwin.lib.darwinSystem {
-      system = "$(nix_system)";
-      specialArgs = { inherit inputs self; };
-      modules = [
-        dotfiles.darwinModules.coreSystem
-        nix-homebrew.darwinModules.nix-homebrew
-        home-manager.darwinModules.home-manager
-        (./hosts + "/\${name}.nix")
-      ];
-    };
-  in
-  {
-    darwinConfigurations = builtins.listToAttrs
-      (map (n: { name = n; value = mkHost n; }) hostNames);
-  };
-}
-EOF
-
-# The host file imports ../home.nix, so the stub has to exist before the flake
-# is ever evaluated — an import of a missing path is an evaluation error, not a
-# no-op. Empty is valid; `dot adopt` fills it in.
-write_home_nix_stub "$PRIVATE_ROOT/home.nix"
-write_host_file
-
-cat > "$PRIVATE_ROOT/.gitignore" <<'EOF'
-result
-result-*
-.DS_Store
-EOF
-
-(
-  cd "$PRIVATE_ROOT"
-  git add .
-  nix flake lock
-  git add flake.lock
-  git commit -m "Configure $HOSTNAME host" >/dev/null
-)
-
-echo "Private configuration created at $PRIVATE_ROOT"
-echo
-echo "Second Mac? Clone this repo there and run setup-private-host again —"
-echo "it adds hosts/<that-hostname>.nix and the flake picks it up automatically."
+create_fresh_profile
