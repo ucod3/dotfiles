@@ -38,6 +38,12 @@ looks in `~/Library/Application Support`, where macOS apps really keep their
 settings. It will not offer you extension folders or anything holding a
 credential, and it prints its reasoning so you can disagree with it.
 
+**Adopting a file is only half of it.** Adopted files live in
+`~/dotfiles-private`, which is a git repo on the same disk as the files it
+protects — so it is not a backup until it has been pushed. `dot promote` now
+publishes it for you (after scanning it for secrets), and `dot scan-unmapped`
+says **AT RISK**, with the commit count, whenever it has not happened.
+
 **What it will never restore:** SSH keys, app logins, licence keys. Those
 belong in a password manager or Time Machine. Anything claiming otherwise is
 setting you up to lose them.

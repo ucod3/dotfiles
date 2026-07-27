@@ -125,5 +125,11 @@ git remote add origin git@github.com:<you>/dotfiles-private.git
 git push -u origin main
 ```
 
+Do this once. After `origin` exists, `dot promote` keeps the repository pushed
+on every run — it scans it with gitleaks first and refuses to publish a finding.
+Until then nothing is backed up, and `dot scan-unmapped` reports the machine as
+**AT RISK** rather than claiming otherwise: this repository is on the same disk
+as the files it protects, so an unpushed copy is not a backup.
+
 Never make this repository public — it contains your macOS username and
 hostname.

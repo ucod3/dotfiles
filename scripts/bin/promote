@@ -14,8 +14,13 @@
 # push still happens before the pin so the pinned revision always exists on the
 # remote.
 #
+# It also publishes the private flake, which the manual ritual never did: that
+# repo holds the identity, the app selections and every adopted config file, so
+# a `promote` that pushed only this repo left the irreplaceable half on one
+# disk while `dot scan-unmapped` called the machine backed up.
+#
 # Usage:
-#   dot promote                 # validate → push → bump pin → commit → rebuild
+#   dot promote                 # validate → push → pin → publish private → rebuild
 #   dot promote --dry-run       # print the plan, change nothing
 #   dot promote --no-rebuild    # stop after committing the pin
 #   dot promote --branch NAME   # promote a branch other than the default
@@ -42,14 +47,18 @@ NO_REBUILD=false
 SKIP_VALIDATE=false
 BRANCH=""
 
+# Set by publish_private. The closing summary must not claim the system is
+# published when only half of it is.
+PRIVATE_PUBLISHED=false
+
 usage() {
   echo "Usage: promote [OPTIONS]"
   echo ""
-  echo "Publishes this repo and moves the live system onto the new revision:"
+  echo "Publishes both halves of the system and moves it onto the new revision:"
   echo "  1. dot validate            — refuse to publish a broken tree"
   echo "  2. git push -u origin      — the pinned revision must exist remotely"
   echo "  3. nix flake update dotfiles  (in the private flake) — move the pin"
-  echo "  4. git commit flake.lock   — record which revision is live"
+  echo "  4. git commit flake.lock, scan for secrets, push the private flake"
   echo "  5. dot rebuild             — apply it"
   echo ""
   echo "Options:"
@@ -95,16 +104,19 @@ default_branch() {
 }
 
 # Push with the retry policy the rest of this repo uses for network operations.
+# Takes the repository explicitly: this pushes BOTH halves of the system, and a
+# helper hardcoded to $DOTFILES_ROOT is exactly how the private repo went 14
+# commits without ever leaving the laptop.
 push_with_retry() {
-  local branch="$1" delay=2 attempt
+  local repo="$1" branch="$2" delay=2 attempt
 
   if [[ "$DRY_RUN" == true ]]; then
-    log_info "[DRY RUN] git -C $DOTFILES_ROOT push -u origin $branch"
+    log_info "[DRY RUN] git -C $repo push -u origin $branch"
     return 0
   fi
 
   for attempt in 1 2 3 4 5; do
-    if git -C "$DOTFILES_ROOT" push -u origin "$branch"; then
+    if git -C "$repo" push -u origin "$branch"; then
       return 0
     fi
     if (( attempt == 5 )); then
@@ -115,6 +127,94 @@ push_with_retry() {
     sleep "$delay"
     delay=$(( delay * 2 ))
   done
+}
+
+# ── Publishing the private flake ────────────────────────────────────────────
+#
+# The private repo holds the identity, the application selections and every
+# adopted config file — i.e. everything a rebuild cannot regenerate. Until this
+# existed, `promote` published the framework and left that half on one disk,
+# while `dot scan-unmapped` reported the machine as fully backed up.
+#
+# Two hard constraints:
+#   * Never create a remote. A repo with no `origin` is a user who has not made
+#     a private GitHub repo yet; say so and carry on (R5) — the rebuild is
+#     local and must still work.
+#   * Never push unscanned. This sends user config to GitHub automatically, and
+#     credential-shaped content turns up in blandly named config files. If the
+#     scan cannot run, the push does not happen either.
+
+# Prints the private repo's branch, or nothing if HEAD is detached. Always
+# succeeds: `set -e` aborts on a failing command substitution in an assignment.
+#
+# `symbolic-ref`, not `rev-parse --abbrev-ref`: the latter fails outright on a
+# branch with no commits yet, which would report a freshly-initialised private
+# repo as "detached HEAD" — a confusing answer to a different question.
+private_branch() {
+  git -C "$PRIVATE_ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true
+}
+
+# 0 when it is safe to publish, non-zero (having explained why) when it is not.
+private_push_allowed() {
+  if [[ "$DRY_RUN" == true ]]; then
+    log_info "[DRY RUN] $DOTFILES_ROOT/scripts/bin/scan-secrets $PRIVATE_ROOT"
+    return 0
+  fi
+
+  if ! command -v gitleaks >/dev/null 2>&1; then
+    log_warning "gitleaks not found — refusing to publish $PRIVATE_ROOT unscanned."
+    log_info "  brew install gitleaks     then re-run: dot promote"
+    return 1
+  fi
+
+  log_info "Scanning $PRIVATE_ROOT for secrets before publishing it."
+  if ! "$DOTFILES_ROOT/scripts/bin/scan-secrets" "$PRIVATE_ROOT"; then
+    log_error "gitleaks found something in $PRIVATE_ROOT — NOT pushing."
+    log_info "Nothing was published. Remove the finding above, commit, and re-run."
+    return 1
+  fi
+  return 0
+}
+
+# Never fails the run. Every path out of here is either a successful push or a
+# stated reason why not: a failure to publish must not strand the user with the
+# public repo pushed, the pin bumped and no rebuild. The summary at the end
+# reports which happened.
+publish_private() {
+  local branch
+
+  if ! git -C "$PRIVATE_ROOT" remote get-url origin >/dev/null 2>&1; then
+    log_warning "$PRIVATE_ROOT has no 'origin' — it is backed up to NOWHERE."
+    log_info "Everything identity-, app- and adoption-related lives only on this Mac."
+    log_info "Create a PRIVATE repo on GitHub, then:"
+    log_info "  git -C $PRIVATE_ROOT remote add origin git@github.com:<you>/dotfiles-private.git"
+    log_info "  git -C $PRIVATE_ROOT push -u origin \$(git -C $PRIVATE_ROOT branch --show-current)"
+    return 0
+  fi
+
+  if ! git -C "$PRIVATE_ROOT" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    log_warning "$PRIVATE_ROOT has no commits yet — nothing to publish."
+    log_info "Commit your host file and adoptions there, then re-run: dot promote"
+    return 0
+  fi
+
+  branch="$(private_branch)"
+  if [[ -z "$branch" ]]; then
+    log_warning "$PRIVATE_ROOT is on a detached HEAD — skipping its push."
+    log_info "Check out a branch there, then re-run: dot promote"
+    return 0
+  fi
+
+  private_push_allowed || return 0
+
+  log_info "Publishing $PRIVATE_ROOT ($branch)"
+  if push_with_retry "$PRIVATE_ROOT" "$branch"; then
+    PRIVATE_PUBLISHED=true
+  else
+    log_error "$PRIVATE_ROOT was NOT published — it exists only on this Mac."
+    log_info "Retry with:  git -C $PRIVATE_ROOT push -u origin $branch"
+  fi
+  return 0
 }
 
 parse_args "$@"
@@ -172,7 +272,7 @@ fi
 
 # ── 2. Push ─────────────────────────────────────────────────────────────────
 log_step "2/5 Publishing $BRANCH"
-push_with_retry "$BRANCH"
+push_with_retry "$DOTFILES_ROOT" "$BRANCH"
 
 REV="$(git -C "$DOTFILES_ROOT" rev-parse HEAD)"
 
@@ -188,8 +288,11 @@ else
   ( cd "$PRIVATE_ROOT" && nix flake update dotfiles )
 fi
 
-# ── 4. Record it ────────────────────────────────────────────────────────────
-log_step "4/5 Committing the lock"
+# ── 4. Record it, then publish it ───────────────────────────────────────────
+# The push comes after the commit so the lock commit is part of what gets
+# published — otherwise the pin the live system builds from would exist only
+# here, which is the failure this step was added to end.
+log_step "4/5 Recording the pin and publishing $PRIVATE_ROOT"
 if [[ "$DRY_RUN" == true ]]; then
   log_info "[DRY RUN] git -C $PRIVATE_ROOT add flake.lock"
   log_info "[DRY RUN] git -C $PRIVATE_ROOT commit -m 'chore(lock): bump dotfiles pin to ${REV:0:10}'"
@@ -201,6 +304,8 @@ else
   git -C "$PRIVATE_ROOT" commit -m "chore(lock): bump dotfiles pin to ${REV:0:10}"
   log_success "Pin recorded: ${REV:0:10}"
 fi
+
+publish_private
 
 # ── 5. Apply ────────────────────────────────────────────────────────────────
 if [[ "$NO_REBUILD" == true ]]; then
@@ -216,6 +321,10 @@ fi
 echo ""
 if [[ "$DRY_RUN" == true ]]; then
   log_success "Dry run complete — nothing was pushed, pinned or built."
+elif [[ "$PRIVATE_PUBLISHED" == true ]]; then
+  log_success "Promoted ${REV:0:10} to the live system; $PRIVATE_ROOT published."
 else
   log_success "Promoted ${REV:0:10} to the live system."
+  log_warning "$PRIVATE_ROOT was not published — see above. It holds your identity,"
+  log_warning "your app selections and every adopted config file."
 fi

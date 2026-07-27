@@ -18,7 +18,7 @@
 #   scan-unmapped        List unmanaged $HOME files available for adoption
 #   adopt   <path>       Move a $HOME path into the private flake and declare it
 #   validate [--quick]   Run syntax and common-mistake checks
-#   secrets              Scan for leaked secrets (requires gitleaks)
+#   secrets [<path>]     Scan for leaked secrets (requires gitleaks)
 #   hooks                (Re)install git pre-commit hooks
 #   help                 Show this help message
 #
@@ -178,6 +178,7 @@ cmd_help() {
   echo "    validate             Full syntax + common-mistake checks"
   echo "    validate --quick     Quick checks only (skip slow Nix eval)"
   echo "    secrets              Scan repository for leaked secrets"
+  echo "    secrets <path>       …or any other repo, e.g. ~/dotfiles-private"
   echo "    hooks                (Re)install git pre-commit hooks"
   echo ""
   echo -e "  ${BLUE}Flags${NC}"

@@ -56,7 +56,7 @@ dot promote --no-rebuild    # stop after committing the pin
 dot promote --branch NAME   # promote a branch other than the default
 ```
 
-`dot promote` is the five steps below as one command. It refuses a dirty working
+`dot promote` is the steps below as one command. It refuses a dirty working
 tree, and it pushes *before* moving the pin, because the pin can only name a
 revision the remote already has.
 
@@ -65,8 +65,17 @@ dot validate                                             # 1. don't publish a br
 git -C ~/dotfiles push -u origin main                    # 2. publish
 cd ~/dotfiles-private && nix flake update dotfiles       # 3. move the pin
 git -C ~/dotfiles-private add flake.lock && git -C ~/dotfiles-private commit -m "chore(lock): bump dotfiles pin"
-dot rebuild                                              # 4. apply
+dot secrets ~/dotfiles-private                           # 4. never publish a credential
+git -C ~/dotfiles-private push -u origin main            #    publish the half that matters
+dot rebuild                                              # 5. apply
 ```
+
+Step 4 is the one that used to be missing. The private flake holds your
+identity, your app selections and every file `dot adopt` has taken in — none of
+which the public repo contains — so a promote that pushed only this repo left
+all of it on a single disk. It is gated on the secret scan: a finding stops the
+push and the rebuild still runs. If that repo has no `origin` yet, promote says
+so and carries on; it will not create a remote for you (R5).
 
 Bumping the pin also moves `nixpkgs`, `nix-darwin`, `home-manager` and
 `nix-homebrew`, because the private flake `follows` all four from this repo.

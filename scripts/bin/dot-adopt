@@ -211,6 +211,95 @@ require_private_repo() {
     || die "$PRIVATE_ROOT is not a git repository — adoption requires it (R2)"
 }
 
+# ── Is the repo holding the adopted files backed up anywhere? ─────────────────
+#
+# Adoption moves files into $PRIVATE_ROOT and stages them. That is the whole of
+# what "backed up" meant here — a git repository on the same disk as the files
+# it protects. The scan then reported "Nothing would be lost", having never
+# asked whether that repository exists anywhere else. On the machine this was
+# found on, it was 14 commits ahead of a remote that had never received them.
+#
+# Prints zero or more `REASON|DETAIL` lines; empty output means genuinely safe.
+# Every git call is guarded: this runs under `set -euo pipefail`, and a repo
+# with no commits or no upstream makes rev-list and rev-parse fail.
+private_backup_risks() {
+  local branch upstream ahead dirty
+
+  if [[ ! -d "$PRIVATE_ROOT" ]] \
+     || ! git -C "$PRIVATE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    printf 'NOREPO|\n'
+    return 0
+  fi
+
+  if ! git -C "$PRIVATE_ROOT" remote get-url origin >/dev/null 2>&1; then
+    printf 'NOREMOTE|\n'
+  else
+    branch="$(git -C "$PRIVATE_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    upstream="$(git -C "$PRIVATE_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+    if [[ -z "$upstream" ]]; then
+      printf 'NOUPSTREAM|%s\n' "${branch:-HEAD}"
+    else
+      ahead="$(git -C "$PRIVATE_ROOT" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
+      [[ "$ahead" =~ ^[0-9]+$ ]] || ahead=0
+      (( ahead > 0 )) && printf 'AHEAD|%s %s\n' "$ahead" "${branch:-HEAD}"
+    fi
+  fi
+
+  # Counted, never echoed: `git status --porcelain` output contains real path
+  # names, and this block prints after the "would be LOST" marker the tests
+  # slice on.
+  dirty="$(git -C "$PRIVATE_ROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  [[ "$dirty" =~ ^[0-9]+$ ]] || dirty=0
+  (( dirty > 0 )) && printf 'DIRTY|%s\n' "$dirty"
+
+  return 0
+}
+
+# The AT RISK half of the verdict. Prints nothing when there is nothing wrong.
+report_backup_risks() {
+  local -a risks=()
+  local line reason detail
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && risks+=("$line")
+  done < <(private_backup_risks)
+
+  (( ${#risks[@]} == 0 )) && return 1
+
+  warn "AT RISK — the repo holding all of it is not published:"
+  printf '\n'
+  for line in "${risks[@]}"; do
+    reason="${line%%|*}"
+    detail="${line#*|}"
+    case "$reason" in
+      NOREPO)
+        printf '      %s is not a git repository — backed up to NOWHERE.\n' "$PRIVATE_ROOT"
+        printf '      Create it with:  %s/scripts/bin/setup-private-host\n' "$DOTFILES_ROOT"
+        ;;
+      NOREMOTE)
+        printf '      No remote configured — backed up to NOWHERE.\n'
+        printf '      Create a PRIVATE repo on GitHub, then:\n'
+        printf '        git -C %s remote add origin git@github.com:<you>/dotfiles-private.git\n' "$PRIVATE_ROOT"
+        ;;
+      NOUPSTREAM)
+        printf '      Branch %s has never been pushed.\n' "${detail}"
+        printf '        git -C %s push -u origin %s\n' "$PRIVATE_ROOT" "${detail}"
+        ;;
+      AHEAD)
+        printf '      %s commit(s) exist only on this Mac.\n' "${detail%% *}"
+        printf '        dot promote          # publishes it, or:\n'
+        printf '        git -C %s push -u origin %s\n' "$PRIVATE_ROOT" "${detail##* }"
+        ;;
+      DIRTY)
+        printf '      %s uncommitted change(s) — adopted files are not yet committed.\n' "$detail"
+        printf '        git -C %s add -A && git -C %s commit -m "adopt config"\n' \
+          "$PRIVATE_ROOT" "$PRIVATE_ROOT"
+        ;;
+    esac
+  done
+  printf '\n'
+  return 0
+}
+
 # ── scan-unmapped ─────────────────────────────────────────────────────────────
 
 # Look INSIDE a directory before offering it for adoption. Prints "STATUS|NOTE"
@@ -371,7 +460,7 @@ classify() {
 cmd_scan() {
   local -a candidates=() partial=() skipped_why=()
   local skipped=0 managed=0
-  local entry abs rel result status note
+  local entry abs rel result status note line
 
   # $HOME: hidden entries only — visible ones are Documents, Desktop, and other
   # user data that has no business in a dotfiles repo.
@@ -451,16 +540,31 @@ cmd_scan() {
   # a $HOME-based count drops by one for every file you just protected — the
   # exact opposite of the truth.
   local adopted=0
-  [[ -f "$HOME_NIX" ]] && adopted="$(grep -c '\.source' "$HOME_NIX" 2>/dev/null || echo 0)"
-  # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
-  pass "$adopted config path(s) adopted into ~/dotfiles-private"
+  local -a adopted_paths=()
+  if [[ -f "$HOME_NIX" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && adopted_paths+=("$line")
+    done < <(sed -n 's/^[[:space:]]*"\([^"]*\)"\.source.*/\1/p' "$HOME_NIX" 2>/dev/null || true)
+    adopted="${#adopted_paths[@]}"
+  fi
+  # Listed, not just counted: every adopted path is at least one level deep, so
+  # `ls ~` cannot show them and a bare number is unverifiable. The guard is not
+  # decoration — under `set -u`, expanding an empty array aborts on bash 3.2.
+  if (( ${#adopted_paths[@]} > 0 )); then
+    # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+    pass "$adopted config path(s) adopted into ~/dotfiles-private:"
+    for entry in "${adopted_paths[@]}"; do
+      printf '      ~/%s\n' "$entry"
+    done
+  else
+    # shellcheck disable=SC2088  # literal "~/" is display text, not a path to expand
+    pass "no config paths adopted into ~/dotfiles-private yet"
+  fi
   pass "plus the shell, git, Neovim and terminal config the framework manages"
   log_info "Applications are listed separately by:  dot apps list"
   printf '\n'
 
-  if (( ${#candidates[@]} == 0 )); then
-    pass "Nothing would be lost. Every config found is backed up."
-  else
+  if (( ${#candidates[@]} > 0 )); then
     warn "${#candidates[@]} would be LOST — not backed up anywhere:"
     printf '\n'
     for entry in "${candidates[@]}"; do
@@ -471,6 +575,15 @@ cmd_scan() {
     log_info "Back them up with:"
     log_info "  dot adopt \"~/<path>\" --mutable    # if an app rewrites the file"
     log_info "  dot adopt \"~/<path>\"              # for everything else"
+    printf '\n'
+  fi
+
+  # The verdict. "Nothing would be lost" is reachable only when there is nothing
+  # left to adopt AND the repo holding the adoptions exists somewhere else. A
+  # reassurance that skips the second half is how this command came to certify a
+  # machine whose only copy of everything was the disk it was running on.
+  if ! report_backup_risks && (( ${#candidates[@]} == 0 )); then
+    pass "Nothing would be lost. Every config found is backed up and published."
   fi
   printf '\n'
   log_warning "Never covered here: SSH keys, app logins, licences."
