@@ -86,6 +86,7 @@ render apps/homebrew-casks.nix apps/homebrew-casks.nix
 render apps/nix-packages.nix apps/nix-packages.nix
 render apps/mac-app-store.nix apps/mac-app-store.nix
 render macos/default.nix macos/default.nix
+render home.nix home.nix
 render home/default.nix home/default.nix
 render hosts/host.nix "hosts/$HOST_NAME.nix"
 
