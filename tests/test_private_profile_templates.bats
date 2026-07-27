@@ -4,6 +4,7 @@ setup() {
   load 'bats_helper'
   REPO_ROOT="$BATS_TEST_DIRNAME/.."
   GENERATOR="$REPO_ROOT/scripts/lib/generate-private-profile.sh"
+  DOT_ADOPT="$REPO_ROOT/scripts/bin/dot-adopt"
   TMP="$(mktemp -d -t private_profile.XXXXXX)"
   PRIVATE="$TMP/dotfiles-private"
 }
@@ -33,6 +34,7 @@ run_generator() {
   [ -f "$PRIVATE/apps/nix-packages.nix" ]
   [ -f "$PRIVATE/apps/mac-app-store.nix" ]
   [ -f "$PRIVATE/macos/default.nix" ]
+  [ -f "$PRIVATE/home.nix" ]
   [ -f "$PRIVATE/home/default.nix" ]
   [ -d "$PRIVATE/home/files" ]
 }
@@ -60,6 +62,7 @@ run_generator() {
   grep -qF '../macos' "$PRIVATE/hosts/test-mac.nix"
   grep -qF '../home' "$PRIVATE/hosts/test-mac.nix"
   grep -qF 'inputs.dotfiles.darwinModules.homeEnvironment' "$PRIVATE/hosts/test-mac.nix"
+  grep -qF '../home.nix' "$PRIVATE/home/default.nix"
 
   run grep -R '\.local' "$PRIVATE"
   [ "$status" -ne 0 ]
@@ -85,6 +88,33 @@ run_generator() {
   grep -qF 'nix flake update dotfiles' "$PRIVATE/README.md"
   grep -qF 'darwin-rebuild switch --flake .#test-mac' "$PRIVATE/README.md"
   grep -qF 'git diff -- flake.lock' "$PRIVATE/README.md"
+  grep -qF 'dot adopt ~/.config/example' "$PRIVATE/README.md"
+}
+
+@test "dot adopt writes modular profiles under home files" {
+  run_generator
+  [ "$status" -eq 0 ]
+
+  git -C "$PRIVATE" init -q
+  git -C "$PRIVATE" add .
+
+  FAKE_HOME="$TMP/home"
+  mkdir -p "$FAKE_HOME"
+  printf 'contract\n' > "$FAKE_HOME/.adoptme"
+
+  run env HOME="$FAKE_HOME" \
+          DOTFILES_ROOT="$REPO_ROOT" \
+          DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
+          "$DOT_ADOPT" adopt "$FAKE_HOME/.adoptme"
+  [ "$status" -eq 0 ]
+
+  [ -f "$PRIVATE/home/files/.adoptme" ]
+  grep -qF '".adoptme".source = ./home/files/.adoptme;' "$PRIVATE/home.nix"
+  grep -qF '../home.nix' "$PRIVATE/home/default.nix"
+
+  run git -C "$PRIVATE" diff --cached --name-only
+  [[ "$output" == *"home/files/.adoptme"* ]]
+  [[ "$output" == *"home.nix"* ]]
 }
 
 @test "renderer refuses to overwrite an existing profile" {
