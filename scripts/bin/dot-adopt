@@ -27,6 +27,13 @@
 #   dot scan-unmapped
 #   dot adopt ~/.claude/CLAUDE.md
 #   dot adopt ~/.config/neofetch --dry-run
+#   dot adopt ~/.config/zed/settings.json --mutable
+#
+# --mutable deploys the path as a symlink to the real file in the private repo
+# instead of to a read-only /nix/store copy. Use it whenever the application
+# rewrites the file itself — editor and CLI `settings.json` files are the usual
+# case. Without it those apps hit a read-only file and silently fail to save.
+# The file is versioned either way; only writability differs.
 #
 
 set -euo pipefail
@@ -170,10 +177,30 @@ list_match() {
 # Home Manager attribute names are quoted strings; a path containing a quote or
 # backslash would break out of the generated Nix. Refuse rather than escape —
 # no legitimate dotfile needs those characters.
+# A path is adoptable when it can be embedded in a double-quoted Nix string and
+# in a shell argument without either changing meaning.
+#
+# Spaces ARE allowed. The original character class excluded them, which quietly
+# made every macOS application config unadoptable — they all live under
+# `~/Library/Application Support/`, so `dot adopt` could not touch a single
+# editor, terminal or app preference file on the platform it targets.
+#
+# What must stay excluded is anything that escapes the quoting:
+#   "  \  ${   end the Nix string or start an interpolation
+#   newline / tab   survive into the generated Nix as a line break
+#   ..              path traversal out of $HOME
 valid_rel() {
   local rel="$1"
-  [[ "$rel" =~ ^[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]*$ ]] || return 1
-  [[ "$rel" == *".."* ]] && return 1
+  [[ -n "$rel" ]] || return 1
+  [[ "$rel" == *'"'*   ]] && return 1
+  [[ "$rel" == *'\'*   ]] && return 1
+  [[ "$rel" == *'${'*  ]] && return 1
+  [[ "$rel" == *'`'*   ]] && return 1
+  [[ "$rel" == *".."*  ]] && return 1
+  [[ "$rel" == -*      ]] && return 1  # would be read as an option
+  [[ "$rel" == */      ]] && return 1
+  # Control characters, including newline and tab.
+  [[ "$rel" == *[[:cntrl:]]* ]] && return 1
   return 0
 }
 
@@ -302,7 +329,7 @@ ensure_home_nix() {
 # The mapping is inserted above the sentinel rather than appended to the end of
 # the file, so the generated Nix stays syntactically valid without parsing it.
 append_mapping() {
-  local rel="$1" tmp
+  local rel="$1" mutable="${2:-false}" tmp
 
   grep -qF "$SENTINEL" "$HOME_NIX" || die \
     "$HOME_NIX has no dot-adopt sentinel. Add this line inside its home.file block:
@@ -311,11 +338,38 @@ append_mapping() {
   tmp="$(mktemp -t dot-adopt.XXXXXX)"
   while IFS= read -r line; do
     if [[ "$line" == *"$SENTINEL"* ]]; then
-      printf '    "%s".source = ./%s/%s;\n' "$rel" "$ADOPT_SUBDIR" "$rel"
+      if [[ "$mutable" == true ]]; then
+        # Points at the real file in this repository, not a store copy, so the
+        # deployed path stays writable. `${config.home.homeDirectory}` rather
+        # than a literal /Users/<name> keeps the entry valid on a second Mac
+        # with a different username.
+        # shellcheck disable=SC2016  # ${config...} is Nix syntax, must stay literal
+        printf '    "%s".source =\n      config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/%s/%s/%s";\n' \
+          "$rel" "$(basename "$PRIVATE_ROOT")" "$ADOPT_SUBDIR" "$rel"
+      else
+        printf '    "%s".source = ./%s/%s;\n' "$rel" "$ADOPT_SUBDIR" "$rel"
+      fi
     fi
     printf '%s\n' "$line"
   done < "$HOME_NIX" > "$tmp"
   mv "$tmp" "$HOME_NIX"
+}
+
+# home.nix must take `config` for mkOutOfStoreSymlink to resolve. Stubs written
+# by an older setup-private-host start `{ ... }:` and would fail to evaluate the
+# moment a mutable mapping is added.
+ensure_config_arg() {
+  grep -q '^{ *config *,' "$HOME_NIX" && return 0
+  local tmp
+  tmp="$(mktemp -t dot-adopt.XXXXXX)"
+  sed 's/^{ \.\.\. }:$/{ config, ... }:/' "$HOME_NIX" > "$tmp"
+  grep -q '^{ config, \.\.\. }:$' "$tmp" || {
+    rm -f "$tmp"
+    die "$HOME_NIX does not start with '{ ... }:' — add \`config\` to its argument
+    set by hand before adopting a mutable path."
+  }
+  mv "$tmp" "$HOME_NIX"
+  log_info "Added \`config\` to the $HOME_NIX argument set (needed for --mutable)"
 }
 
 # home.nix is inert unless a host module imports it. Silence here would mean a
@@ -337,10 +391,11 @@ warn_if_unwired() {
 }
 
 cmd_adopt() {
-  local target="" dry_run=false arg
+  local target="" dry_run=false mutable=false arg
   for arg in "$@"; do
     case "$arg" in
       --dry-run) dry_run=true ;;
+      --mutable) mutable=true ;;
       -*)        die "Unknown option: $arg" ;;
       *)
         [[ -n "$target" ]] && die "Adopt takes exactly one path (got '$target' and '$arg')"
@@ -348,7 +403,7 @@ cmd_adopt() {
         ;;
     esac
   done
-  [[ -n "$target" ]] || die "Usage: dot adopt <path-in-home> [--dry-run]"
+  [[ -n "$target" ]] || die "Usage: dot adopt <path-in-home> [--mutable] [--dry-run]"
 
   require_private_repo
 
@@ -402,7 +457,15 @@ cmd_adopt() {
   log_info "Adopting: ~/$rel"
   log_info "  from:   $abs"
   log_info "  to:     $dest"
-  log_info "  map:    home.file.\"$rel\".source = ./$ADOPT_SUBDIR/$rel;"
+  if [[ "$mutable" == true ]]; then
+    log_info "  map:    mkOutOfStoreSymlink → $dest"
+    log_info "  mode:   MUTABLE — the deployed path stays writable, so the app can"
+    log_info "          keep saving its own settings straight into $PRIVATE_ROOT."
+  else
+    log_info "  map:    home.file.\"$rel\".source = ./$ADOPT_SUBDIR/$rel;"
+    log_info "  mode:   read-only — deployed as a /nix/store symlink. Use --mutable"
+    log_info "          if an application rewrites this file itself."
+  fi
 
   if [[ "$dry_run" == true ]]; then
     echo ""
@@ -416,10 +479,11 @@ cmd_adopt() {
   mv "$abs" "$dest"
 
   ensure_home_nix
+  [[ "$mutable" == true ]] && ensure_config_arg
 
   # If declaring the mapping fails, put the file back rather than leaving the
   # user with a moved file and no declaration (R7 — no stacking on a broken state).
-  if ! append_mapping "$rel"; then
+  if ! append_mapping "$rel" "$mutable"; then
     log_error "Failed to write the mapping — restoring $abs"
     mv "$dest" "$abs"
     exit 1

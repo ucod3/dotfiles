@@ -22,15 +22,12 @@ source "$_PATHS"
 DOTFILES_ROOT="$(dotfiles_root)"
 CONFIG="$DOTFILES_ROOT/hosts/default.nix"
 
-# Optional app-set modules also declare brews/casks/masApps/systemPackages.
-# list/add/remove must see them all, but `apps add` only writes to $CONFIG.
-APP_MODULES_DIR="$DOTFILES_ROOT/nix/modules/apps"
+# The framework declares no applications, so hosts/default.nix is the only
+# tracked file with anything to read — its `environment.systemPackages` glue.
+# This used to fan out over nix/modules/apps/*.nix, whose mkOption defaults
+# named a dozen GUI apps; those modules are gone and applications now live
+# solely in the `.local/` layer below.
 CONFIG_FILES=("$CONFIG")
-if [[ -d "$APP_MODULES_DIR" ]]; then
-  for _f in "$APP_MODULES_DIR"/*.nix; do
-    [[ -f "$_f" ]] && CONFIG_FILES+=("$_f")
-  done
-fi
 
 # Colors come from the shared logger; this script keeps its own display verbs
 # (section/info/ok/warn/err) because its output style differs from both of
@@ -62,26 +59,17 @@ APPS_FILE="$LOCAL_DIR/apps.nix"
 LOCAL_SELECTION_FILES=(
   "$APPS_FILE"
   "$LOCAL_DIR/settings.nix"
-  "$LOCAL_DIR/browsers/choices.nix"
-  "$LOCAL_DIR/editors/choices.nix"
 )
 
 # Read one list (casks|nixPackages) out of one Nix file; one entry per line.
 #
 # Line-oriented parsing is not enough here. `dot apps` generates apps.nix with
-# one entry per line, but install.sh writes browsers/editors/settings as
-# single-line lists — `casks = [ "firefox" "google-chrome" ];` — and a matcher
-# that skips the opening line and stops at a lone `];` reads those as empty,
-# then runs on into the NEXT list and reports its contents under the wrong key.
+# one entry per line, but install.sh writes settings.nix lists that may be on a
+# single line — `casks = [ "firefox" "google-chrome" ];` — and a matcher that
+# skips the opening line and stops at a lone `];` reads those as empty, then
+# runs on into the NEXT list and reports its contents under the wrong key.
 # Scan by bracket depth instead, tracking string and comment state so a `#` or
 # a bracket inside a comment cannot throw the count off.
-#
-# Two shapes have to be understood:
-#   plain    casks = [ "a" "b" ];              .local/ files, hosts/default.nix
-#   option   casks = lib.mkOption { default = [ "a" ]; ... };   nix/modules/apps
-# The second is why `apps list` reported zero framework casks: the app sets
-# declare their lists as option defaults, and a matcher looking for `casks = [`
-# never sees one.
 nix_list_read() {
   local file="$1" key="$2" mode="${3:-plain}"
   [[ -f "$file" ]] || return 0
@@ -124,16 +112,9 @@ def collect(start):
 
 
 entries = []
-if mode == "option":
-    # <key> = lib.mkOption { ... default = [ ... ]; ... }
-    for m in re.finditer(r"(?:^|[\s{;])" + re.escape(key) + r"\s*=\s*(?:lib\.)?mkOption\s*\{", text):
-        d = re.compile(r"default\s*=\s*\[").search(text, m.end())
-        if d:
-            entries += collect(d.end())
-else:
-    # `homebrew.casks = [` is as valid as `casks = [`.
-    for m in re.finditer(r"(?:^|[\s{;])(?:homebrew\.)?" + re.escape(key) + r"\s*=\s*\[", text):
-        entries += collect(m.end())
+# `homebrew.casks = [` is as valid as `casks = [`.
+for m in re.finditer(r"(?:^|[\s{;])(?:homebrew\.)?" + re.escape(key) + r"\s*=\s*\[", text):
+    entries += collect(m.end())
 
 for entry in entries:
     if entry:
@@ -214,14 +195,37 @@ validate_after_mutation() {
 
 # ── Commands ───────────────────────────────────────────────────────────────
 
-# Extract quoted values for a key across hosts/default.nix and every
-# nix/modules/apps/*.nix, in both the plain-list and mkOption-default shapes.
-parse_block() {
-  local name="$1" f
-  for f in "${CONFIG_FILES[@]}"; do
-    nix_list_read "$f" "$name" plain
-    nix_list_read "$f" "$name" option
-  done | awk 'NF && !seen[$0]++ { print "    " $0 }'
+# Read the `masApps = { Name = <id>; }` attrset from the .local/ layer.
+# Attrset, not list, so nix_list_read (which collects quoted strings between
+# brackets) cannot be reused here.
+local_mas_read() {
+  python3 - "${LOCAL_SELECTION_FILES[@]}" << 'PYEOF'
+import sys, re
+seen = set()
+for path in sys.argv[1:]:
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        continue
+    m = re.search(r'masApps\s*=\s*\{', text)
+    if not m:
+        continue
+    depth, i, block = 1, m.end(), []
+    while i < len(text) and depth > 0:
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+        block.append(text[i])
+        i += 1
+    for line in "".join(block).splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        pair = re.match(r'\s*"?([A-Za-z][A-Za-z0-9 _-]*)"?\s*=\s*(\d+)\s*;', line)
+        if pair and pair.group(1).strip() not in seen:
+            seen.add(pair.group(1).strip())
+            print(f"{pair.group(1).strip()}  (ID: {pair.group(2)})")
+PYEOF
 }
 
 # Print one entry per line, indented, or a placeholder when there are none.
@@ -246,13 +250,17 @@ cmd_list() {
   # casks to users who had a dozen installed. The selections were in .local/
   # the whole time.
   echo ""
-  echo -e "  ${BOLD}Your selections${NC} (${LOCAL_DIR/#$HOME/\~})"
+  local shown="~${LOCAL_DIR#"$HOME"}"
+  echo -e "  ${BOLD}Your applications${NC} ($shown/settings.nix)"
   echo ""
   echo -e "    ${CYAN}Homebrew casks${NC}"
   local_selection_read casks | sed 's/^/  /' | print_entries
   echo ""
   echo -e "    ${CYAN}Nix packages${NC}"
   local_selection_read nixPackages | sed 's/^/  /' | print_entries
+  echo ""
+  echo -e "    ${CYAN}Mac App Store${NC}"
+  local_mas_read | sed 's/^/  /' | print_entries
 
   if [[ ! -d "$LOCAL_DIR" ]]; then
     echo ""
@@ -260,42 +268,12 @@ cmd_list() {
   fi
 
   # ── What the framework itself declares ─────────────────────────────────────
+  # Just the glue: mkalias, direnv and the tooling this repo's own scripts need.
+  # There is no "framework app sets" section any more because there are no app
+  # sets — every GUI application is named in the file printed above, and
+  # nowhere else.
   echo ""
-  echo -e "  ${BOLD}Framework app sets${NC} (nix/modules/apps — enable per set)"
-
-  echo ""
-  echo -e "  ${BOLD}Homebrew Casks${NC} (GUI apps)"
-  parse_block "casks" "[" "]"
-
-  echo ""
-  echo -e "  ${BOLD}Homebrew Brews${NC} (CLI tools)"
-  parse_block "brews" "[" "]"
-
-  echo ""
-  echo -e "  ${BOLD}Mac App Store${NC}"
-  # The mas set declares its apps as an mkOption default attrset, so scan for
-  # `Name = <id>;` pairs anywhere in these files rather than only inside a
-  # literal `masApps = {` block, which no module actually writes any more.
-  python3 - "${CONFIG_FILES[@]}" << 'PYEOF'
-import sys, re
-seen = set()
-for cfg in sys.argv[1:]:
-    with open(cfg, encoding="utf-8") as fh:
-        for line in fh:
-            if line.lstrip().startswith("#"):
-                continue
-            # MAS IDs are large numbers (> 100000)
-            m = re.match(r'\s+([A-Za-z][A-Za-z0-9 ]*)\s*=\s*(\d{6,})\s*;', line)
-            if m and m.group(1).strip() not in seen:
-                seen.add(m.group(1).strip())
-                print("    " + m.group(1).strip() + "  (ID: " + m.group(2) + ")")
-PYEOF
-
-  echo ""
-  echo -e "  ${BOLD}Nix Packages${NC} (system)"
-  # Two sources: the literal `environment.systemPackages` list in
-  # hosts/default.nix, and the `nixPackages` option defaults in each app set —
-  # the latter were previously invisible, so raycast/gh/brave never appeared.
+  echo -e "  ${BOLD}Framework core${NC} (Nix, always installed)"
   {
     python3 - "${CONFIG_FILES[@]}" << 'PYEOF'
 import sys, re
@@ -316,9 +294,6 @@ for cfg in sys.argv[1:]:
                     if re.match(r'^[a-z]', name):
                         print(name)
 PYEOF
-    for _f in "${CONFIG_FILES[@]}"; do
-      nix_list_read "$_f" nixPackages option
-    done
   } | awk 'NF && !seen[$0]++ { print "    " $0 }'
 
   echo ""

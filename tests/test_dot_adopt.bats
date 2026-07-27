@@ -65,6 +65,52 @@ run_adopt() {
   [[ "$output" == *"home.nix"* ]]
 }
 
+@test "--mutable writes an out-of-store symlink so the file stays writable" {
+  # A read-only /nix/store symlink is wrong for any file its own application
+  # rewrites — editor and CLI settings.json files. The app hits a read-only
+  # path and silently fails to save. mkOutOfStoreSymlink points at the real
+  # file in the private repo instead: writable, and edits land in git.
+  run_adopt adopt "$FAKE_HOME/.plainfile" --mutable
+  [ "$status" -eq 0 ]
+
+  [ ! -e "$FAKE_HOME/.plainfile" ]
+  [ -f "$FAKE_PRIVATE/home/.plainfile" ]
+
+  grep -qF 'config.lib.file.mkOutOfStoreSymlink' "$FAKE_PRIVATE/home.nix"
+  # homeDirectory, not a baked-in /Users/<name>, or the entry breaks on a
+  # second Mac with a different username.
+  grep -qF '${config.home.homeDirectory}' "$FAKE_PRIVATE/home.nix"
+  # A store-path source would defeat the whole point.
+  run grep -qF '".plainfile".source = ./home/.plainfile;' "$FAKE_PRIVATE/home.nix"
+  [ "$status" -ne 0 ]
+
+  # mkOutOfStoreSymlink needs `config` in scope; a `{ ... }:` stub fails to eval.
+  grep -qE '^\{ config, \.\.\. \}:' "$FAKE_PRIVATE/home.nix"
+}
+
+@test "a path containing spaces is adoptable" {
+  # Every macOS application config lives under "Library/Application Support".
+  # The original character class excluded spaces, so `dot adopt` could not
+  # touch a single app preference file on the platform it targets.
+  mkdir -p "$FAKE_HOME/Library/Application Support/Cursor/User"
+  printf '{}\n' > "$FAKE_HOME/Library/Application Support/Cursor/User/settings.json"
+
+  run_adopt adopt "$FAKE_HOME/Library/Application Support/Cursor/User/settings.json" --mutable
+  [ "$status" -eq 0 ]
+  [ -f "$FAKE_PRIVATE/home/Library/Application Support/Cursor/User/settings.json" ]
+  grep -qF '"Library/Application Support/Cursor/User/settings.json".source' "$FAKE_PRIVATE/home.nix"
+}
+
+@test "adopt still refuses a path that would escape its Nix string" {
+  # Widening valid_rel to allow spaces must not allow quote/interpolation
+  # characters, which would break out of the generated Nix string.
+  printf 'x\n' > "$FAKE_HOME/bad\${oops}"
+  run_adopt adopt "$FAKE_HOME/bad\${oops}"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot be safely quoted"* ]]
+  [ -e "$FAKE_HOME/bad\$={oops}" ] || [ -e "$FAKE_HOME/bad\${oops}" ]
+}
+
 @test "adopt leaves the private repo uncommitted" {
   run_adopt adopt "$FAKE_HOME/.plainfile"
   [ "$status" -eq 0 ]

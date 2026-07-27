@@ -30,16 +30,29 @@ write_home_nix_stub() {
 # Home Manager mappings for files adopted out of \$HOME.
 #
 # Generated and appended to by \`dot adopt\`. Each entry moves a real file into
-# ./$DOT_ADOPT_SUBDIR/ and hands ownership of the \$HOME path to Home Manager,
-# which materialises it as a read-only symlink into /nix/store.
+# ./$DOT_ADOPT_SUBDIR/ and hands ownership of the \$HOME path to Home Manager.
+# There are two kinds of entry:
 #
-# To change an adopted file, edit the copy under ./$DOT_ADOPT_SUBDIR/ and run
-# \`dot rebuild\` — the deployed symlink is not writable.
+#   .source = ./$DOT_ADOPT_SUBDIR/<path>
+#       Copied into /nix/store and deployed as a READ-ONLY symlink. Immutable
+#       and reproducible. Edit the copy under ./$DOT_ADOPT_SUBDIR/ and run
+#       \`dot rebuild\`; the deployed file cannot be written.
+#
+#   .source = config.lib.file.mkOutOfStoreSymlink "\${config.home.homeDirectory}/..."
+#       Written by \`dot adopt --mutable\`. Deployed as a symlink pointing at the
+#       real file in THIS repository rather than at a store copy, so the file
+#       stays writable: the application saves its own settings, the change lands
+#       here, and \`git diff\` shows it. Use this for anything an app rewrites
+#       (editor and CLI settings.json files) — a read-only symlink makes those
+#       apps fail to save.
+#
+# Both kinds are versioned here and both travel to your next Mac. The mutable
+# form assumes this repository is at \${config.home.homeDirectory}/dotfiles-private.
 #
 # This file is imported by hosts/<hostname>.nix. It is valid while empty, which
 # is the point: the import exists from the moment the private flake is created,
 # so the first \`dot adopt\` deploys without a manual host-file edit.
-{ ... }:
+{ config, ... }:
 
 {
   home.file = {

@@ -4,12 +4,17 @@
 # personal profile unconditionally — a specific VS Code *channel*, a specific
 # terminal's config, the whole oh-my-zsh framework, and a personal language
 # server set. That contradicts the framework's stated contract that "a fresh
-# clone installs nothing opinionated", which nix/modules/apps/ already honours.
+# clone installs nothing opinionated".
 #
 # So the taste-specific pieces now sit behind `dotfiles.home.*` toggles that
-# follow the same pattern as nix/modules/apps/: default to the example profile
-# when a `.local/` settings layer exists (you ran install.sh or linked a
-# private flake), and default to off on a cold public fork.
+# default to the example profile when a `.local/` settings layer exists (you
+# ran install.sh or linked a private flake), and default to off on a cold
+# public fork.
+#
+# Applications themselves are not toggled at all any more: they come solely
+# from the `casks` / `nixPackages` / `masApps` lists in `.local/settings.nix`.
+# The per-category app-set modules this comment used to cite were deleted
+# because their mkOption defaults hardcoded the author's own apps.
 #
 # A second pass (ADR-011) extended the same treatment to the shell itself,
 # which was still imposing plenty: zoxide replacing `cd`, `epic-detect` writing
@@ -105,48 +110,20 @@ in
       '';
     };
 
-    vscode = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = exampleProfile;
-        defaultText = exampleProfileText;
-        description = "Link the bundled VS Code settings.json.";
-      };
-
-      configDir = lib.mkOption {
-        type = lib.types.str;
-        # CUSTOMIZE: "Code - Insiders" for the Insiders channel, "VSCodium" for
-        # the FOSS build. Stable is the neutral default; the Insiders channel
-        # used to be it, which is a preference, not a baseline.
-        default = "Code";
-        description = ''
-          Application-support directory name for the VS Code variant to
-          configure, under ~/Library/Application Support.
-        '';
-      };
-    };
-
-    cursor = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = exampleProfile;
-        defaultText = exampleProfileText;
-        description = ''
-          Link the bundled editor settings.json into Cursor's macOS config
-          directory. Cursor is a VS Code fork and reads the same schema, so it
-          shares config/vscode/settings.json.
-        '';
-      };
-
-      configDir = lib.mkOption {
-        type = lib.types.str;
-        default = "Cursor";
-        description = ''
-          Application-support directory name for Cursor, under
-          ~/Library/Application Support.
-        '';
-      };
-    };
+    # NOTE: `vscode` and `cursor` toggles used to live here. They linked
+    # config/vscode/settings.json — a file whose entire content was `{}` — over
+    # ~/Library/Application Support/{Code,Cursor}/User/settings.json as a
+    # read-only store symlink.
+    #
+    # That is destructive, not de-opinionated: enabling the example profile
+    # replaced a real settings file with an empty object and then made it
+    # unwritable, so the editor could not even put it back. Editor settings are
+    # user content; the framework has none to offer. Version yours with:
+    #
+    #   dot adopt "~/Library/Application Support/Cursor/User/settings.json" --mutable
+    #
+    # which keeps the file writable, so the editor's own Settings UI still works
+    # and every change lands in your private repo.
 
     # ── Shell composition ─────────────────────────────────────────────────────
     # config/zsh/custom.zsh is read verbatim into .zshrc and cannot see these
@@ -342,15 +319,6 @@ in
     # used to go through xdg.configFile, so the file landed in
     # ~/.config/Code - Insiders/User/settings.json, which no editor has ever
     # read: the settings silently did nothing.
-    // lib.optionalAttrs cfg.vscode.enable {
-      "Library/Application Support/${cfg.vscode.configDir}/User/settings.json".source =
-        ../../config/vscode/settings.json;
-    }
-    // lib.optionalAttrs cfg.cursor.enable {
-      # Cursor is a VS Code fork and reads the same settings schema.
-      "Library/Application Support/${cfg.cursor.configDir}/User/settings.json".source =
-        ../../config/vscode/settings.json;
-    }
     // {
       # Expose the dot dispatcher on PATH for non-interactive scripts
       ".local/bin/dot" = {
