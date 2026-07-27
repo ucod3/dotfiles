@@ -35,6 +35,20 @@ teardown() {
   [[ -n "${FAKE_PRIVATE:-}" ]] && rm -rf "$FAKE_PRIVATE"
 }
 
+# Write a file whose CONTENT looks like a credential, without this test file
+# itself containing one.
+#
+# The fixture is assembled from fragments on purpose. Written as a literal, the
+# fail-closed gitleaks pre-commit hook rejects the commit — correctly, since a
+# JWT-shaped string in a repo is indistinguishable from a real leak at scan
+# time. A test fixture is not a reason to weaken that hook.
+write_credential_shaped_file() {
+  local dest="$1" token
+  token="ey"'J'"hbGciOiJIUzI1NiJ9"."ey"'J'"pZCI6MX0"."c2lnbmF0dXJl"
+  mkdir -p "$(dirname "$dest")"
+  printf '{"jwt":"%s"}\n' "$token" > "$dest"
+}
+
 # Run dot-adopt against the sandbox. DOTFILES_ROOT stays real so lib/log.sh
 # resolves; HOME and DOTFILES_PRIVATE are redirected.
 run_adopt() {
@@ -219,17 +233,94 @@ run_adopt() {
 
 # ── scan-unmapped ─────────────────────────────────────────────────────────────
 
-@test "scan-unmapped lists candidates and hides managed and secret paths" {
+@test "scan-unmapped lists candidates and never risks secret or managed paths" {
   mkdir -p "$FAKE_HOME/.ssh" "$FAKE_HOME/.cache"
   printf 'k\n' > "$FAKE_HOME/.ssh/id_rsa"
+  printf 'c\n' > "$FAKE_HOME/.cache/blob"
   ln -s /nix/store/cccccccccccccccccccccccccccccccc-x/zshrc "$FAKE_HOME/.zshrc"
 
   run_adopt scan-unmapped
   [ "$status" -eq 0 ]
-  [[ "$output" == *".plainfile"* ]]   # candidate
-  [[ "$output" != *".ssh"* ]]         # credential material, never listed
-  [[ "$output" != *".zshrc"* ]]       # already a store symlink
-  [[ "$output" != *".cache"* ]]       # machine-local churn
+
+  # The candidate is reported as something you would lose.
+  lost="${output##*would be LOST}"
+  [[ "$lost" == *".plainfile"* ]]
+
+  # Skipped paths must never be RECOMMENDED. They are now printed, with a
+  # reason, under "Deliberately skipped" — this assertion used to demand they
+  # be absent from the output entirely, which is what let the old version hide
+  # its decisions and offer credentials by omission of any explanation.
+  [[ "$lost" != *".ssh"* ]]
+  [[ "$lost" != *".zshrc"* ]]
+  [[ "$lost" != *".cache"* ]]
+
+  # And the reasoning is visible rather than silent.
+  [[ "$output" == *"Deliberately skipped"* ]]
+  [[ "$output" == *".ssh"* ]]
+}
+
+@test "scan finds config under Library/Application Support" {
+  # The scan walked only ~/.* and ~/.config, so on macOS — the only platform
+  # this framework targets — it could not see where GUI apps actually keep
+  # settings. Six editor config files were invisible to every scan ever run.
+  mkdir -p "$FAKE_HOME/Library/Application Support/Cursor/User"
+  printf '{"editor.fontSize":16}\n' \
+    > "$FAKE_HOME/Library/Application Support/Cursor/User/settings.json"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cursor/User/settings.json"* ]]
+}
+
+@test "scan does not offer extension payload directories" {
+  # ~/.cursor, ~/.vscode-insiders, ~/.devin and ~/.windsurf are ~3 GB of
+  # reinstallable extensions between them, and every one was reported as
+  # "available to adopt" because classification was a filename list.
+  mkdir -p "$FAKE_HOME/.someeditor/extensions/pkg"
+  printf 'x\n' > "$FAKE_HOME/.someeditor/extensions/pkg/blob.bin"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"reinstallable"* ]]
+  # It must not appear in the "would be LOST" list.
+  lost="${output##*would be LOST}"
+  [[ "$lost" != *".someeditor"* ]]
+}
+
+@test "scan detects a credential inside a blandly named file" {
+  # Not hypothetical: ~/.software/extensions.json holds a live JWT. A
+  # filename-only check offered that directory for adoption — i.e. recommended
+  # committing a working token to git.
+  write_credential_shaped_file "$FAKE_HOME/.someapp/extensions.json"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"credential-shaped content"* ]]
+  lost="${output##*would be LOST}"
+  [[ "$lost" != *".someapp"* ]]
+}
+
+@test "adopt refuses a credential the scan would not recommend" {
+  # The scan declining to suggest a path is worthless if `dot adopt <path>`
+  # still moves it into git without comment. Both commands share one check.
+  write_credential_shaped_file "$FAKE_HOME/.someapp/extensions.json"
+
+  run_adopt adopt "$FAKE_HOME/.someapp"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"credential"* ]]
+  # Refusal must not have moved anything.
+  [ -f "$FAKE_HOME/.someapp/extensions.json" ]
+  [ ! -e "$FAKE_PRIVATE/home/.someapp" ]
+}
+
+@test "scan ignores empty directories" {
+  # Four of five editor `snippets/` dirs on a real machine are empty. Listing
+  # them as things you would "lose" is noise that hides the real answer.
+  mkdir -p "$FAKE_HOME/.emptyconfig"
+
+  run_adopt scan-unmapped
+  [ "$status" -eq 0 ]
+  [[ "$output" != *".emptyconfig"* ]]
 }
 
 @test "an unknown subcommand fails loudly" {
