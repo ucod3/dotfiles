@@ -115,11 +115,15 @@ setup() {
   [[ "$output" == *"not one"* ]]
 }
 
-@test "setup-private-host generates a published flake ref when origin is GitHub" {
-  # A regenerated private flake must not reintroduce the local-path coupling.
-  run grep -q 'dotfiles_flake_ref' "$REPO_ROOT/scripts/bin/setup-private-host"
+@test "setup-private-host defaults to the published upstream framework" {
+  setup_host="$REPO_ROOT/scripts/bin/setup-private-host"
+
+  run grep -q 'UPSTREAM_REF="github:ucod3/dotfiles"' "$setup_host"
   [ "$status" -eq 0 ]
 
-  run grep -q "printf 'github:%s" "$REPO_ROOT/scripts/bin/setup-private-host"
+  run grep -q 'dotfiles_ref="$(framework_ref)"' "$setup_host"
+  [ "$status" -eq 0 ]
+
+  run grep -q -- '--framework "$dotfiles_ref"' "$setup_host"
   [ "$status" -eq 0 ]
 }

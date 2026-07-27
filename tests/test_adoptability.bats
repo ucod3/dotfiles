@@ -2,13 +2,11 @@
 #
 # Regression tests for the adoptability remediation (ADR-010, ADR-011).
 #
-# These pin the properties that make this framework forkable rather than
-# merely readable: an adopter owns their own pin, a second Mac needs no manual
-# flake surgery, `dot apps list` tells the truth about what is installed, and
-# the shell a cold fork gets does not redefine anyone's commands.
-#
-# Where a behaviour needs Nix or macOS to observe directly, the test pins the
-# script text that produces it — the same approach test_rebuild.bats takes.
+# These pin the user-facing contracts that make the framework reusable rather
+# than personal: ordinary users track the published upstream, an explicit fork
+# remains available to advanced users, a second Mac needs no flake surgery,
+# `dot adopt` writes to the active profile layout, and the framework ships no
+# personal applications or shell workflow by default.
 #
 
 setup() {
@@ -20,27 +18,35 @@ setup() {
 
   TMP="$(mktemp -d -t dotfiles_adopt.XXXXXX)"
 
-  # A stand-in for a fork of this framework: a git repo whose origin is a
-  # GitHub URL, carrying the real lib/ and scripts/ so the scripts under test
-  # can source their dependencies.
+  # A stand-in framework checkout carrying the real implementation and
+  # templates. Its origin is deliberately mutable so tests can prove that the
+  # checkout remote no longer chooses a user's private framework input.
   FAKE_ROOT="$TMP/root"
   mkdir -p "$FAKE_ROOT"
   git -C "$FAKE_ROOT" init -q
   ln -s "$(cd "$REPO_ROOT" && pwd -P)/lib" "$FAKE_ROOT/lib"
   ln -s "$(cd "$REPO_ROOT" && pwd -P)/scripts" "$FAKE_ROOT/scripts"
+  ln -s "$(cd "$REPO_ROOT" && pwd -P)/templates" "$FAKE_ROOT/templates"
   touch "$FAKE_ROOT/flake.nix"
 
-  # A stub `nix`, first on PATH for the sandbox only.
-  #
-  # setup-private-host ends with `nix flake lock`. These tests pin the FILES it
-  # writes, and a real lock would try to fetch `github:bob/dotfiles` — a
-  # repository that does not exist — so the suite would depend on the network
-  # and on whether nix happens to be installed. Neither is something these
-  # assertions are about.
+  # A stub `nix`, first on PATH for the sandbox only. The first-run setup owns
+  # the contract that a successful lock command produces flake.lock, so the stub
+  # creates the smallest fixture rather than silently returning without one.
   STUB_BIN="$TMP/bin"
   mkdir -p "$STUB_BIN"
-  printf '#!/bin/sh\nexit 0\n' > "$STUB_BIN/nix"
+  cat > "$STUB_BIN/nix" <<'EOF'
+#!/bin/sh
+if [ "${1:-} ${2:-}" = "flake lock" ]; then
+  printf '{}\n' > flake.lock
+fi
+exit 0
+EOF
   chmod +x "$STUB_BIN/nix"
+
+  export GIT_AUTHOR_NAME="Test"
+  export GIT_AUTHOR_EMAIL="test@example.com"
+  export GIT_COMMITTER_NAME="Test"
+  export GIT_COMMITTER_EMAIL="test@example.com"
 }
 
 teardown() {
@@ -52,14 +58,6 @@ set_origin() {
   git -C "$FAKE_ROOT" remote add origin "$1"
 }
 
-# Generate a private flake against the sandbox, with the stub `nix` on PATH.
-#
-# The upstream-fork prompt is suppressed by DOTFILES_NONINTERACTIVE, exported
-# suite-wide in tests/setup_suite.bash and inherited through `env`. Closing
-# stdin is NOT sufficient and this comment used to claim it was: the process
-# still holds a controlling terminal, so the script's `< /dev/tty` fallback
-# opened fine and blocked the whole suite. Kept here only to pin that stdin is
-# never a source of input.
 run_sph() {
   run env HOME="$TMP" \
           PATH="$STUB_BIN:$PATH" \
@@ -68,12 +66,13 @@ run_sph() {
           "$SPH" "$@" < /dev/null
 }
 
-# ── Fork ownership (ADR-010) ─────────────────────────────────────────────────
+# ── Framework source ownership (ADR-010) ─────────────────────────────────────
 
 @test "an explicit --fork is what gets pinned" {
   PRIVATE="$TMP/priv"
   set_origin "git@github.com:ucod3/dotfiles.git"
   run_sph --host mac --user alice --fork bob/my-dots
+  [ "$status" -eq 0 ]
   grep -q 'dotfiles.url = "github:bob/my-dots"' "$PRIVATE/flake.nix"
 }
 
@@ -81,6 +80,7 @@ run_sph() {
   PRIVATE="$TMP/priv"
   set_origin "git@github.com:ucod3/dotfiles.git"
   run_sph --host mac --user alice --fork https://github.com/bob/my-dots.git
+  [ "$status" -eq 0 ]
   grep -q 'dotfiles.url = "github:bob/my-dots"' "$PRIVATE/flake.nix"
 }
 
@@ -90,65 +90,49 @@ run_sph() {
   run env HOME="$TMP" PATH="$STUB_BIN:$PATH" DOTFILES_ROOT="$FAKE_ROOT" \
           DOTFILES_PRIVATE_FLAKE="$PRIVATE" DOTFILES_FORK=carol/dots \
           "$SPH" --host mac --user alice < /dev/null
+  [ "$status" -eq 0 ]
   grep -q 'dotfiles.url = "github:carol/dots"' "$PRIVATE/flake.nix"
 }
 
-@test "pinning to the upstream author's remote warns loudly" {
-  # The whole point of the guard: cloning upstream and running bootstrap must
-  # not silently produce a machine that rebuilds from someone else's repo.
+@test "ordinary setup tracks the public upstream without a fork prompt" {
   PRIVATE="$TMP/priv"
   set_origin "git@github.com:ucod3/dotfiles.git"
   run_sph --host mac --user alice
-  [[ "$output" == *"upstream framework"* ]]
-  [[ "$output" == *"--fork"* ]]
-}
+  [ "$status" -eq 0 ]
 
-@test "DOTFILES_NONINTERACTIVE suppresses the fork prompt entirely" {
-  # Behaviour, not script text: with an upstream origin and no --fork, the
-  # script must reach its non-interactive branch and EXIT. When this guard was
-  # missing the same call blocked forever on `read < /dev/tty`, hanging
-  # `dot validate`, `dot promote` and the pre-commit hook. CI could not catch
-  # it — with no controlling terminal the /dev/tty probe fails there anyway.
-  PRIVATE="$TMP/priv"
-  set_origin "git@github.com:ucod3/dotfiles.git"
-  run_sph --host mac --user alice
-
-  # Reaching any assertion at all is half the point: a regression here does not
-  # fail, it hangs. (Status is not asserted — the stub `nix` writes no
-  # flake.lock, so the script's `git add flake.lock` fails on a first run in
-  # the sandbox, exactly as it does for the neighbouring first-run tests.)
-  [[ "$output" == *"Non-interactive"* ]]
-  # The warning still has to reach the adopter; only the blocking read is gone.
-  [[ "$output" == *"upstream framework"* ]]
   grep -q 'dotfiles.url = "github:ucod3/dotfiles"' "$PRIVATE/flake.nix"
+  [[ "$output" == *"Using public framework: github:ucod3/dotfiles"* ]]
+  [[ "$output" != *"Enter YOUR fork"* ]]
+  [[ "$output" != *"Non-interactive"* ]]
 }
 
-@test "a fork's own origin is pinned without any warning" {
+@test "the framework checkout origin does not silently choose the private pin" {
   PRIVATE="$TMP/priv"
   set_origin "git@github.com:someone-else/dotfiles.git"
   run_sph --host mac --user alice
-  grep -q 'dotfiles.url = "github:someone-else/dotfiles"' "$PRIVATE/flake.nix"
-  [[ "$output" != *"upstream framework"* ]]
+  [ "$status" -eq 0 ]
+
+  grep -q 'dotfiles.url = "github:ucod3/dotfiles"' "$PRIVATE/flake.nix"
+  run grep -q 'github:someone-else/dotfiles' "$PRIVATE/flake.nix"
+  [ "$status" -ne 0 ]
 }
 
 # ── Multi-Mac deployment (ADR-010) ───────────────────────────────────────────
 
 @test "the generated flake enumerates hosts/ instead of naming one host" {
   PRIVATE="$TMP/priv"
-  set_origin "git@github.com:bob/dotfiles.git"
   run_sph --host mac-one --user alice
+  [ "$status" -eq 0 ]
 
   grep -q 'builtins.readDir ./hosts' "$PRIVATE/flake.nix"
-  # A hardcoded darwinConfigurations."<host>" is exactly what forced a manual
-  # edit on the second machine.
   run grep -q 'darwinConfigurations."mac-one"' "$PRIVATE/flake.nix"
   [ "$status" -ne 0 ]
 }
 
 @test "a second Mac is added without touching flake.nix" {
   PRIVATE="$TMP/priv"
-  set_origin "git@github.com:bob/dotfiles.git"
   run_sph --host mac-one --user alice
+  [ "$status" -eq 0 ]
   before="$(cat "$PRIVATE/flake.nix")"
 
   run_sph --host mac-two --user alice
@@ -156,17 +140,15 @@ run_sph() {
 
   [ -f "$PRIVATE/hosts/mac-two.nix" ]
   [ "$before" = "$(cat "$PRIVATE/flake.nix")" ]
-  # No "paste this block into your flake" instructions any more.
   [[ "$output" != *"darwinConfigurations."* ]]
 }
 
 @test "a newly added host file is staged (R2)" {
-  # git+file: evaluation excludes untracked files, so an unstaged host file is
-  # invisible to the very rebuild that is supposed to consume it.
   PRIVATE="$TMP/priv"
-  set_origin "git@github.com:bob/dotfiles.git"
   run_sph --host mac-one --user alice
+  [ "$status" -eq 0 ]
   run_sph --host mac-two --user alice
+  [ "$status" -eq 0 ]
 
   run git -C "$PRIVATE" diff --cached --name-only
   [[ "$output" == *"hosts/mac-two.nix"* ]]
@@ -174,8 +156,8 @@ run_sph() {
 
 @test "re-running for a known host is a no-op" {
   PRIVATE="$TMP/priv"
-  set_origin "git@github.com:bob/dotfiles.git"
   run_sph --host mac-one --user alice
+  [ "$status" -eq 0 ]
 
   run_sph --host mac-one --user alice
   [ "$status" -eq 0 ]
@@ -184,50 +166,47 @@ run_sph() {
 
 # ── Adoption wiring (ADR-010) ────────────────────────────────────────────────
 
-@test "the generated host file imports home.nix as an extensible list" {
+@test "the generated host imports the focused home module" {
   PRIVATE="$TMP/priv"
-  set_origin "git@github.com:bob/dotfiles.git"
   run_sph --host mac-one --user alice
+  [ "$status" -eq 0 ]
 
-  # `users.<user> = import ...` took a single module, so every `dot adopt`
-  # required hand-editing the host file before it would deploy.
   grep -q 'users.${user}.imports = \[' "$PRIVATE/hosts/mac-one.nix"
-  grep -q '\.\./home\.nix' "$PRIVATE/hosts/mac-one.nix"
+  grep -qF '../home' "$PRIVATE/hosts/mac-one.nix"
+  run grep -qF '../home.nix' "$PRIVATE/hosts/mac-one.nix"
+  [ "$status" -ne 0 ]
+  grep -qF '../home.nix' "$PRIVATE/home/default.nix"
 }
 
 @test "home.nix exists with the adoption sentinel from the start" {
-  # The host file imports it unconditionally, and importing a missing path is
-  # an evaluation error rather than a no-op.
   PRIVATE="$TMP/priv"
-  set_origin "git@github.com:bob/dotfiles.git"
   run_sph --host mac-one --user alice
+  [ "$status" -eq 0 ]
 
   [ -f "$PRIVATE/home.nix" ]
   grep -q 'dot-adopt:entries' "$PRIVATE/home.nix"
 }
 
-@test "dot adopt appends into the flake-generated home.nix" {
-  # End to end: the file setup-private-host wrote must be the one dot-adopt
-  # extends — a drifted sentinel would make adoption create a second file that
-  # nothing imports.
+@test "dot adopt uses the modular profile storage path" {
   PRIVATE="$TMP/priv"
-  set_origin "git@github.com:bob/dotfiles.git"
   run_sph --host mac-one --user alice
+  [ "$status" -eq 0 ]
 
   FAKE_HOME="$TMP/home"
   mkdir -p "$FAKE_HOME"
   printf 'contract\n' > "$FAKE_HOME/.adoptme"
-  git -C "$PRIVATE" config user.email test@example.com
-  git -C "$PRIVATE" config user.name Test
 
   run env HOME="$FAKE_HOME" DOTFILES_ROOT="$REPO_ROOT" \
           DOTFILES_PRIVATE_FLAKE="$PRIVATE" \
           "$REPO_ROOT/scripts/bin/dot-adopt" adopt "$FAKE_HOME/.adoptme"
   [ "$status" -eq 0 ]
 
-  grep -qF '".adoptme".source = ./home/.adoptme;' "$PRIVATE/home.nix"
-  # Exactly one home.nix, still carrying its sentinel.
+  [ -f "$PRIVATE/home/files/.adoptme" ]
+  grep -qF '".adoptme".source = ./home/files/.adoptme;' "$PRIVATE/home.nix"
   grep -q 'dot-adopt:entries' "$PRIVATE/home.nix"
+  run git -C "$PRIVATE" diff --cached --name-only
+  [[ "$output" == *"home/files/.adoptme"* ]]
+  [[ "$output" == *"home.nix"* ]]
 }
 
 # ── Path variable unification ────────────────────────────────────────────────
@@ -241,8 +220,6 @@ run_sph() {
 }
 
 @test "the legacy DOTFILES_PRIVATE spelling still resolves" {
-  # dot-adopt read this name while every other script read
-  # DOTFILES_PRIVATE_FLAKE — two names for one directory. Honour it, warn once.
   run bash -c "unset DOTFILES_PRIVATE DOTFILES_PRIVATE_FLAKE
     source '$REPO_ROOT/lib/paths.sh'
     DOTFILES_PRIVATE=/legacy private_flake_root 2>/dev/null"
@@ -251,8 +228,6 @@ run_sph() {
 }
 
 @test "dotfiles_root finds the repo from the script's own location" {
-  # A clone outside ~/dotfiles must work: every script used to hardcode
-  # \$HOME/dotfiles as its fallback.
   run bash -c "unset DOTFILES_ROOT
     source '$REPO_ROOT/lib/paths.sh'
     dotfiles_root"
@@ -271,9 +246,6 @@ run_sph() {
 # ── Honest app reporting ─────────────────────────────────────────────────────
 
 @test "apps list reports casks declared in .local/" {
-  # The de-opinionated refactor moved cask declarations into .local/, but the
-  # parser still only read hosts/default.nix — so `apps list` printed zero
-  # casks on a machine with a dozen installed.
   LOCAL="$TMP/local"
   mkdir -p "$LOCAL"
   printf '{\n  casks = [\n    "ghostty"\n  ];\n  nixPackages = [ ];\n}\n' > "$LOCAL/apps.nix"
@@ -284,8 +256,6 @@ run_sph() {
 }
 
 @test "apps list reads single-line lists written by install.sh" {
-  # install.sh writes `casks = [ "firefox" "google-chrome" ];` on one line;
-  # a line-oriented parser reads that as an empty list.
   LOCAL="$TMP/local"
   mkdir -p "$LOCAL"
   printf '{\n  casks = [ "firefox" "google-chrome" ];\n  nixPackages = [ "brave" ];\n}\n' \
@@ -298,8 +268,6 @@ run_sph() {
 }
 
 @test "a nixPackage is not reported as a cask" {
-  # The same line-oriented parser ran past the end of one list into the next,
-  # filing Nix packages under Homebrew casks.
   LOCAL="$TMP/local"
   mkdir -p "$LOCAL"
   printf '{\n  casks = [ "firefox" ];\n  nixPackages = [ "brave" ];\n}\n' \
@@ -324,11 +292,6 @@ run_sph() {
 }
 
 @test "the framework declares no application of its own" {
-  # The inverse of the test this replaces, which asserted that `apps list`
-  # surfaced arc and raycast from the app sets' mkOption defaults. Those
-  # defaults WERE the problem: enabling a category installed the upstream
-  # author's apps, and .local/ could only append to them, never remove them.
-  # With an empty settings layer the answer must now be nothing at all.
   LOCAL="$TMP/local"
   mkdir -p "$LOCAL"
   printf '{ }\n' > "$LOCAL/settings.nix"
