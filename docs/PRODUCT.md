@@ -88,3 +88,5 @@ Preserve the public/private separation. Simplify the private profile so it impor
 Existing installations must continue to work during migration. New structure and self-restore entry points should be introduced without rewriting or endangering a live private profile.
 
 The detailed portability and restore design is documented in [`PORTABLE_PRIVATE_PROFILE.md`](./PORTABLE_PRIVATE_PROFILE.md).
+Implementation sequence and release gates are tracked in
+[`ROADMAP.md`](./ROADMAP.md).
