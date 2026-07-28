@@ -178,14 +178,17 @@ create_new_profile() {
   framework_url="$(normalize_repo "$FRAMEWORK_REPO")" \
     || fail "invalid framework repository: $FRAMEWORK_REPO"
 
+  [[ ! -e "$FRAMEWORK_DIR" && ! -L "$FRAMEWORK_DIR" ]] \
+    || fail "framework destination already exists: $FRAMEWORK_DIR (nothing was moved or replaced)"
+  [[ ! -e "$PROFILE_DIR" && ! -L "$PROFILE_DIR" ]] \
+    || fail "private profile destination already exists: $PROFILE_DIR (nothing was moved or replaced)"
+
   ensure_nix
   ensure_git_identity
   clone_into_absent "$framework_url" "$FRAMEWORK_DIR" "framework"
 
   [[ -f "$FRAMEWORK_DIR/scripts/bin/setup-private-host" ]] \
     || fail "framework checkout has no setup-private-host command"
-  [[ ! -e "$PROFILE_DIR" && ! -L "$PROFILE_DIR" ]] \
-    || fail "private profile destination already exists: $PROFILE_DIR"
 
   log_info "Creating a readable private profile for $HOST_NAME"
   DOTFILES_ROOT="$FRAMEWORK_DIR" \
