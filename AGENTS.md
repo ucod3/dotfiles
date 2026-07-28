@@ -77,6 +77,9 @@ Cite these by number (`R4`) rather than restating them.
 4. **Verify** — run relevant checks and review new complexity against the product
    contract. A green check does not replace a real install/update/restore journey.
 
+Cross-participant work and unexpected findings follow
+`docs/AI_COLLABORATION.md`; a chat-only finding is not a durable handoff.
+
 ## 5. Definition of done
 
 Run `scripts/bin/dot validate` before considering a code task complete. It checks
