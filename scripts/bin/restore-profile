@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+# restore-profile — inspect a private profile before any restore activation.
+#
+# This is the framework-owned restore contract's safe first stage. It validates
+# the profile, committed lock, selected framework, and target hostname, then
+# prints the exact restore inputs. It never changes the profile or activates a
+# macOS configuration.
+set -euo pipefail
+
+PROFILE_ROOT="$PWD"
+RESTORE_HOST="${DOTFILES_RESTORE_HOST:-}"
+JSON_OUTPUT=false
+
+usage() {
+  cat <<'EOF'
+Usage: dotfiles-restore [OPTIONS]
+
+Validate and display the restore plan for a private profile. No system changes
+are made.
+
+Options:
+      --profile PATH  Private profile root (default: current directory)
+      --host NAME     Host configuration to restore (default: hostname -s)
+      --json          Emit a machine-readable plan
+  -h, --help          Show this help message
+
+The profile must be a clean Git repository containing flake.nix and flake.lock.
+The committed lock is evaluated with --no-write-lock-file and verified unchanged.
+EOF
+}
+
+fail() {
+  printf 'restore error: %s\n' "$*" >&2
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --profile)
+      [[ $# -ge 2 && -n "${2:-}" ]] || fail "--profile requires a path"
+      PROFILE_ROOT="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE_ROOT="${1#*=}"
+      [[ -n "$PROFILE_ROOT" ]] || fail "--profile requires a path"
+      shift
+      ;;
+    --host)
+      [[ $# -ge 2 && -n "${2:-}" ]] || fail "--host requires a name"
+      RESTORE_HOST="$2"
+      shift 2
+      ;;
+    --host=*)
+      RESTORE_HOST="${1#*=}"
+      [[ -n "$RESTORE_HOST" ]] || fail "--host requires a name"
+      shift
+      ;;
+    --json)
+      JSON_OUTPUT=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+done
+
+for command_name in git jq nix; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "required command is not available: $command_name"
+done
+
+[[ -d "$PROFILE_ROOT" ]] || fail "profile directory does not exist: $PROFILE_ROOT"
+PROFILE_ROOT="$(cd "$PROFILE_ROOT" && pwd -P)"
+FLAKE_FILE="$PROFILE_ROOT/flake.nix"
+LOCK_FILE="$PROFILE_ROOT/flake.lock"
+
+[[ -f "$FLAKE_FILE" ]] || fail "profile is missing flake.nix: $FLAKE_FILE"
+[[ -f "$LOCK_FILE" ]] || fail "profile is missing flake.lock: $LOCK_FILE"
+
+GIT_TOP="$(git -C "$PROFILE_ROOT" rev-parse --show-toplevel 2>/dev/null)" \
+  || fail "profile is not a Git repository: $PROFILE_ROOT"
+GIT_TOP="$(cd "$GIT_TOP" && pwd -P)"
+[[ "$GIT_TOP" == "$PROFILE_ROOT" ]] \
+  || fail "profile must be the Git repository root (repository root: $GIT_TOP)"
+
+GIT_STATUS="$(git -C "$PROFILE_ROOT" status --porcelain --untracked-files=all)"
+if [[ -n "$GIT_STATUS" ]]; then
+  printf 'restore error: profile has uncommitted changes:\n%s\n' "$GIT_STATUS" >&2
+  printf 'Commit, discard, or deliberately review them before restoring.\n' >&2
+  exit 1
+fi
+
+if [[ -z "$RESTORE_HOST" ]]; then
+  RESTORE_HOST="$(hostname -s 2>/dev/null || true)"
+fi
+[[ -n "$RESTORE_HOST" ]] || fail "could not determine a hostname; pass --host NAME"
+
+LOCK_INFO="$(jq -cer '
+  . as $lock
+  | $lock.root as $rootName
+  | ($lock.nodes[$rootName].inputs.dotfiles
+      // error("root input dotfiles is missing")) as $input
+  | (if ($input | type) == "array" then $input[0] else $input end) as $nodeName
+  | ($lock.nodes[$nodeName]
+      // error("dotfiles lock node is missing")) as $node
+  | {
+      node: $nodeName,
+      source: (
+        if $node.original.type == "github" then
+          "github:\($node.original.owner)/\($node.original.repo)" +
+          (if ($node.original.ref // "") == "" then "" else "/\($node.original.ref)" end)
+        elif $node.original.type == "gitlab" then
+          "gitlab:\($node.original.owner)/\($node.original.repo)" +
+          (if ($node.original.ref // "") == "" then "" else "/\($node.original.ref)" end)
+        elif ($node.original.url // "") != "" then
+          $node.original.url
+        elif ($node.original.path // "") != "" then
+          "path:\($node.original.path)"
+        else
+          ($node.original | tojson)
+        end
+      ),
+      revision: ($node.locked.rev // $node.locked.narHash // "unavailable")
+    }
+' "$LOCK_FILE" 2>/dev/null)" \
+  || fail "flake.lock does not contain a valid locked 'dotfiles' input"
+
+FRAMEWORK_SOURCE="$(jq -r '.source' <<<"$LOCK_INFO")"
+FRAMEWORK_REVISION="$(jq -r '.revision' <<<"$LOCK_INFO")"
+PROFILE_REMOTE="$(git -C "$PROFILE_ROOT" remote get-url origin 2>/dev/null || true)"
+[[ -n "$PROFILE_REMOTE" ]] || PROFILE_REMOTE="<none>"
+
+LOCK_HASH_BEFORE="$(git hash-object "$LOCK_FILE")"
+NIX_ERROR_FILE="$(mktemp -t dotfiles_restore.XXXXXX)"
+trap 'rm -f "$NIX_ERROR_FILE"' EXIT
+
+if ! HOSTS_JSON="$(
+  nix eval --no-write-lock-file --json \
+    "${PROFILE_ROOT}#darwinConfigurations" \
+    --apply builtins.attrNames 2>"$NIX_ERROR_FILE"
+)"; then
+  printf 'restore error: private profile evaluation failed.\n' >&2
+  sed 's/^/  /' "$NIX_ERROR_FILE" >&2
+  exit 1
+fi
+
+jq -e 'type == "array" and all(.[]; type == "string")' \
+  <<<"$HOSTS_JSON" >/dev/null \
+  || fail "darwinConfigurations did not evaluate to a list of host names"
+
+LOCK_HASH_AFTER="$(git hash-object "$LOCK_FILE")"
+[[ "$LOCK_HASH_BEFORE" == "$LOCK_HASH_AFTER" ]] \
+  || fail "flake.lock changed during preflight; restore stopped"
+
+AVAILABLE_HOSTS="$(jq -r 'join(", ")' <<<"$HOSTS_JSON")"
+[[ -n "$AVAILABLE_HOSTS" ]] || AVAILABLE_HOSTS="<none>"
+
+if jq -e --arg host "$RESTORE_HOST" 'index($host) != null' \
+  <<<"$HOSTS_JSON" >/dev/null; then
+  PLAN_STATUS="ready"
+  EXIT_STATUS=0
+else
+  PLAN_STATUS="host-missing"
+  EXIT_STATUS=2
+fi
+
+if [[ "$JSON_OUTPUT" == true ]]; then
+  jq -n \
+    --arg status "$PLAN_STATUS" \
+    --arg profile "$PROFILE_ROOT" \
+    --arg remote "$PROFILE_REMOTE" \
+    --arg host "$RESTORE_HOST" \
+    --arg framework "$FRAMEWORK_SOURCE" \
+    --arg revision "$FRAMEWORK_REVISION" \
+    --arg lockFile "$LOCK_FILE" \
+    --argjson hosts "$HOSTS_JSON" \
+    '{
+      status: $status,
+      profile: $profile,
+      remote: $remote,
+      host: $host,
+      availableHosts: $hosts,
+      framework: $framework,
+      frameworkRevision: $revision,
+      lockFile: $lockFile,
+      lockChanged: false,
+      activationPerformed: false
+    }'
+else
+  cat <<EOF
+Restore preflight
+  Profile:            $PROFILE_ROOT
+  Profile remote:     $PROFILE_REMOTE
+  Host:               $RESTORE_HOST
+  Available hosts:    $AVAILABLE_HOSTS
+  Framework input:    $FRAMEWORK_SOURCE
+  Pinned revision:    $FRAMEWORK_REVISION
+  Lock file:          $LOCK_FILE (unchanged)
+  Activation:         not performed
+EOF
+
+  if [[ "$PLAN_STATUS" == "ready" ]]; then
+    printf '\nPreflight complete. The profile is ready for an explicit restore activation.\n'
+  else
+    cat >&2 <<EOF
+
+No configuration exists for host '$RESTORE_HOST'.
+Choose deliberately: add a reviewed host file, rename the Mac to an existing
+host, or stop and inspect the profile. No host was selected automatically.
+EOF
+  fi
+fi
+
+exit "$EXIT_STATUS"
