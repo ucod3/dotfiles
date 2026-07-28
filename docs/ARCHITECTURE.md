@@ -1,98 +1,167 @@
-# System Architecture & Layer Governance
+# Architecture and Ownership
 
-This document outlines the operational boundaries for each system management framework in this ecosystem. You must never cross-contaminate package layers.
+[`PRODUCT.md`](./PRODUCT.md) defines the product contract. This document
+explains which repository and configuration layer owns each part of the system.
 
-## 🛠️ Layer Ownership Matrix
+## Repository boundary
 
-### 1. nix-darwin (`hosts/default.nix`)
-- **Responsibility:** Global macOS system preferences, underlying system services, core developer utilities, and general terminal/shell initialization toggles.
-- **Nix Target:** `system.defaults`, `environment.systemPackages`.
+```text
+ucod3/dotfiles
+    reusable framework, modules, commands, templates, tests
+            │
+            │ selected and pinned by flake.nix + flake.lock
+            ▼
+~/dotfiles-private
+    identity, hosts, apps, preferences, adopted files
+            │
+            │ evaluated as darwinConfigurations.<hostname>
+            ▼
+macOS + user environment
+```
 
-### 2. Home Manager (`nix/home/home.nix`)
-- **Responsibility:** Isolated user-space configurations, explicit application settings (Neovim init files, custom Zsh plugin initializers), environment variables (`.zshenv`), paths, and user-space binaries.
-- **Nix Target:** `home.packages`, `programs.zsh`, `xdg.configFile`, `home.file`.
-- **XDG vs native macOS paths:** `xdg.configFile` is correct for tools that read `$XDG_CONFIG_HOME` (git, nvim, ghostty). It is **wrong** for macOS-native apps: VS Code, Cursor and their forks read `~/Library/Application Support/<Variant>/User/`, never `$XDG_CONFIG_HOME`. Those go through `home.file "Library/Application Support/…"`. Writing them to the XDG path produces a settings file no editor ever opens.
+The public framework contains no user's hostname, username, application choices,
+adopted files, or personal preferences. The private profile is the complete
+user-owned definition of the Mac.
 
-### 3. Homebrew / nix-homebrew
-- **Responsibility:** Graphical User Interface (GUI) `.app` bundles, closed-source dependencies, proprietary utilities, and Mac App Store (MAS) targets.
-- **Target:** `homebrew.casks`, `homebrew.brews`, `homebrew.masApps`.
+Ordinary profiles select:
 
-## 🔄 Package Allocation Flowchart
-When adding software to the Mac, follow this exact prioritization tree:
-1. Is it a standard command-line utility or cross-platform tool available in `nixpkgs`? → Add to **Home Manager `home.packages`**.
-2. Is it a core system tool or macOS configuration modifier? → Add to **nix-darwin `environment.systemPackages`**.
-3. Is it a GUI application (`.app`), a cask, or a tool requiring native Mac frameworks? → Add to **Homebrew `casks`**.
+```nix
+inputs.dotfiles.url = "github:ucod3/dotfiles";
+```
 
-## 🛑 Common Anti-Patterns to Avoid
-- **Duplicate Declarations:** Do not install a tool via Home Manager packages if it is already provisioned globally inside nix-darwin.
-- **Hardcoded Home Directory Strings:** Never use explicit strings like `/Users/<you>/` in any framework module or Zsh configuration. Always parse dynamically using `$HOME` or `$DOTFILES_ROOT`. In shell scripts, call the accessors in `lib/paths.sh` (`dotfiles_root`, `private_flake_root`, `local_dir`) rather than re-deriving a fallback — eight scripts once hardcoded `$HOME/dotfiles` and two of them disagreed about the private flake's variable name.
-- **Pure Evaluation Breaks:** Never introduce `builtins.getEnv` into a Nix module. `lib/local.nix` is the single sanctioned exception (ADR-004) and `dot validate` enforces exactly that scope — see below.
-- **Imperative Writes from Declarative Config:** Never have a shell rc, activation script or module write a file the system cannot later retract. `config/zsh/modules/utils.zsh` used to create `~/.local/bin/{npm,npx,yarn}` on first shell start; no rebuild or generation rollback could remove them (ADR-011).
+The private `flake.lock` records the exact framework revision. A compatible
+framework fork is an advanced override, not an installation requirement.
 
-## 🧩 What the framework manages, and what it does not
+## Configuration layers
 
-The framework **installs applications** (casks, Nix packages, MAS apps) and owns
-a small set of **core configs**: git, Neovim, zsh, and — behind `dotfiles.home.*`
-toggles — VS Code/Cursor settings and the Ghostty config.
+### nix-darwin
 
-It does **not** aim to manage every tool's dotfile. Two mechanisms exist for
-everything else, and neither involves adding cases to this repo:
+Owns system-level macOS configuration:
 
-| Need | Mechanism |
-|---|---|
-| A config that already exists in `$HOME` | `dot adopt <path>` — moves it into the private flake under declarative management |
-| Shell aliases, exports, tool init | `config/zsh/custom.local.zsh` or `~/.zshrc.local` — gitignored, sourced last, never clobbered |
+- `environment.systemPackages`;
+- `system.defaults` and system services;
+- Homebrew declarations exposed through nix-darwin;
+- system activation and generations;
+- wiring Home Manager to each declared user.
 
-Anything opinionated that *does* ship here is gated behind a `dotfiles.*` option
-defaulting to off, and `checks.cold-is-nondestructive` asserts the resolved cold
-values so a regression fails evaluation rather than shipping (ADR-007, ADR-011).
+The public framework exports reusable nix-darwin modules. The private host
+imports those modules and the user's focused private modules.
 
-## 4. The `.local/` settings layer — verified Nix constraints
+### nix-homebrew and native Homebrew
 
-These were established by experiment, not inference. Do not "simplify" them away
-(rule R4 in `AGENTS.md`); each bullet is a failure someone already hit.
+`nix-homebrew` installs or adopts the Homebrew installation and manages its
+prefix integration. nix-darwin supplies the declared formulae, casks, and Mac
+App Store applications during activation.
 
-Scope note: since ADR-009 the default `dot rebuild` builds a pinned published
-revision, so the `git+file:` working-tree semantics below apply to
-`dot rebuild --override-local` and to `nix flake check` in this repo. The
-`--impure` / `sudo env` and content-based-detection rules apply to every build.
+Homebrew is normally used for:
 
-- **Gitignored files are invisible to `git+file:` flakes.** Relative reads like
-  `builtins.pathExists ./.local/...` silently return `false`, because untracked
-  files are excluded from the store copy used for evaluation. Note the
-  distinction that matters day to day: a *dirty* tree's **staged** changes are
-  visible; only **untracked** files are not. Hence R2, "stage before evaluating".
-- **The `path:` scheme is NOT a safe workaround.** It copies `.git/` into the
-  store and hard-fails on `.git/fsmonitor--daemon.ipc` (`core.fsmonitor = true`,
-  now in `config/git/config-opinionated` — but assume any contributor may have it
-  on). With `.local` as an out-of-tree symlink, pure `path:` evaluation still
-  resolves to MISSING.
-- **The working pattern** is an absolute-path read (`/. + "$DIR"`) under
-  `--impure`. It is the only approach that works for BOTH a plain gitignored
-  `.local/` directory and a `.local -> ~/dotfiles-private` symlink.
-- **Execution flags:** `scripts/bin/rebuild` always passes `--impure` and exports
-  `DOTFILES_LOCAL` explicitly through `sudo env`, because sudo may rewrite
-  `$HOME`. `lib/local.nix` resolves `$DOTFILES_LOCAL` → `~/dotfiles/.local`,
-  degrading to empty settings under pure evaluation so CI and cold clones stay
-  green. Nothing in the loader throws.
-- **Detection is content-based, not existence-based.** A directory counts as a
-  settings layer only if it carries a recognized settings file (`settingsFiles`
-  in `lib/local.nix`, mirrored by `has_settings_layer()` in `scripts/bin/rebuild`
-  — keep the two in sync). `exists` gates nothing behavioural; modules read the
-  explicit `homebrewCleanup` / `macosDefaults` / `homeProfile` accessors, where
-  `null` means "unspecified" and the module supplies a safe default. See ADR-007.
-- **`.local/hosts/`** is reserved for the private flake and must never be
-  auto-imported by the loader (double-import conflicts).
-- **`PACKAGE_SOURCE` convention:** `install.sh` maps menu options to
-  `nix:<attr>` or `brew:cask:<name>` via a `case` lookup (macOS ships bash 3.2 —
-  no associative arrays). Prefer Nixpkgs; fall back to casks for apps that are
-  unfree or broken on darwin. The curated lists are a starting point, not a
-  boundary: each menu also takes free-text cask names, which are passed through
-  unmapped.
-- **Reading `.local/` from shell must not be line-oriented.** `dot apps` writes
-  `apps.nix` one entry per line, but `install.sh` writes single-line lists
-  (`casks = [ "firefox" "google-chrome" ];`). A matcher that skips the opening
-  line and stops at a lone `];` reads those as empty and then runs on into the
-  next list. `scripts/bin/apps` scans by bracket depth, tracking string and
-  comment state, and understands both plain attributes and `mkOption` defaults
-  (the app sets use the latter).
+- macOS `.app` bundles;
+- proprietary or platform-native software;
+- packages unavailable or unsuitable in Nixpkgs;
+- the `mas` command used for App Store declarations.
+
+Home Manager does not install or own Homebrew.
+
+### Home Manager
+
+Owns user-space packages and configuration:
+
+- shell configuration and environment variables;
+- program modules such as Git, Neovim, and Zsh;
+- `home.packages`;
+- `xdg.configFile` and `home.file` mappings;
+- adopted files imported from the private profile.
+
+Use `xdg.configFile` only for software that reads XDG paths. Native macOS apps
+such as editors usually read `~/Library/Application Support/...` and must use a
+matching `home.file` path.
+
+### Private profile
+
+New profiles group user choices by responsibility:
+
+```text
+dotfiles-private/
+├── hosts/                  one module per Mac
+├── apps/                   casks, Nix packages, and App Store apps
+├── macos/                  personal macOS preferences
+├── home/                   Home Manager choices and adopted file storage
+├── home.nix                generated adopted-file mappings
+├── identity.nix            profile-owned Git identity
+├── flake.nix               composition and framework selection
+└── flake.lock              exact framework and dependency revisions
+```
+
+Each value has one obvious private source of truth. Public modules implement and
+validate those choices.
+
+## Application flow
+
+```text
+apps/homebrew-casks.nix ───────► homebrew.casks
+apps/mac-app-store.nix ────────► homebrew.masApps
+apps/nix-packages.nix ─────────► environment.systemPackages
+```
+
+`dot apps` edits only generated plain-list files. If an advanced user replaces a
+file with a composed Nix expression, the helper refuses to parse or rewrite it.
+
+Package preference:
+
+1. Use Nixpkgs for portable command-line tools when the package works on Darwin.
+2. Use nix-darwin system packages for tools intended for the whole configured
+   system.
+3. Use Home Manager packages for tools owned by a specific user module.
+4. Use Homebrew casks for native Mac applications and platform-specific tools.
+
+Never declare the same package in two layers merely for convenience.
+
+## Adopted files
+
+`dot adopt <path>` moves an existing home path into the private profile and adds
+a Home Manager mapping. The default mapping deploys a read-only Nix-store
+symlink. `--mutable` creates an out-of-store link for applications that must
+continue writing the file.
+
+Do not add public framework cases for personal application settings. Adopt the
+specific portable files instead. Credentials, histories, caches, sessions, and
+machine-local state are not adoption candidates.
+
+## Evaluation and activation
+
+- Normal rebuilds use the framework revision pinned by the private lock.
+- Restore preserves the committed lock.
+- Local framework experiments require an explicit override.
+- New files must be staged before `git+file:` evaluation can see them (R2).
+- Preflight reports profile, host, framework, and lock without switching.
+- Activation is separate and requires explicit confirmation.
+
+## Legacy `.local/` compatibility
+
+Existing installations may still expose private settings through
+`~/dotfiles/.local`, often as a symlink to `~/dotfiles-private`. This is a
+supported compatibility path, not the structure generated for new profiles.
+
+The bridge has verified constraints:
+
+- `lib/local.nix` is the only sanctioned `builtins.getEnv` exception (R3).
+- Rebuild forwards `DOTFILES_LOCAL` through the sudo boundary and evaluates
+  with `--impure`.
+- A directory counts as a legacy settings layer only when it contains a
+  recognized settings file; presence alone is not consent.
+- `.local/hosts/` must not be imported by the legacy loader because the private
+  flake already owns hosts.
+- Both single-line and multiline legacy app lists remain supported.
+
+Do not remove or simplify this bridge until the roadmap's migration phase proves
+equivalence for existing profiles (R4).
+
+## Architectural safety rules
+
+- Never place private values in the public framework (R1).
+- Never make destructive Homebrew cleanup the default (R5).
+- Never derive behavior from the mere presence of a directory.
+- Never silently update a private lock during restore or rebuild.
+- Never select another host when the requested hostname is unknown.
+- Never write irreversible files from shell startup or declarative activation.
+- Never replace ordinary Nix with a hidden second configuration format.
