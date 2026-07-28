@@ -84,24 +84,35 @@ Diff `flake.lock` before committing if you want to know what is about to change.
 ## Managing apps
 
 ```bash
-dot apps list            # everything currently declared
-dot apps search firefox  # find the right package name
-dot apps add ghostty     # add to .local/apps.nix
+dot apps list                              # declarations and their owning files
+dot apps search firefox                    # find the right package name
+dot apps add ghostty                       # auto-detect a Homebrew cask
+dot apps add --nix ripgrep                 # add pkgs.ripgrep
+dot apps add --mas Notability 360593530    # add an App Store application
 dot apps remove ghostty
+dot apps edit casks
 ```
 
-`dot apps list` reports **your applications** — `casks`, `nixPackages` and
-`masApps` read from the `.local/` layer (`settings.nix` and the generated
-`apps.nix`) — plus the handful of Nix packages the framework itself needs to
-function (`mkalias`, `direnv`, `gitleaks`, `jq`, `sqlite`).
+For a readable modular profile, these commands read and change the ordinary Nix
+files under `~/dotfiles-private/apps/`:
 
-There is no third category. The framework declares no GUI application, so
-everything installed on your machine is named in a file you can edit, and
-deleting the line removes the app.
+- `homebrew-casks.nix`
+- `nix-packages.nix`
+- `mac-app-store.nix`
 
-`dot apps` owns `.local/apps.nix` exclusively — it is generated and rewritten
-wholesale, so do not hand-edit it. Hand-written selections belong in
-`.local/settings.nix`.
+Every mutation prints the exact file changed, the equivalent manual Nix edit,
+the native Git diff command, and the rebuild command. If one of these files has
+been replaced with an advanced hand-authored Nix expression, the command refuses
+to parse or rewrite it; edit the file directly instead.
+
+Existing profiles that have not migrated to the modular layout continue using
+the `.local/` compatibility layer (`settings.nix` and generated `apps.nix`).
+`dot apps` detects that layout and preserves its previous behavior rather than
+rewriting the profile.
+
+The framework declares no GUI application. Removing a declaration does not
+necessarily uninstall an existing app: `homebrew.cleanup` defaults to `"none"`.
+This prevents an incomplete list from deleting software.
 
 ### What the framework manages, and what you adopt
 

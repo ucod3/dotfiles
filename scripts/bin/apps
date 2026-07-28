@@ -1,37 +1,32 @@
 #!/usr/bin/env bash
 #
-# apps - Manage applications in your dotfiles
+# apps - Manage applications in the active private profile
 #
 # Usage:
-#   apps                    Show this help and current app counts
-#   apps list               List all installed apps by category
-#   apps search <name>      Search for an app name to use
-#   apps add <name>         Add an app (auto-detects cask vs brew vs nix)
-#   apps remove <name>      Remove an app from config
-#   apps edit               Open hosts/default.nix directly
+#   apps list
+#   apps search <name>
+#   apps add <name>
+#   apps add --cask <name>
+#   apps add --nix <attribute>
+#   apps add --mas <name> <id>
+#   apps remove <name>
+#   apps edit [casks|nix|mas]
 #
 
 set -euo pipefail
 
-# ── Repo root resolution (see lib/paths.sh) ─────────────────────────────────
+# ── Paths and output ────────────────────────────────────────────────────────
 _SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 _PATHS="${_SELF_DIR%/scripts/bin}/lib/paths.sh"
 [[ -f "$_PATHS" ]] || _PATHS="${DOTFILES_ROOT:-$HOME/dotfiles}/lib/paths.sh"
 # shellcheck source=../../lib/paths.sh
 source "$_PATHS"
+
 DOTFILES_ROOT="$(dotfiles_root)"
-CONFIG="$DOTFILES_ROOT/hosts/default.nix"
+PRIVATE_ROOT="$(private_flake_root)"
+LOCAL_DIR="$(local_dir)"
+FRAMEWORK_CONFIG="$DOTFILES_ROOT/hosts/default.nix"
 
-# The framework declares no applications, so hosts/default.nix is the only
-# tracked file with anything to read — its `environment.systemPackages` glue.
-# This used to fan out over nix/modules/apps/*.nix, whose mkOption defaults
-# named a dozen GUI apps; those modules are gone and applications now live
-# solely in the `.local/` layer below.
-CONFIG_FILES=("$CONFIG")
-
-# Colors come from the shared logger; this script keeps its own display verbs
-# (section/info/ok/warn/err) because its output style differs from both of
-# log.sh's families.
 # shellcheck source=../../lib/log.sh
 source "$DOTFILES_ROOT/lib/log.sh"
 BOLD='\033[1m'
@@ -42,41 +37,41 @@ ok()      { echo -e "  ${GREEN}✓${NC} $1"; }
 warn()    { echo -e "  ${YELLOW}!${NC} $1"; }
 err()     { echo -e "  ${RED}✗${NC} $1"; }
 
-# ── The user's app selections live in .local/apps.nix ───────────────────────
-# `apps add/remove` owns this file exclusively: it is machine-generated and
-# round-tripped, never hand-edited. It used to sed a `casks = [` block inside
-# hosts/default.nix, but the de-opinionated refactor replaced that block with
-# `casks = dotfilesLocal.casks;` — so the sed matched nothing, changed nothing,
-# and still printed "✓ Added". lib/local.nix merges apps.nix into the cask and
-# package lists. Hand-written selections belong in .local/settings.nix.
-LOCAL_DIR="$(local_dir)"
-APPS_FILE="$LOCAL_DIR/apps.nix"
+visible_path() {
+  local path="$1"
+  if [[ "$path" == "$HOME"/* ]]; then
+    printf '%s/%s\n' '~' "${path#"$HOME"/}"
+  else
+    printf '%s\n' "$path"
+  fi
+}
 
-# Every .local/ file lib/local.nix flattens into the cask and package lists.
-# `apps list` has to read all of them, not just the generated apps.nix, or it
-# reports on a subset of what is actually installed. Keep in sync with the
-# `casks` / `nixPackages` accessors in lib/local.nix.
-LOCAL_SELECTION_FILES=(
-  "$APPS_FILE"
-  "$LOCAL_DIR/settings.nix"
-)
+# A modular profile is identified by the composition file generated for the
+# readable apps/ layout. Existing profiles without it stay on the legacy
+# .local/ compatibility path.
+if [[ -f "$PRIVATE_ROOT/apps/default.nix" ]]; then
+  PROFILE_LAYOUT="modular"
+  CASKS_FILE="$PRIVATE_ROOT/apps/homebrew-casks.nix"
+  NIX_FILE="$PRIVATE_ROOT/apps/nix-packages.nix"
+  MAS_FILE="$PRIVATE_ROOT/apps/mac-app-store.nix"
+else
+  PROFILE_LAYOUT="legacy"
+  APPS_FILE="$LOCAL_DIR/apps.nix"
+  SETTINGS_FILE="$LOCAL_DIR/settings.nix"
+fi
 
-# Read one list (casks|nixPackages) out of one Nix file; one entry per line.
-#
-# Line-oriented parsing is not enough here. `dot apps` generates apps.nix with
-# one entry per line, but install.sh writes settings.nix lists that may be on a
-# single line — `casks = [ "firefox" "google-chrome" ];` — and a matcher that
-# skips the opening line and stops at a lone `];` reads those as empty, then
-# runs on into the NEXT list and reports its contents under the wrong key.
-# Scan by bracket depth instead, tracking string and comment state so a `#` or
-# a bracket inside a comment cannot throw the count off.
-nix_list_read() {
-  local file="$1" key="$2" mode="${3:-plain}"
+# ── Read helpers ────────────────────────────────────────────────────────────
+
+# Legacy files contain keyed lists and may put several entries on one line.
+# This compatibility reader is intentionally limited to string lists.
+legacy_list_read_file() {
+  local file="$1" key="$2"
   [[ -f "$file" ]] || return 0
-  python3 - "$file" "$key" "$mode" <<'PYEOF'
-import re, sys
+  python3 - "$file" "$key" <<'PYEOF'
+import re
+import sys
 
-path, key, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+path, key = sys.argv[1], sys.argv[2]
 try:
     text = open(path, encoding="utf-8").read()
 except OSError:
@@ -84,23 +79,22 @@ except OSError:
 
 
 def collect(start):
-    """Collect quoted entries of the list whose '[' sits just before `start`."""
     i, depth, out = start, 1, []
     while i < len(text) and depth > 0:
         c = text[i]
-        if c == "#":                                   # comment to end of line
-            nl = text.find("\n", i)
-            i = len(text) if nl == -1 else nl
-        elif c == '"':                                 # a list entry
-            j, buf = i + 1, []
+        if c == "#":
+            newline = text.find("\n", i)
+            i = len(text) if newline == -1 else newline
+        elif c == '"':
+            j, value = i + 1, []
             while j < len(text) and text[j] != '"':
                 if text[j] == "\\" and j + 1 < len(text):
-                    buf.append(text[j + 1])
+                    value.append(text[j + 1])
                     j += 2
                     continue
-                buf.append(text[j])
+                value.append(text[j])
                 j += 1
-            out.append("".join(buf))
+            out.append("".join(value))
             i = j + 1
         else:
             if c == "[":
@@ -111,32 +105,231 @@ def collect(start):
     return out
 
 
-entries = []
-# `homebrew.casks = [` is as valid as `casks = [`.
-for m in re.finditer(r"(?:^|[\s{;])(?:homebrew\.)?" + re.escape(key) + r"\s*=\s*\[", text):
-    entries += collect(m.end())
-
-for entry in entries:
-    if entry:
-        print(entry)
+for match in re.finditer(
+    r"(?:^|[\s{;])(?:homebrew\.)?" + re.escape(key) + r"\s*=\s*\[",
+    text,
+):
+    for entry in collect(match.end()):
+        if entry:
+            print(entry)
 PYEOF
 }
 
-# Read one generated list from .local/apps.nix — the file `apps add/remove` owns.
-apps_file_read() {
-  nix_list_read "$APPS_FILE" "$1"
-}
-
-# Read one list across the whole .local/ layer, deduplicated.
-local_selection_read() {
-  local key="$1" f
-  for f in "${LOCAL_SELECTION_FILES[@]}"; do
-    nix_list_read "$f" "$key"
+legacy_selection_read() {
+  local key="$1" file
+  for file in "$APPS_FILE" "$SETTINGS_FILE"; do
+    legacy_list_read_file "$file" "$key"
   done | awk 'NF && !seen[$0]++'
 }
 
-# Rewrite apps.nix from the CASKS_OUT / NIXPKGS_OUT arrays.
-apps_file_write() {
+legacy_generated_read() {
+  legacy_list_read_file "$APPS_FILE" "$1"
+}
+
+modular_casks_read() {
+  [[ -f "$CASKS_FILE" ]] || return 0
+  sed -nE 's/^[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' "$CASKS_FILE"
+}
+
+modular_nix_read() {
+  [[ -f "$NIX_FILE" ]] || return 0
+  sed -nE 's/^[[:space:]]*pkgs\.([^[:space:]#]+)[[:space:]]*$/\1/p' "$NIX_FILE"
+}
+
+modular_mas_read() {
+  [[ -f "$MAS_FILE" ]] || return 0
+  sed -E '/^[[:space:]]*#/d' "$MAS_FILE" | sed -nE \
+    's/^[[:space:]]*"?([^"=]+)"?[[:space:]]*=[[:space:]]*([0-9]+);[[:space:]]*$/\1  (ID: \2)/p'
+}
+
+legacy_mas_read() {
+  python3 - "$APPS_FILE" "$SETTINGS_FILE" <<'PYEOF'
+import re
+import sys
+
+seen = set()
+for path in sys.argv[1:]:
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        continue
+    match = re.search(r"masApps\s*=\s*\{", text)
+    if not match:
+        continue
+    depth, i, block = 1, match.end(), []
+    while i < len(text) and depth > 0:
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+        block.append(text[i])
+        i += 1
+    for line in "".join(block).splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        pair = re.match(r'\s*"?([^"=]+)"?\s*=\s*(\d+)\s*;', line)
+        if pair and pair.group(1).strip() not in seen:
+            name = pair.group(1).strip()
+            seen.add(name)
+            print(f"{name}  (ID: {pair.group(2)})")
+PYEOF
+}
+
+casks_read() {
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    modular_casks_read
+  else
+    legacy_selection_read casks
+  fi
+}
+
+nix_packages_read() {
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    modular_nix_read
+  else
+    legacy_selection_read nixPackages
+  fi
+}
+
+mas_apps_read() {
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    modular_mas_read
+  else
+    legacy_mas_read
+  fi
+}
+
+print_entries() {
+  local any=false line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    any=true
+    printf '      %s\n' "$line"
+  done
+  [[ "$any" == true ]] || printf '      (none)\n'
+}
+
+contains_line() {
+  local needle="$1"
+  while IFS= read -r entry; do
+    [[ "$entry" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+# ── Write helpers ───────────────────────────────────────────────────────────
+
+# Insert an ordinary Nix list entry immediately before the closing bracket.
+# Generated modular files deliberately use this simple shape. If an owner turns
+# the file into a more advanced expression, the command refuses to guess and
+# points them to the hand-edit path.
+require_simple_modular_file() {
+  local kind="$1" file="$2" line trimmed
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    [[ -z "$trimmed" || "$trimmed" == \#* ]] && continue
+
+    case "$kind" in
+      cask)
+        [[ "$trimmed" == "[" || "$trimmed" == "]" ||
+          "$trimmed" =~ ^\"[a-zA-Z0-9@._+-]+\"$ ]] && continue
+        ;;
+      nix)
+        [[ "$trimmed" == "{ pkgs }:" || "$trimmed" == "[" || "$trimmed" == "]" ||
+          "$trimmed" =~ ^pkgs\.[a-zA-Z0-9@._+-]+$ ]] && continue
+        ;;
+      mas)
+        [[ "$trimmed" == "{" || "$trimmed" == "}" ||
+          "$trimmed" =~ ^\"[a-zA-Z0-9@._+\ -]+\"[[:space:]]*=[[:space:]]*[0-9]+\;$ ]] &&
+          continue
+        ;;
+    esac
+
+    err "$(visible_path "$file") no longer has the generated plain $kind shape."
+    info "The command will not parse or rewrite advanced Nix. Edit it directly:"
+    info "  dot apps edit $kind"
+    return 1
+  done < "$file"
+}
+
+plain_list_add() {
+  local kind="$1" file="$2" entry="$3" temp
+  [[ -f "$file" ]] || {
+    err "Missing application file: $(visible_path "$file")"
+    return 1
+  }
+  require_simple_modular_file "$kind" "$file"
+
+  temp="$(mktemp "${file}.tmp.XXXXXX")"
+  if ! awk -v entry="$entry" '
+    /^[[:space:]]*][[:space:]]*$/ && !inserted {
+      print "  " entry
+      inserted = 1
+    }
+    { print }
+    END { if (!inserted) exit 42 }
+  ' "$file" > "$temp"; then
+    rm -f "$temp"
+    err "Could not find the plain list boundary in $(visible_path "$file")"
+    info "Open it with: dot apps edit"
+    return 1
+  fi
+  chmod 0644 "$temp"
+  mv "$temp" "$file"
+}
+
+plain_attrset_add() {
+  local file="$1" entry="$2" temp
+  [[ -f "$file" ]] || {
+    err "Missing application file: $(visible_path "$file")"
+    return 1
+  }
+  require_simple_modular_file mas "$file"
+
+  temp="$(mktemp "${file}.tmp.XXXXXX")"
+  if ! awk -v entry="$entry" '
+    /^[[:space:]]*}[[:space:]]*$/ && !inserted {
+      print "  " entry
+      inserted = 1
+    }
+    { print }
+    END { if (!inserted) exit 42 }
+  ' "$file" > "$temp"; then
+    rm -f "$temp"
+    err "Could not find the plain attribute-set boundary in $(visible_path "$file")"
+    info "Open it with: dot apps edit mas"
+    return 1
+  fi
+  chmod 0644 "$temp"
+  mv "$temp" "$file"
+}
+
+plain_entry_remove() {
+  local kind="$1" file="$2" entry="$3" temp
+  require_simple_modular_file "$kind" "$file"
+  temp="$(mktemp "${file}.tmp.XXXXXX")"
+  if ! awk -v target="$entry" '
+    {
+      normalized = $0
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", normalized)
+      if (normalized == target) {
+        found = 1
+        next
+      }
+      print
+    }
+    END { if (!found) exit 43 }
+  ' "$file" > "$temp"; then
+    rm -f "$temp"
+    return 1
+  fi
+  chmod 0644 "$temp"
+  mv "$temp" "$file"
+}
+
+legacy_apps_write() {
+  local cask package
   mkdir -p "$LOCAL_DIR"
   {
     echo "# .local/apps.nix — generated by \`dot apps\`. Do not hand-edit:"
@@ -144,299 +337,343 @@ apps_file_write() {
     echo "# Hand-written selections belong in .local/settings.nix."
     echo "{"
     echo "  casks = ["
-    for _c in ${CASKS_OUT[@]+"${CASKS_OUT[@]}"}; do
-      [[ -n "$_c" ]] && echo "    \"$_c\""
+    for cask in ${CASKS_OUT[@]+"${CASKS_OUT[@]}"}; do
+      [[ -n "$cask" ]] && printf '    "%s"\n' "$cask"
     done
     echo "  ];"
     echo "  nixPackages = ["
-    for _p in ${NIXPKGS_OUT[@]+"${NIXPKGS_OUT[@]}"}; do
-      [[ -n "$_p" ]] && echo "    \"$_p\""
+    for package in ${NIXPKGS_OUT[@]+"${NIXPKGS_OUT[@]}"}; do
+      [[ -n "$package" ]] && printf '    "%s"\n' "$package"
     done
     echo "  ];"
     echo "}"
   } > "$APPS_FILE"
 }
 
-# Escape special regex characters for sed
-sed_escape() {
-  printf '%s' "$1" | sed 's/[.\\*^$\[\]/]/\\&/g'
+validate_name() {
+  local name="$1"
+  [[ "$name" =~ ^[a-zA-Z0-9@._+-]+$ ]] || {
+    err "Invalid package name: '$name'"
+    info "Use only letters, numbers, @, ., _, +, and -."
+    return 1
+  }
 }
 
-# Post-mutation validate — run after every config change
-# Catches Nix syntax errors introduced by add/remove before the user rebuilds.
-# Prints a git rollback hint on failure; does NOT auto-revert (git is the undo).
-validate_after_mutation() {
-  local validate_bin="$DOTFILES_ROOT/scripts/bin/validate"
+validate_mas_name() {
+  local name="$1"
+  [[ "$name" =~ ^[a-zA-Z0-9@._+\ -]+$ ]] || {
+    err "Invalid Mac App Store name: '$name'"
+    info "Use only letters, numbers, spaces, @, ., _, +, and -."
+    return 1
+  }
+}
 
-  if [[ ! -x "$validate_bin" ]]; then
-    return 0  # validate missing — skip silently
-  fi
+validate_after_mutation() {
+  local changed_file="$1"
+  [[ "${DOTFILES_APPS_SKIP_VALIDATE:-0}" == "1" ]] && return 0
 
   echo ""
-  info "Validating config after change..."
-
-  local output exit_code
-  output=$("$validate_bin" --quick 2>&1) && exit_code=0 || exit_code=$?
-
-  # Always print the output so the user sees check results
-  echo "$output"
-
-  if [[ $exit_code -eq 0 ]]; then
-    ok "Config is valid — safe to rebuild"
+  info "Checking $(visible_path "$changed_file")..."
+  if command -v nix-instantiate >/dev/null 2>&1; then
+    if nix-instantiate --parse "$changed_file" >/dev/null 2>&1; then
+      ok "Nix syntax is valid"
+    else
+      err "Nix syntax validation failed"
+      warn "Review the file before rebuilding: $(visible_path "$changed_file")"
+      return 1
+    fi
   else
-    echo ""
-    err "Config validation failed after mutation."
-    warn "To undo this change, run:"
-    echo "    git checkout -- $CONFIG"
-    echo ""
-    warn "Fix the error above, then run: dot rebuild"
+    warn "nix-instantiate is unavailable; syntax check skipped"
   fi
+
+  if [[ "$PROFILE_LAYOUT" == "legacy" && -x "$DOTFILES_ROOT/scripts/bin/validate" ]]; then
+    "$DOTFILES_ROOT/scripts/bin/validate" --quick
+  fi
+}
+
+show_manual_change() {
+  local action="$1" expression="$2" file="$3"
+  echo ""
+  info "Equivalent manual change:"
+  printf '    %s %s in %s\n' "$action" "$expression" "$(visible_path "$file")"
+  echo ""
+  info "Review with:"
+  printf '    git -C %s diff -- %s\n' \
+    "$(visible_path "$PRIVATE_ROOT")" "${file#"$PRIVATE_ROOT"/}"
+  info "Apply with: ${BOLD}dot rebuild${NC}"
 }
 
 # ── Commands ───────────────────────────────────────────────────────────────
 
-# Read the `masApps = { Name = <id>; }` attrset from the .local/ layer.
-# Attrset, not list, so nix_list_read (which collects quoted strings between
-# brackets) cannot be reused here.
-local_mas_read() {
-  python3 - "${LOCAL_SELECTION_FILES[@]}" << 'PYEOF'
-import sys, re
-seen = set()
-for path in sys.argv[1:]:
-    try:
-        text = open(path, encoding="utf-8").read()
-    except OSError:
-        continue
-    m = re.search(r'masApps\s*=\s*\{', text)
-    if not m:
-        continue
-    depth, i, block = 1, m.end(), []
-    while i < len(text) and depth > 0:
-        if text[i] == '{':
-            depth += 1
-        elif text[i] == '}':
-            depth -= 1
-        block.append(text[i])
-        i += 1
-    for line in "".join(block).splitlines():
-        if line.lstrip().startswith("#"):
-            continue
-        pair = re.match(r'\s*"?([A-Za-z][A-Za-z0-9 _-]*)"?\s*=\s*(\d+)\s*;', line)
-        if pair and pair.group(1).strip() not in seen:
-            seen.add(pair.group(1).strip())
-            print(f"{pair.group(1).strip()}  (ID: {pair.group(2)})")
-PYEOF
-}
-
-# Print one entry per line, indented, or a placeholder when there are none.
-print_entries() {
-  local any=false line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    any=true
-    printf '    %s\n' "$line"
-  done
-  [[ "$any" == true ]] || printf '    (none)\n'
-}
-
 cmd_list() {
-  section "Installed Apps"
-
-  # ── The user's own selections ──────────────────────────────────────────────
-  # THIS is what `apps list` exists to show, and until now it showed none of it.
-  # The de-opinionated refactor replaced the literal cask list in
-  # hosts/default.nix with `casks = dotfilesLocal.casks;`, so the parser below
-  # — which reads Nix files as text — found an empty list and reported zero
-  # casks to users who had a dozen installed. The selections were in .local/
-  # the whole time.
+  section "Declared Applications"
   echo ""
-  local shown="~${LOCAL_DIR#"$HOME"}"
-  echo -e "  ${BOLD}Your applications${NC} ($shown/settings.nix)"
-  echo ""
-  echo -e "    ${CYAN}Homebrew casks${NC}"
-  local_selection_read casks | sed 's/^/  /' | print_entries
-  echo ""
-  echo -e "    ${CYAN}Nix packages${NC}"
-  local_selection_read nixPackages | sed 's/^/  /' | print_entries
-  echo ""
-  echo -e "    ${CYAN}Mac App Store${NC}"
-  local_mas_read | sed 's/^/  /' | print_entries
-
-  if [[ ! -d "$LOCAL_DIR" ]]; then
-    echo ""
-    warn "No .local/ layer at $LOCAL_DIR — run install.sh, or add apps with 'dot apps add'"
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    echo -e "  ${BOLD}Active source:${NC} $(visible_path "$PRIVATE_ROOT") (modular profile)"
+  else
+    echo -e "  ${BOLD}Active source:${NC} $(visible_path "$LOCAL_DIR") (legacy compatibility)"
   fi
 
-  # ── What the framework itself declares ─────────────────────────────────────
-  # Just the glue: mkalias, direnv and the tooling this repo's own scripts need.
-  # There is no "framework app sets" section any more because there are no app
-  # sets — every GUI application is named in the file printed above, and
-  # nowhere else.
+  echo ""
+  echo -e "    ${CYAN}Homebrew casks${NC}"
+  casks_read | print_entries
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    printf '      File: %s\n' "$(visible_path "$CASKS_FILE")"
+  fi
+
+  echo ""
+  echo -e "    ${CYAN}Nix packages${NC}"
+  nix_packages_read | print_entries
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    printf '      File: %s\n' "$(visible_path "$NIX_FILE")"
+  fi
+
+  echo ""
+  echo -e "    ${CYAN}Mac App Store${NC}"
+  mas_apps_read | print_entries
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    printf '      File: %s\n' "$(visible_path "$MAS_FILE")"
+  fi
+
   echo ""
   echo -e "  ${BOLD}Framework core${NC} (Nix, always installed)"
-  {
-    python3 - "${CONFIG_FILES[@]}" << 'PYEOF'
-import sys, re
-for cfg in sys.argv[1:]:
-    inside = False
-    with open(cfg, encoding="utf-8") as fh:
-        for line in fh:
-            if re.search(r'systemPackages\s*=\s*(with\s+pkgs;\s*)?\[', line):
-                inside = True
-                continue
-            if inside:
-                if re.search(r'^\s*\]', line):
-                    inside = False
-                    continue
-                stripped = line.strip()
-                if stripped and not stripped.startswith('#'):
-                    name = stripped.split()[0].removeprefix('pkgs.')
-                    if re.match(r'^[a-z]', name):
-                        print(name)
-PYEOF
-  } | awk 'NF && !seen[$0]++ { print "    " $0 }'
+  python3 - "$FRAMEWORK_CONFIG" <<'PYEOF' | awk 'NF && !seen[$0]++ { print "      " $0 }'
+import re
+import sys
 
+inside = False
+with open(sys.argv[1], encoding="utf-8") as source:
+    for line in source:
+        if re.search(r"systemPackages\s*=\s*(with\s+pkgs;\s*)?\[", line):
+            inside = True
+            continue
+        if inside and re.search(r"^\s*\]", line):
+            inside = False
+            continue
+        if inside:
+            value = line.strip()
+            if value and not value.startswith("#"):
+                name = value.split()[0].removeprefix("pkgs.")
+                if re.match(r"^[a-z]", name):
+                    print(name)
+PYEOF
   echo ""
 }
 
 cmd_search() {
   local query="${1:-}"
-  if [[ -z "$query" ]]; then
+  [[ -n "$query" ]] || {
     err "Usage: apps search <name>"
-    echo "  Example: apps search firefox"
     exit 1
-  fi
+  }
 
   section "Search results for: $query"
-
   echo ""
-  echo -e "  ${BOLD}Homebrew Casks${NC} (GUI apps — use in 'casks' section):"
-  if brew search --cask "$query" 2>/dev/null | head -8 | grep -v '^$'; then
+  echo -e "  ${BOLD}Homebrew casks${NC}"
+  if command -v brew >/dev/null 2>&1 &&
+    brew search --cask "$query" 2>/dev/null | head -8 | grep -v '^$'; then
     true
   else
-    info "No casks found"
+    info "No local cask result. Search: https://formulae.brew.sh/cask/"
   fi
 
   echo ""
-  echo -e "  ${BOLD}Homebrew Formulas${NC} (CLI tools — use in 'brews' section):"
-  if brew search --formula "$query" 2>/dev/null | head -8 | grep -v '^$'; then
-    true
+  echo -e "  ${BOLD}Nix packages${NC}"
+  info "Search: https://search.nixos.org/packages?query=$query"
+  echo ""
+  echo -e "  ${BOLD}Mac App Store${NC}"
+  info "Find the numeric ID at the end of the app's App Store URL."
+  echo ""
+}
+
+modular_add() {
+  local kind="$1" name="$2" id="${3:-}" file expression
+  case "$kind" in
+    cask)
+      file="$CASKS_FILE"
+      if modular_casks_read | contains_line "$name"; then
+        warn "'$name' is already declared in $(visible_path "$file")"
+        return 0
+      fi
+      expression="\"$name\""
+      plain_list_add cask "$file" "$expression"
+      ;;
+    nix)
+      file="$NIX_FILE"
+      if modular_nix_read | contains_line "$name"; then
+        warn "'pkgs.$name' is already declared in $(visible_path "$file")"
+        return 0
+      fi
+      expression="pkgs.$name"
+      plain_list_add nix "$file" "$expression"
+      ;;
+    mas)
+      file="$MAS_FILE"
+      if modular_mas_read | sed 's/  (ID:.*//' | contains_line "$name"; then
+        warn "'$name' is already declared in $(visible_path "$file")"
+        return 0
+      fi
+      expression="\"$name\" = $id;"
+      plain_attrset_add "$file" "$expression"
+      ;;
+  esac
+
+  ok "Added $expression to $(visible_path "$file")"
+  validate_after_mutation "$file"
+  show_manual_change "Add" "$expression" "$file"
+}
+
+legacy_add() {
+  local kind="$1" name="$2"
+  local CASKS_OUT=() NIXPKGS_OUT=() entry
+  while IFS= read -r entry; do CASKS_OUT+=("$entry"); done < <(legacy_generated_read casks)
+  while IFS= read -r entry; do NIXPKGS_OUT+=("$entry"); done < <(legacy_generated_read nixPackages)
+
+  for entry in ${CASKS_OUT[@]+"${CASKS_OUT[@]}"} ${NIXPKGS_OUT[@]+"${NIXPKGS_OUT[@]}"}; do
+    if [[ "$entry" == "$name" ]]; then
+      warn "'$name' is already declared in $(visible_path "$APPS_FILE")"
+      return 0
+    fi
+  done
+
+  if [[ "$kind" == "cask" ]]; then
+    CASKS_OUT+=("$name")
+  elif [[ "$kind" == "nix" ]]; then
+    NIXPKGS_OUT+=("$name")
   else
-    info "No formulas found"
+    err "Mac App Store additions require a modular private profile."
+    info "For this legacy profile, edit $(visible_path "$SETTINGS_FILE") manually."
+    return 1
   fi
 
+  legacy_apps_write
+  ok "Added '$name' to $(visible_path "$APPS_FILE")"
+  validate_after_mutation "$APPS_FILE"
   echo ""
-  echo -e "  ${BOLD}Nix Packages${NC} (use in 'systemPackages' section):"
-  info "Search at: ${CYAN}https://search.nixos.org/packages?query=$query${NC}"
-
-  echo ""
-  echo -e "  ${BOLD}Mac App Store${NC}:"
-  info "Open App Store and search: ${BOLD}$query${NC}"
-  info "Get the ID from the app's URL (number at the end)"
-
-  echo ""
-  info "Once you know the name, run: ${BOLD}apps add <name>${NC}"
+  info "This existing profile remains on the legacy compatibility path."
+  info "Apply with: ${BOLD}dot rebuild${NC}"
 }
 
 cmd_add() {
-  local name="${1:-}"
-  if [[ -z "$name" ]]; then
-    err "Usage: apps add <name>"
-    echo "  Example: apps add firefox"
-    echo "  Tip: run 'apps search <name>' first to find the correct name"
-    exit 1
-  fi
+  local kind="auto" name="" id=""
+  case "${1:-}" in
+    --cask)
+      kind="cask"
+      name="${2:-}"
+      ;;
+    --nix)
+      kind="nix"
+      name="${2:-}"
+      ;;
+    --mas)
+      kind="mas"
+      name="${2:-}"
+      id="${3:-}"
+      ;;
+    *)
+      name="${1:-}"
+      ;;
+  esac
 
-  # Validate package name against safe characters
-  if [[ ! "$name" =~ ^[a-zA-Z0-9@._-]+$ ]]; then
-    err "Invalid package name: '$name'"
-    info "Package names must contain only: letters, numbers, @, ., _, -"
+  [[ -n "$name" ]] || {
+    err "Usage: apps add <name> | --cask <name> | --nix <attribute> | --mas <name> <id>"
     exit 1
+  }
+
+  if [[ "$kind" == "mas" ]]; then
+    validate_mas_name "$name"
+    [[ "$id" =~ ^[0-9]+$ ]] || {
+      err "Mac App Store ID must contain digits only."
+      exit 1
+    }
+  else
+    validate_name "$name"
   fi
 
   section "Adding: $name"
   echo ""
 
-  # Detect what type it is
-  local is_cask=false
-  local is_brew=false
-
-  if brew info --cask "$name" &>/dev/null; then
-    is_cask=true
-    ok "Found as Homebrew cask (GUI app)"
-  elif brew info "$name" &>/dev/null; then
-    is_brew=true
-    ok "Found as Homebrew formula (CLI tool)"
-  else
-    warn "Could not auto-detect package type"
-    echo ""
-    echo "  Please add manually to hosts/default.nix"
-    echo "  Then run: dot rebuild"
-    cmd_edit
-    exit 0
-  fi
-
-  # Already declared by a framework example set? Adding it again would be a
-  # duplicate declaration the user cannot then remove via this tool.
-  if grep -q "\"$name\"" "${CONFIG_FILES[@]}" 2>/dev/null; then
-    warn "'$name' is already declared by a framework app set"
-    info "Enable that set in .local/settings.nix rather than adding it here"
-    exit 0
-  fi
-
-  local CASKS_OUT NIXPKGS_OUT
-  # shellcheck disable=SC2207
-  CASKS_OUT=($(apps_file_read casks))
-  # shellcheck disable=SC2207
-  NIXPKGS_OUT=($(apps_file_read nixPackages))
-
-  for _existing in ${CASKS_OUT[@]+"${CASKS_OUT[@]}"} ${NIXPKGS_OUT[@]+"${NIXPKGS_OUT[@]}"}; do
-    if [[ "$_existing" == "$name" ]]; then
-      warn "'$name' is already in $APPS_FILE"
+  if [[ "$kind" == "auto" ]]; then
+    if ! command -v brew >/dev/null 2>&1; then
+      err "Homebrew is unavailable, so the package type cannot be detected."
+      info "Use an explicit form: dot apps add --cask $name"
+      info "Or: dot apps add --nix $name"
+      exit 1
+    elif brew info --cask "$name" >/dev/null 2>&1; then
+      kind="cask"
+      ok "Found as a Homebrew cask"
+    elif brew info "$name" >/dev/null 2>&1; then
+      warn "'$name' is a Homebrew formula."
+      info "Prefer Nix when available: dot apps add --nix <nixpkgs-attribute>"
+      info "Search: https://search.nixos.org/packages?query=$name"
       exit 0
+    else
+      err "Could not find '$name' as a Homebrew cask or formula."
+      info "Search first with: dot apps search $name"
+      info "Or choose explicitly with --cask, --nix, or --mas."
+      exit 1
     fi
-  done
-
-  # Both casks and brews are Homebrew concepts; the generated file tracks casks
-  # (GUI apps) and Nix packages. A brew formula is better served by nixpkgs, so
-  # steer CLI tools there and let the user override if they disagree.
-  if [[ "$is_cask" == true ]]; then
-    CASKS_OUT+=("$name")
-    apps_file_write
-    ok "Added '$name' to casks in ${APPS_FILE/#$HOME/\~}"
-  elif [[ "$is_brew" == true ]]; then
-    warn "'$name' is a Homebrew formula (CLI tool), not a cask."
-    info "Prefer the nixpkgs equivalent — check: https://search.nixos.org/packages"
-    info "To add it as a Nix package: edit .local/settings.nix nixPackages"
-    exit 0
   fi
 
-  validate_after_mutation
-
-  echo ""
-  info "Apply the change by running: ${BOLD}dot rebuild${NC}"
-  echo ""
-  warn "Or to undo: ${BOLD}dot apps remove $name${NC}"
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    modular_add "$kind" "$name" "$id"
+  else
+    legacy_add "$kind" "$name"
+  fi
 }
 
-cmd_remove() {
-  local name="${1:-}"
-  if [[ -z "$name" ]]; then
-    err "Usage: apps remove <name>"
-    echo "  Example: apps remove firefox"
-    exit 1
+modular_remove() {
+  local name="$1" file="" expression="" record app_name app_id
+  if modular_casks_read | contains_line "$name"; then
+    file="$CASKS_FILE"
+    expression="\"$name\""
+  elif modular_nix_read | contains_line "$name"; then
+    file="$NIX_FILE"
+    expression="pkgs.$name"
+  else
+    while IFS= read -r record; do
+      app_name="${record%  (ID:*}"
+      if [[ "$app_name" == "$name" ]]; then
+        app_id="${record##*  (ID: }"
+        app_id="${app_id%)}"
+        file="$MAS_FILE"
+        expression="\"$name\" = $app_id;"
+        break
+      fi
+    done < <(modular_mas_read)
   fi
 
-  section "Removing: $name"
-  echo ""
+  if [[ -z "$file" ]]; then
+    warn "'$name' is not declared in the modular private profile."
+    info "Run 'dot apps list' to see the active declarations."
+    return 1
+  fi
 
-  local CASKS_OUT NIXPKGS_OUT found=false
-  # shellcheck disable=SC2207
-  CASKS_OUT=($(apps_file_read casks))
-  # shellcheck disable=SC2207
-  NIXPKGS_OUT=($(apps_file_read nixPackages))
+  local kind
+  if [[ "$file" == "$CASKS_FILE" ]]; then
+    kind="cask"
+  elif [[ "$file" == "$NIX_FILE" ]]; then
+    kind="nix"
+  else
+    kind="mas"
+  fi
+  plain_entry_remove "$kind" "$file" "$expression"
+  ok "Removed $expression from $(visible_path "$file")"
+  validate_after_mutation "$file"
+  show_manual_change "Remove" "$expression" "$file"
 
-  local kept=() entry
+  if [[ "$(resolved_cleanup)" == "none" && "$file" == "$CASKS_FILE" ]]; then
+    info "Cleanup remains \"none\"; rebuild will not uninstall the existing app."
+    info "Remove it manually only when intended: brew uninstall --cask $name"
+  fi
+}
+
+legacy_remove() {
+  local name="$1" found=false entry
+  local CASKS_OUT=() NIXPKGS_OUT=() kept=()
+  while IFS= read -r entry; do CASKS_OUT+=("$entry"); done < <(legacy_generated_read casks)
+  while IFS= read -r entry; do NIXPKGS_OUT+=("$entry"); done < <(legacy_generated_read nixPackages)
+
   for entry in ${CASKS_OUT[@]+"${CASKS_OUT[@]}"}; do
     if [[ "$entry" == "$name" ]]; then found=true; else kept+=("$entry"); fi
   done
@@ -448,118 +685,125 @@ cmd_remove() {
   done
   NIXPKGS_OUT=(${kept[@]+"${kept[@]}"})
 
-  if [[ "$found" == false ]]; then
-    # Never edit a shipped framework module. Those are the example profiles
-    # this repo distributes; mutating them makes the user's checkout diverge
-    # from upstream and the change would be lost on the next pull.
-    local owner
-    owner=$(grep -l "\"$name\"" "${CONFIG_FILES[@]}" 2>/dev/null | head -1 || true)
-    if [[ -n "$owner" ]]; then
-      warn "'$name' comes from the framework app set ${owner##*/}"
-      info "Disable that set in .local/settings.nix, or override it there:"
-      info "  dotfiles.apps.<set>.casks = [ ... ];"
-      exit 1
-    fi
-    warn "'$name' not found in your selections"
-    info "Run 'dot apps list' to see what's declared"
+  [[ "$found" == true ]] || {
+    warn "'$name' is not in the generated legacy selection file."
+    info "Hand-written choices in $(visible_path "$SETTINGS_FILE") are never rewritten."
+    return 1
+  }
+
+  legacy_apps_write
+  ok "Removed '$name' from $(visible_path "$APPS_FILE")"
+  validate_after_mutation "$APPS_FILE"
+  info "Apply with: ${BOLD}dot rebuild${NC}"
+}
+
+cmd_remove() {
+  local name="${1:-}"
+  [[ -n "$name" ]] || {
+    err "Usage: apps remove <name>"
     exit 1
-  fi
+  }
 
-  apps_file_write
-  ok "Removed '$name' from ${APPS_FILE/#$HOME/\~}"
-
-  validate_after_mutation
-
+  section "Removing: $name"
   echo ""
-  info "Apply the change by running: ${BOLD}dot rebuild${NC}"
-  if [[ "$(resolved_cleanup)" == "none" ]]; then
-    info "Homebrew cleanup is \"none\", so the app stays installed until you"
-    info "remove it manually (brew uninstall --cask $name) or set"
-    info "homebrew.cleanup = \"uninstall\" in .local/settings.nix"
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    modular_remove "$name"
   else
-    info "The app will be uninstalled during rebuild (cleanup = uninstall)"
+    legacy_remove "$name"
   fi
 }
 
-# What `homebrew.cleanup` actually resolves to, rather than assuming.
 resolved_cleanup() {
-  local settings="$LOCAL_DIR/settings.nix"
-  if [[ -f "$settings" ]] && grep -qE 'homebrew\.cleanup|cleanup[[:space:]]*=' "$settings"; then
-    sed -nE 's/.*cleanup[[:space:]]*=[[:space:]]*"([a-z]+)".*/\1/p' "$settings" | head -1
+  local file
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    file="$PRIVATE_ROOT/apps/default.nix"
+  else
+    file="$SETTINGS_FILE"
+  fi
+
+  if [[ -f "$file" ]] && grep -qE 'homebrew\.cleanup|cleanup[[:space:]]*=' "$file"; then
+    sed -nE 's/.*cleanup[[:space:]]*=[[:space:]]*"([a-z]+)".*/\1/p' "$file" | head -1
   else
     echo "none"
   fi
 }
 
 cmd_edit() {
-  info "Opening hosts/default.nix in your editor..."
+  local category="${1:-all}" target
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    case "$category" in
+      all) target="$PRIVATE_ROOT/apps" ;;
+      casks) target="$CASKS_FILE" ;;
+      nix) target="$NIX_FILE" ;;
+      mas) target="$MAS_FILE" ;;
+      *)
+        err "Unknown category '$category'. Use casks, nix, or mas."
+        exit 1
+        ;;
+    esac
+  else
+    target="$SETTINGS_FILE"
+  fi
+
+  info "Opening $(visible_path "$target")..."
   echo ""
-  echo "  Sections:"
-  echo "    brews      → CLI tools  (https://formulae.brew.sh/formula/)"
-  echo "    casks      → GUI apps   (https://formulae.brew.sh/cask/)"
-  echo "    masApps    → App Store  (find ID in App Store URL)"
-  echo "    systemPackages → Nix    (https://search.nixos.org/packages)"
+  echo "  After editing:"
+  echo "    nix-instantiate --parse $(visible_path "$target")"
+  echo "    dot rebuild"
   echo ""
-  echo "  After editing, run: dot rebuild"
-  echo ""
-  # No editor default beyond $EDITOR: assuming a specific one (this was
-  # hardcoded to code-insiders) breaks on any machine that lacks it.
   if [[ -z "${EDITOR:-}" ]]; then
-    err "\$EDITOR is not set. Set it, or open the file directly:"
-    echo "    $CONFIG"
+    err "\$EDITOR is not set. Open this path directly:"
+    echo "    $(visible_path "$target")"
     exit 1
   fi
-  "$EDITOR" "$CONFIG"
+  "$EDITOR" "$target"
 }
 
 cmd_help() {
+  local cask_count nix_count mas_count
+  cask_count=$(casks_read | grep -c '\S' || true)
+  nix_count=$(nix_packages_read | grep -c '\S' || true)
+  mas_count=$(mas_apps_read | grep -c '\S' || true)
+
   echo ""
-  echo -e "${BOLD}apps${NC} — Manage your installed applications"
+  echo -e "${BOLD}apps${NC} — Manage applications in your private profile"
+  echo ""
+  if [[ "$PROFILE_LAYOUT" == "modular" ]]; then
+    echo "  Active profile: $(visible_path "$PRIVATE_ROOT") (modular)"
+  else
+    echo "  Active profile: $(visible_path "$LOCAL_DIR") (legacy compatibility)"
+  fi
   echo ""
   echo -e "  ${BOLD}Commands:${NC}"
-  echo "    apps                  Show this help"
-  echo "    apps list             List all apps by category"
-  echo "    apps search <name>    Find the right package name"
-  echo "    apps add <name>       Add an app (auto-detects type)"
-  echo "    apps remove <name>    Remove an app from config"
-  echo "    apps edit             Open hosts/default.nix directly"
+  echo "    apps list                      List declarations and their files"
+  echo "    apps search <name>             Find package names"
+  echo "    apps add <name>                Auto-detect a Homebrew cask"
+  echo "    apps add --cask <name>         Add a Homebrew GUI application"
+  echo "    apps add --nix <attribute>     Add pkgs.<attribute>"
+  echo "    apps add --mas <name> <id>     Add a Mac App Store application"
+  echo "    apps remove <name>             Remove a declaration"
+  echo "    apps edit [casks|nix|mas]      Open the owning private file"
   echo ""
-  echo -e "  ${BOLD}Examples:${NC}"
-  echo "    apps search firefox   → find firefox package name"
-  echo "    apps add firefox      → add to config"
-  echo "    apps remove arc       → remove from config"
-  echo "    rebuild               → apply changes"
+  echo -e "  ${BOLD}Current declarations:${NC}"
+  printf "    %-22s %s\n" "Homebrew casks" "$cask_count"
+  printf "    %-22s %s\n" "Nix packages" "$nix_count"
+  printf "    %-22s %s\n" "Mac App Store" "$mas_count"
   echo ""
-  echo -e "  ${BOLD}Where apps come from:${NC}"
-  printf "    %-22s %s\n" "Homebrew casks" "GUI .app bundles   → formulae.brew.sh/cask"
-  printf "    %-22s %s\n" "Homebrew brews" "CLI tools          → formulae.brew.sh/formula"
-  printf "    %-22s %s\n" "Mac App Store" "Purchased apps     → App Store URL number"
-  printf "    %-22s %s\n" "Nix packages" "Cross-platform     → search.nixos.org"
-  echo ""
-  echo -e "  ${BOLD}Current counts:${NC}"
-
-  # Counted from .local/ AND the framework sets. Counting only the framework
-  # files reported "0 apps" on a machine full of the user's own casks.
-  local local_casks local_nix set_casks set_brews
-  local_casks=$(local_selection_read casks | grep -c '\S' || true)
-  local_nix=$(local_selection_read nixPackages | grep -c '\S' || true)
-  set_casks=$(parse_block "casks" "[" "]" | grep -c '\S' || true)
-  set_brews=$(parse_block "brews" "[" "]" | grep -c '\S' || true)
-
-  printf "    %-22s %s\n" "Your casks" "$local_casks apps (.local/)"
-  printf "    %-22s %s\n" "Your Nix packages" "$local_nix packages (.local/)"
-  printf "    %-22s %s\n" "App-set casks" "$set_casks apps (framework)"
-  printf "    %-22s %s\n" "App-set brews" "$set_brews tools (framework)"
+  echo "  Commands print the exact private file they change and the equivalent"
+  echo "  manual Nix edit. Review changes before running: dot rebuild"
   echo ""
 }
-
-# ── Main ───────────────────────────────────────────────────────────────────
 
 case "${1:-}" in
   list)    cmd_list ;;
   search)  cmd_search "${2:-}" ;;
-  add)     cmd_add "${2:-}" ;;
+  add)     cmd_add "${@:2}" ;;
   remove)  cmd_remove "${2:-}" ;;
-  edit)    cmd_edit ;;
-  *)       cmd_help ;;
+  edit)    cmd_edit "${2:-}" ;;
+  help|--help|-h|"") cmd_help ;;
+  *)
+    err "Unknown apps command: '${1:-}'"
+    cmd_help
+    exit 1
+    ;;
 esac

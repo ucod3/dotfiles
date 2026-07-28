@@ -5,6 +5,7 @@ setup() {
   REPO_ROOT="$BATS_TEST_DIRNAME/.."
   GENERATOR="$REPO_ROOT/scripts/lib/generate-private-profile.sh"
   TMP="$(mktemp -d -t private_bootstrap.XXXXXX)"
+  TMP="$(cd "$TMP" && pwd -P)"
   PRIVATE="$TMP/dotfiles-private"
   FAKE_BIN="$TMP/bin"
   RECORD="$TMP/nix-record"

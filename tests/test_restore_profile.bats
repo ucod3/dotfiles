@@ -5,6 +5,7 @@ setup() {
   REPO_ROOT="$BATS_TEST_DIRNAME/.."
   RESTORE="$REPO_ROOT/scripts/bin/restore-profile"
   TMP="$(mktemp -d -t dotfiles_restore_test.XXXXXX)"
+  TMP="$(cd "$TMP" && pwd -P)"
   STUB_BIN="$TMP/bin"
   PROFILE="$TMP/profile"
   DARWIN_CALLED_FILE="$TMP/darwin-called"

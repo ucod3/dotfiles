@@ -14,6 +14,7 @@ setup() {
   REAL_GIT="$(command -v git)"
 
   TMP="$(mktemp -d -t clean_machine_acceptance.XXXXXX)"
+  TMP="$(cd "$TMP" && pwd -P)"
   MAC_A_HOME="$TMP/mac-a"
   MAC_B_HOME="$TMP/mac-b"
   FRAMEWORK_A="$MAC_A_HOME/dotfiles"
