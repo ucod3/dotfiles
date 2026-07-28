@@ -14,6 +14,7 @@ This file is intentionally not a changelog or a list of every possible feature.
 ## Status key
 
 - **Complete** — implemented and supported by the stated evidence.
+- **Active** — cross-cutting work that continues alongside the current phase.
 - **Next** — the current product phase.
 - **Queued** — approved direction, waiting on an earlier dependency.
 - **Release gate** — evidence required before calling the product ready.
@@ -39,6 +40,25 @@ The project now has:
 - automated two-machine creation, backup, and restore contract tests.
 
 These foundations do not yet prove the complete clean-Mac, no-AI journey.
+
+### Test-suite integrity — Active
+
+**Outcome:** Automated checks communicate truthful results and protect supported
+behavior without making test count a proxy for product quality.
+
+The recorded inventory, integrity findings, and ordered cleanup work live in
+[`TEST_SUITE_AUDIT.md`](./TEST_SUITE_AUDIT.md).
+
+Done when:
+
+- every suite has one documented responsibility;
+- tests exercise production behavior rather than recreated copies;
+- publication and destructive failures cannot produce misleading success;
+- Nix ownership and safety claims use resolved evaluation where practical;
+- duplicated cases are consolidated without losing boundary coverage;
+- compatibility tests have explicit retirement conditions tied to their
+  supported feature;
+- the clean-machine release gate remains independent of automated test count.
 
 ## Path to v1
 
