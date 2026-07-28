@@ -81,6 +81,18 @@ run_generator() {
   [ "$status" -ne 0 ]
 }
 
+@test "Nix owns Homebrew installation while nix-darwin owns app declarations" {
+  run_generator
+  [ "$status" -eq 0 ]
+
+  grep -qF 'nix-homebrew.darwinModules.nix-homebrew' "$PRIVATE/flake.nix"
+  grep -qF 'nix-homebrew = {' "$PRIVATE/hosts/test-mac.nix"
+  grep -qF 'enable = true;' "$PRIVATE/hosts/test-mac.nix"
+  grep -qF 'homebrew.casks = casks;' "$PRIVATE/apps/default.nix"
+  grep -qF 'homebrew.masApps = masApps;' "$PRIVATE/apps/default.nix"
+  grep -qF 'homebrew.brews = lib.optional' "$PRIVATE/apps/default.nix"
+}
+
 @test "application choices have one focused source of truth" {
   run_generator
   [ "$status" -eq 0 ]
@@ -103,6 +115,8 @@ run_generator() {
   grep -qF 'git diff -- flake.lock' "$PRIVATE/README.md"
   grep -qF 'dot apps add firefox' "$PRIVATE/README.md"
   grep -qF 'dot apps add --nix ripgrep' "$PRIVATE/README.md"
+  grep -qF 'dot apps search firefox' "$PRIVATE/README.md"
+  grep -qF 'apps.apple.com' "$PRIVATE/README.md"
   grep -qF 'git diff -- apps/' "$PRIVATE/README.md"
   grep -qF 'dot adopt ~/.config/example' "$PRIVATE/README.md"
   grep -qF 'git clone <private-profile-repository> ~/dotfiles-private' "$PRIVATE/README.md"

@@ -111,12 +111,19 @@ The optional `dot apps` helper changes the same ordinary Nix files listed above:
 
 ```bash
 dot apps list
+dot apps search firefox
 dot apps add firefox
 dot apps add --nix ripgrep
 dot apps add --mas Notability 360593530
+dot apps add --mas Notability \
+  "https://apps.apple.com/us/app/notability/id360593530"
 git diff -- apps/
 dot rebuild
 ```
+
+Search is read-only and points to the official Homebrew and Nix package
+searches. For an App Store application, choose **Copy Link** and paste the Apple
+URL; the helper records its numeric ID.
 
 Each command names the file it changed and shows the equivalent manual edit.
 You may always edit `apps/homebrew-casks.nix`, `apps/nix-packages.nix`, or
@@ -125,6 +132,11 @@ longer has the generated plain-list or plain-attribute-set shape.
 
 Removing a cask declaration does not uninstall the application while
 `dotfiles.homebrew.cleanup` remains `"none"`, which is the safe default.
+
+Homebrew is installed or adopted by `nix-homebrew` during explicit activation.
+nix-darwin applies the Homebrew and App Store declarations in `apps/`. Home
+Manager separately manages user packages and home configuration; it does not
+install Homebrew.
 
 ## Adopt an existing configuration file
 

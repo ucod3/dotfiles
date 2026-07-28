@@ -67,14 +67,17 @@ private repository. Restore mode never asks for or changes Git identity.
 In an interactive terminal, a new-profile setup asks whether to configure
 applications. The owner can repeatedly choose:
 
-1. Homebrew cask
-2. Nix package
+1. Mac application installed with Homebrew
+2. Command-line tool installed with Nix
 3. Mac App Store application
-4. Finish
+4. Read-only help finding a package name
+5. Finish
 
 The installer delegates each choice to the same profile-aware `dot apps`
 implementation used after installation. It does not maintain a separate catalog
-or application format.
+or application format. Package-name help points to the official Homebrew and
+Nix searches. For App Store applications, choose **Copy Link** in the App Store
+and paste the full `https://apps.apple.com/` URL; a numeric ID remains supported.
 
 For a repeatable non-interactive setup, pass selections explicitly:
 
@@ -84,7 +87,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh
   --cask firefox \
   --cask ghostty \
   --nix-package ripgrep \
-  --mas-app "Notability=360593530"
+  --mas-app "Notability=https://apps.apple.com/us/app/notability/id360593530"
 ```
 
 Each flag is repeatable. `--skip-apps` explicitly keeps the generated lists
@@ -97,6 +100,19 @@ not run.
 
 These options are rejected during `--restore`. Restoration preserves the
 profile's committed choices byte-for-byte.
+
+### When Homebrew is installed
+
+The installer installs Nix when it is missing, but its normal endpoint is a
+non-destructive preflight. Homebrew and the selected applications are installed
+only after the owner explicitly requests activation.
+
+During activation, the generated private flake imports `nix-homebrew`, which
+installs or adopts Homebrew declaratively. nix-darwin then applies
+`homebrew.casks`, `homebrew.brews`, and `homebrew.masApps` from the private
+`apps/` files. Home Manager is a separate part of the same Nix configuration:
+it manages the user's packages and home configuration, not the Homebrew
+installation itself. Homebrew cleanup remains `"none"` by default.
 
 The default command does not activate nix-darwin. Activation must be requested
 explicitly:

@@ -8,7 +8,7 @@
 #   apps add <name>
 #   apps add --cask <name>
 #   apps add --nix <attribute>
-#   apps add --mas <name> <id>
+#   apps add --mas <name> <id-or-app-store-url>
 #   apps remove <name>
 #   apps edit [casks|nix|mas]
 #
@@ -474,16 +474,37 @@ cmd_search() {
     brew search --cask "$query" 2>/dev/null | head -8 | grep -v '^$'; then
     true
   else
-    info "No local cask result. Search: https://formulae.brew.sh/cask/"
+    info "Homebrew is unavailable or found no local result."
   fi
+  info "Official search: https://formulae.brew.sh/cask/"
 
   echo ""
   echo -e "  ${BOLD}Nix packages${NC}"
-  info "Search: https://search.nixos.org/packages?query=$query"
+  info "Official search: https://search.nixos.org/packages"
+  info "Use the package attribute shown there (for example: ripgrep)."
   echo ""
   echo -e "  ${BOLD}Mac App Store${NC}"
-  info "Find the numeric ID at the end of the app's App Store URL."
+  info "Find the app in the App Store, choose Copy Link, and paste that URL."
+  info "A numeric App Store ID still works too."
   echo ""
+  info "Search changes nothing. Add only the result you reviewed."
+  echo ""
+}
+
+normalize_mas_reference() {
+  local reference="$1"
+  if [[ "$reference" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$reference"
+    return 0
+  fi
+
+  if [[ "$reference" =~ ^https://apps\.apple\.com/ ]] &&
+     [[ "$reference" =~ /id([0-9]+)($|[/?#]) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  return 1
 }
 
 modular_add() {
@@ -582,8 +603,8 @@ cmd_add() {
 
   if [[ "$kind" == "mas" ]]; then
     validate_mas_name "$name"
-    [[ "$id" =~ ^[0-9]+$ ]] || {
-      err "Mac App Store ID must contain digits only."
+    id="$(normalize_mas_reference "$id")" || {
+      err "Pass a numeric App Store ID or an https://apps.apple.com/ URL."
       exit 1
     }
   else
@@ -780,7 +801,7 @@ cmd_help() {
   echo "    apps add <name>                Auto-detect a Homebrew cask"
   echo "    apps add --cask <name>         Add a Homebrew GUI application"
   echo "    apps add --nix <attribute>     Add pkgs.<attribute>"
-  echo "    apps add --mas <name> <id>     Add a Mac App Store application"
+  echo "    apps add --mas <name> <ref>    Add by App Store URL or numeric ID"
   echo "    apps remove <name>             Remove a declaration"
   echo "    apps edit [casks|nix|mas]      Open the owning private file"
   echo ""

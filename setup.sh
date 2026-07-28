@@ -50,7 +50,7 @@ Options:
       --user NAME           macOS user for --new (default: id -un)
       --cask NAME           Add a Homebrew cask to a new profile (repeatable)
       --nix-package ATTR    Add pkgs.ATTR to a new profile (repeatable)
-      --mas-app NAME=ID     Add a Mac App Store app to a new profile (repeatable)
+      --mas-app NAME=REF    Add a Mac App Store app by ID or URL (repeatable)
       --skip-apps           Skip interactive application selection for --new
       --activate            Explicitly request activation after preflight
       --yes                 Confirm --activate non-interactively
@@ -205,7 +205,8 @@ has_selected_apps() {
 }
 
 interactive_app_selection() {
-  local configure choice name app_id
+  local apps_command="$FRAMEWORK_DIR/scripts/bin/apps"
+  local configure choice name app_reference query
 
   [[ "$SKIP_APPS" == false ]] || return 0
   has_selected_apps && return 0
@@ -224,31 +225,47 @@ interactive_app_selection() {
 
   while true; do
     printf '\nChoose an application type:\n'
-    printf '  1) Homebrew cask (GUI application)\n'
-    printf '  2) Nix package (command-line tool)\n'
+    printf '  1) Mac application (installed with Homebrew)\n'
+    printf '  2) Command-line tool (installed with Nix)\n'
     printf '  3) Mac App Store application\n'
-    printf '  4) Finish application selection\n\n'
-    prompt_read choice "Selection [4]: " "4"
+    printf '  4) Find a package name (read-only help)\n'
+    printf '  5) Finish application selection\n\n'
+    prompt_read choice "Selection [5]: " "5"
 
     case "$choice" in
       1|cask|Cask)
-        prompt_read name "Homebrew cask name: " ""
+        printf 'Find names at https://formulae.brew.sh/cask/\n'
+        prompt_read name "Mac app package name (example: firefox): " ""
         [[ -n "$name" ]] || fail "a Homebrew cask name is required"
         SELECTED_CASKS+=("$name")
         ;;
       2|nix|Nix)
-        prompt_read name "Nixpkgs attribute (the part after pkgs.): " ""
+        printf 'Find package names at https://search.nixos.org/packages\n'
+        prompt_read name "Command-line package name (example: ripgrep): " ""
         [[ -n "$name" ]] || fail "a Nix package attribute is required"
         SELECTED_NIX_PACKAGES+=("$name")
         ;;
       3|mas|MAS)
         prompt_read name "Mac App Store application name: " ""
-        prompt_read app_id "Numeric App Store ID: " ""
-        [[ -n "$name" && "$app_id" =~ ^[0-9]+$ ]] \
-          || fail "a name and numeric Mac App Store ID are required"
-        SELECTED_MAS_APPS+=("$name=$app_id")
+        printf 'In the App Store, choose Copy Link. You may paste the full link.\n'
+        prompt_read app_reference "App Store link or numeric ID: " ""
+        [[ -n "$name" && -n "$app_reference" ]] \
+          || fail "an application name and App Store link or ID are required"
+        SELECTED_MAS_APPS+=("$name=$app_reference")
         ;;
-      4|done|Done|"")
+      4|search|Search)
+        prompt_read query "Application or tool to find: " ""
+        [[ -n "$query" ]] || {
+          log_warning "Enter a search term or choose Finish."
+          continue
+        }
+        [[ -x "$apps_command" ]] \
+          || fail "framework checkout has no executable application command: $apps_command"
+        DOTFILES_ROOT="$FRAMEWORK_DIR" \
+        DOTFILES_PRIVATE_FLAKE="$PROFILE_DIR" \
+          "$apps_command" search "$query"
+        ;;
+      5|done|Done|"")
         break
         ;;
       *)
@@ -260,7 +277,7 @@ interactive_app_selection() {
 
 apply_selected_apps() {
   local apps_command="$FRAMEWORK_DIR/scripts/bin/apps"
-  local name spec app_id
+  local name spec app_reference
 
   has_selected_apps || return 0
   [[ -x "$apps_command" ]] \
@@ -279,11 +296,11 @@ apply_selected_apps() {
         "$apps_command" add --nix "$name" || exit 1
     done
     for spec in ${SELECTED_MAS_APPS[@]+"${SELECTED_MAS_APPS[@]}"}; do
-      name="${spec%=*}"
-      app_id="${spec##*=}"
+      name="${spec%%=*}"
+      app_reference="${spec#*=}"
       DOTFILES_ROOT="$FRAMEWORK_DIR" \
       DOTFILES_PRIVATE_FLAKE="$PROFILE_DIR" \
-        "$apps_command" add --mas "$name" "$app_id" || exit 1
+        "$apps_command" add --mas "$name" "$app_reference" || exit 1
     done
   ); then
     git -C "$PROFILE_DIR" restore --worktree -- apps/ >/dev/null 2>&1 || true
@@ -430,13 +447,13 @@ while [[ $# -gt 0 ]]; do
     --mas-app)
       SELECTED_MAS_APPS+=("${2:-}")
       [[ -n "${SELECTED_MAS_APPS[${#SELECTED_MAS_APPS[@]}-1]}" ]] \
-        || fail "--mas-app requires NAME=ID"
+        || fail "--mas-app requires NAME=REF"
       shift 2
       ;;
     --mas-app=*)
       SELECTED_MAS_APPS+=("${1#*=}")
       [[ -n "${SELECTED_MAS_APPS[${#SELECTED_MAS_APPS[@]}-1]}" ]] \
-        || fail "--mas-app requires NAME=ID"
+        || fail "--mas-app requires NAME=REF"
       shift
       ;;
     --skip-apps) SKIP_APPS=true; shift ;;

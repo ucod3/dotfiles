@@ -85,13 +85,21 @@ Diff `flake.lock` before committing if you want to know what is about to change.
 
 ```bash
 dot apps list                              # declarations and their owning files
-dot apps search firefox                    # find the right package name
+dot apps search firefox                    # official discovery paths; no changes
 dot apps add ghostty                       # auto-detect a Homebrew cask
 dot apps add --nix ripgrep                 # add pkgs.ripgrep
 dot apps add --mas Notability 360593530    # add an App Store application
+dot apps add --mas Notability \
+  "https://apps.apple.com/us/app/notability/id360593530"
 dot apps remove ghostty
 dot apps edit casks
 ```
+
+`dot apps search` is read-only. It uses the locally installed `brew` search when
+available and always points to the official Homebrew cask and Nix package
+searches. For a Mac App Store application, use **Copy Link** in the App Store;
+the helper extracts the numeric ID from the Apple URL before writing ordinary
+Nix. Numeric IDs continue to work directly.
 
 For a readable modular profile, these commands read and change the ordinary Nix
 files under `~/dotfiles-private/apps/`:
@@ -113,6 +121,12 @@ rewriting the profile.
 The framework declares no GUI application. Removing a declaration does not
 necessarily uninstall an existing app: `homebrew.cleanup` defaults to `"none"`.
 This prevents an incomplete list from deleting software.
+
+Homebrew ownership is split deliberately. The private flake enables
+`nix-homebrew`, which installs or adopts Homebrew during explicit activation.
+nix-darwin applies the declared formulae, casks, and App Store applications.
+Home Manager manages user packages and home configuration; it does not install
+or own Homebrew itself.
 
 ### What the framework manages, and what you adopt
 
