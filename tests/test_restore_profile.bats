@@ -356,10 +356,29 @@ run_restore() {
 }
 
 @test "the framework flake exports restore with pinned darwin-rebuild" {
-  run grep -q 'restore = {' "$REPO_ROOT/flake.nix"
+  run nix --option warn-dirty false eval --raw \
+    "$REPO_ROOT#packages.aarch64-darwin.restore"
   assert_success
-  run grep -q 'dotfiles-restore' "$REPO_ROOT/flake.nix"
+  package_path="$output"
+
+  run nix --option warn-dirty false eval --json \
+    "$REPO_ROOT#apps.aarch64-darwin.restore"
   assert_success
-  run grep -q 'nix-darwin.packages.${system}.darwin-rebuild' "$REPO_ROOT/flake.nix"
+  app_json="$output"
+  run jq -e --arg program "$package_path/bin/dotfiles-restore" \
+    '.type == "app" and .program == $program' <<<"$app_json"
+  assert_success
+
+  run nix --option warn-dirty false derivation show \
+    "$REPO_ROOT#packages.aarch64-darwin.restore"
+  assert_success
+  derivation_json="$output"
+  run jq -e '
+    (if has("derivations") then .derivations else . end)
+    | to_entries[0].value
+    | (.inputs.drvs // .inputDrvs)
+    | keys
+    | any(endswith("-darwin-rebuild.drv"))
+  ' <<<"$derivation_json"
   assert_success
 }
