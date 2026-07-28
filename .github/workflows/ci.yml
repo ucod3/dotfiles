@@ -8,8 +8,8 @@ name: CI
 #                  guard from ADR-007 — never ran in CI at all.
 #
 # File lists are derived from `git ls-files` rather than hand-maintained here.
-# Two hand-written lists (this file and scripts/bin/validate) had drifted apart,
-# leaving three scripts checked by neither.
+# This includes every top-level shell entry point, so a new installer cannot
+# silently miss syntax and ShellCheck coverage.
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
               echo "  FAIL: $f"
               failed=1
             fi
-          done < <(git ls-files 'scripts/bin/*' 'lib/*.sh' 'install.sh')
+          done < <(git ls-files 'scripts/bin/*' 'lib/*.sh' '*.sh')
           exit $failed
 
       # ── Secret scanning (gitleaks) ────────────────────────────────────────
@@ -67,7 +67,7 @@ jobs:
           mapfile -t scripts < <(
             while IFS= read -r f; do
               head -1 "$f" | grep -q bash && echo "$f"
-            done < <(git ls-files 'scripts/bin/*' 'lib/*.sh' 'install.sh')
+            done < <(git ls-files 'scripts/bin/*' 'lib/*.sh' '*.sh')
           )
           printf '  will check: %s\n' "${scripts[@]}"
           nix shell nixpkgs#shellcheck --command \
