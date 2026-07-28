@@ -46,18 +46,19 @@ visible_path() {
   fi
 }
 
+CASKS_FILE="$PRIVATE_ROOT/apps/homebrew-casks.nix"
+NIX_FILE="$PRIVATE_ROOT/apps/nix-packages.nix"
+MAS_FILE="$PRIVATE_ROOT/apps/mac-app-store.nix"
+APPS_FILE="$LOCAL_DIR/apps.nix"
+SETTINGS_FILE="$LOCAL_DIR/settings.nix"
+
 # A modular profile is identified by the composition file generated for the
 # readable apps/ layout. Existing profiles without it stay on the legacy
 # .local/ compatibility path.
 if [[ -f "$PRIVATE_ROOT/apps/default.nix" ]]; then
   PROFILE_LAYOUT="modular"
-  CASKS_FILE="$PRIVATE_ROOT/apps/homebrew-casks.nix"
-  NIX_FILE="$PRIVATE_ROOT/apps/nix-packages.nix"
-  MAS_FILE="$PRIVATE_ROOT/apps/mac-app-store.nix"
 else
   PROFILE_LAYOUT="legacy"
-  APPS_FILE="$LOCAL_DIR/apps.nix"
-  SETTINGS_FILE="$LOCAL_DIR/settings.nix"
 fi
 
 # ── Read helpers ────────────────────────────────────────────────────────────
@@ -139,7 +140,8 @@ modular_nix_read() {
 modular_mas_read() {
   [[ -f "$MAS_FILE" ]] || return 0
   sed -E '/^[[:space:]]*#/d' "$MAS_FILE" | sed -nE \
-    's/^[[:space:]]*"?([^"=]+)"?[[:space:]]*=[[:space:]]*([0-9]+);[[:space:]]*$/\1  (ID: \2)/p'
+    's/^[[:space:]]*"?([^"=]+)"?[[:space:]]*=[[:space:]]*([0-9]+);[[:space:]]*$/\1  (ID: \2)/p' |
+    sed -E 's/[[:space:]]+\(ID:/  (ID:/'
 }
 
 legacy_mas_read() {
@@ -458,6 +460,59 @@ with open(sys.argv[1], encoding="utf-8") as source:
                     print(name)
 PYEOF
   echo ""
+}
+
+snapshot_entries() {
+  local layout="$1" entry
+  case "$layout" in
+    legacy)
+      while IFS= read -r entry; do
+        [[ -n "$entry" ]] && printf 'cask\t%s\n' "$entry"
+      done < <(
+        legacy_list_read_file "$SETTINGS_FILE" casks
+        legacy_list_read_file "$APPS_FILE" casks
+      )
+      while IFS= read -r entry; do
+        [[ -n "$entry" ]] && printf 'nix\t%s\n' "$entry"
+      done < <(
+        legacy_list_read_file "$SETTINGS_FILE" nixPackages
+        legacy_list_read_file "$APPS_FILE" nixPackages
+      )
+      while IFS= read -r entry; do
+        [[ -n "$entry" ]] && printf 'mas\t%s\n' "$entry"
+      done < <(legacy_mas_read)
+      ;;
+    modular)
+      while IFS= read -r entry; do
+        [[ -n "$entry" ]] && printf 'cask\t%s\n' "$entry"
+      done < <(modular_casks_read)
+      while IFS= read -r entry; do
+        [[ -n "$entry" ]] && printf 'nix\t%s\n' "$entry"
+      done < <(modular_nix_read)
+      while IFS= read -r entry; do
+        [[ -n "$entry" ]] && printf 'mas\t%s\n' "$entry"
+      done < <(modular_mas_read)
+      ;;
+    *)
+      err "Unknown snapshot layout: '$layout'"
+      return 1
+      ;;
+  esac
+}
+
+cmd_snapshot() {
+  local requested="${1:-auto}" layout
+  case "$requested" in
+    auto) layout="$PROFILE_LAYOUT" ;;
+    --legacy) layout="legacy" ;;
+    --modular) layout="modular" ;;
+    *)
+      err "Usage: apps snapshot [--legacy|--modular]"
+      return 1
+      ;;
+  esac
+
+  snapshot_entries "$layout" | LC_ALL=C sort
 }
 
 cmd_search() {
@@ -804,6 +859,7 @@ cmd_help() {
   echo "    apps add --mas <name> <ref>    Add by App Store URL or numeric ID"
   echo "    apps remove <name>             Remove a declaration"
   echo "    apps edit [casks|nix|mas]      Open the owning private file"
+  echo "    apps snapshot [layout]         Print deterministic migration evidence"
   echo ""
   echo -e "  ${BOLD}Current declarations:${NC}"
   printf "    %-22s %s\n" "Homebrew casks" "$cask_count"
@@ -817,6 +873,7 @@ cmd_help() {
 
 case "${1:-}" in
   list)    cmd_list ;;
+  snapshot) cmd_snapshot "${2:-auto}" ;;
   search)  cmd_search "${2:-}" ;;
   add)     cmd_add "${@:2}" ;;
   remove)  cmd_remove "${2:-}" ;;

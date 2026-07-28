@@ -93,6 +93,10 @@ Done when:
 **Outcome:** Existing users can reach the readable modular layout without an
 automatic rewrite or a second source of truth.
 
+Current evidence and the responsibility-by-responsibility procedure are
+documented in
+[`PRIVATE_PROFILE_MIGRATION.md`](./PRIVATE_PROFILE_MIGRATION.md).
+
 Done when:
 
 - a preview-only inventory identifies active legacy files by evidence;

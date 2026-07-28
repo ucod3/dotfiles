@@ -25,7 +25,16 @@ EOF
   printf '{}\n' > "$PROFILE/flake.lock"
   printf '#!/bin/sh\n' > "$PROFILE/bootstrap"
   printf '# Profile\n' > "$PROFILE/README.md"
-  printf '{ ai.enable = true; }\n' > "$PROFILE/settings.nix"
+  cat > "$PROFILE/settings.nix" <<'EOF'
+{
+  ai.enable = true;
+  casks = [ "firefox" "ghostty" ];
+  nixPackages = [ "jq" ];
+  masApps = {
+    Notability = 360593530;
+  };
+}
+EOF
   printf '{ name = "Private"; }\n' > "$PROFILE/identity.nix"
   printf 'managed\n' > "$PROFILE/home/example"
   cat > "$PROFILE/home.nix" <<'EOF'
@@ -96,6 +105,80 @@ run_preview() {
   assert_failure
   assert_output_contains "only read-only preview is implemented"
   [ -z "$(git -C "$PROFILE" status --porcelain)" ]
+}
+
+@test "application preview records a private baseline without printing choices" {
+  printf '{ casks = [ "zed" ]; nixPackages = [ "ripgrep" ]; }\n' \
+    > "$PROFILE/apps.nix"
+  git -C "$PROFILE" add -A
+  git -C "$PROFILE" commit -qm applications
+
+  run_preview --applications
+  assert_success
+  assert_output_contains "Application migration evidence"
+  assert_output_contains "settings.nix apps.nix"
+  assert_output_contains "3 casks; 2 Nix packages; 1 App Store apps"
+  assert_output_contains "legacy fingerprint"
+  assert_output_contains "resolved equivalence"
+  assert_output_contains "not comparable until targets exist"
+  [[ "$output" != *"firefox"* ]]
+  [[ "$output" != *"Notability"* ]]
+  [ -z "$(git -C "$PROFILE" status --porcelain)" ]
+}
+
+@test "application preview proves exact modular equivalence" {
+  mkdir -p "$PROFILE/apps"
+  cat > "$PROFILE/apps/default.nix" <<'EOF'
+{ pkgs, ... }: {
+  homebrew.casks = import ./homebrew-casks.nix;
+  environment.systemPackages = import ./nix-packages.nix { inherit pkgs; };
+  homebrew.masApps = import ./mac-app-store.nix;
+}
+EOF
+  cat > "$PROFILE/apps/homebrew-casks.nix" <<'EOF'
+[
+  "firefox"
+  "ghostty"
+]
+EOF
+  cat > "$PROFILE/apps/nix-packages.nix" <<'EOF'
+{ pkgs }:
+[
+  pkgs.jq
+]
+EOF
+  cat > "$PROFILE/apps/mac-app-store.nix" <<'EOF'
+{
+  Notability = 360593530;
+}
+EOF
+  git -C "$PROFILE" add -A
+  git -C "$PROFILE" commit -qm modular-applications
+
+  run_preview --applications
+  assert_success
+  assert_output_contains "modular declarations"
+  assert_output_contains "2 casks; 1 Nix packages; 1 App Store apps"
+  assert_output_contains "resolved equivalence"
+  assert_output_contains "exact match"
+  [ -z "$(git -C "$PROFILE" status --porcelain)" ]
+}
+
+@test "application preview reports mismatch and dirty migration blocker" {
+  mkdir -p "$PROFILE/apps"
+  printf '{ }\n' > "$PROFILE/apps/default.nix"
+  printf '[\n  "firefox"\n]\n' > "$PROFILE/apps/homebrew-casks.nix"
+  printf '{ pkgs }:\n[\n  pkgs.jq\n]\n' > "$PROFILE/apps/nix-packages.nix"
+  printf '{\n}\n' > "$PROFILE/apps/mac-app-store.nix"
+  git -C "$PROFILE" add -A
+  git -C "$PROFILE" commit -qm mismatched-applications
+  printf '# changed\n' >> "$PROFILE/README.md"
+
+  run_preview --applications
+  assert_success
+  assert_output_contains "resolved equivalence"
+  assert_output_contains "mismatch; do not continue"
+  assert_output_contains "has uncommitted changes; migration must not start"
 }
 
 @test "dot dispatches the migration preview" {

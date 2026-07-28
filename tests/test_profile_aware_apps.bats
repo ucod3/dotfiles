@@ -82,6 +82,19 @@ run_legacy_apps() {
   [[ "$output" != *"# Notability"* ]]
 }
 
+@test "snapshot emits deterministic migration evidence from the existing readers" {
+  run_modular_apps add --cask firefox
+  assert_success
+  run_modular_apps add --nix jq
+  assert_success
+  run_modular_apps add --mas "Visual Studio Code" 12345
+  assert_success
+
+  run_modular_apps snapshot --modular
+  assert_success
+  [ "$output" = $'cask\tfirefox\nmas\tVisual Studio Code  (ID: 12345)\nnix\tjq' ]
+}
+
 @test "search is read-only and points to official package sources" {
   casks_before="$(shasum "$PRIVATE/apps/homebrew-casks.nix")"
   nix_before="$(shasum "$PRIVATE/apps/nix-packages.nix")"
