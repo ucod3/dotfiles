@@ -56,6 +56,9 @@ if [[ "${1:-}" == "-C" ]]; then
       printf 'PROFILE_GIT=<commit><%s>\n' "$*" >> "$GIT_RECORD"
       rm -f "$APPS_CHANGED_FILE"
       ;;
+    config)
+      printf 'PROFILE_GIT=<config><%s>\n' "$*" >> "$GIT_RECORD"
+      ;;
     restore)
       printf 'PROFILE_GIT=<restore><%s>\n' "$*" >> "$GIT_RECORD"
       rm -f "$APPS_CHANGED_FILE"
@@ -69,6 +72,11 @@ if [[ "${1:-}" == "--no-pager" && "${2:-}" == "-C" ]]; then
 fi
 case "${1:-}" in
   config)
+    if [[ "${2:-}" == "--global" && "$#" -gt 3 ]]; then
+      printf 'GLOBAL_GIT_WRITE=<%s>\n' "$*" >> "$GIT_RECORD"
+      exit 0
+    fi
+    [[ "${FAKE_GIT_IDENTITY_MISSING:-0}" != 1 ]] || exit 0
     case "${3:-}" in
       user.name) printf 'Test User\n' ;;
       user.email) printf 'test@example.com\n' ;;
@@ -105,6 +113,10 @@ BOOTSTRAP
 {
   printf 'DOTFILES_ROOT=%s\n' "${DOTFILES_ROOT:-}"
   printf 'DOTFILES_PRIVATE_FLAKE=%s\n' "${DOTFILES_PRIVATE_FLAKE:-}"
+  printf 'GIT_AUTHOR_NAME=%s\n' "${GIT_AUTHOR_NAME:-}"
+  printf 'GIT_AUTHOR_EMAIL=%s\n' "${GIT_AUTHOR_EMAIL:-}"
+  printf 'GIT_COMMITTER_NAME=%s\n' "${GIT_COMMITTER_NAME:-}"
+  printf 'GIT_COMMITTER_EMAIL=%s\n' "${GIT_COMMITTER_EMAIL:-}"
   printf 'ARGS='
   printf '<%s>' "$@"
   printf '\n'
@@ -245,6 +257,36 @@ run_setup() {
   grep -qF 'ARGS=<--host><test-mac><--activate>' "$BOOTSTRAP_RECORD"
   run grep -qF '<--yes>' "$BOOTSTRAP_RECORD"
   [ "$status" -ne 0 ]
+}
+
+@test "missing global identity is saved only in the new private profile" {
+  SETUP_ARGS=(--new --skip-apps)
+  run_setup \
+    FAKE_GIT_IDENTITY_MISSING=1 \
+    GIT_AUTHOR_NAME="Profile User" \
+    GIT_AUTHOR_EMAIL="profile-email"
+  [ "$status" -eq 0 ]
+
+  grep -qF 'GIT_AUTHOR_NAME=Profile User' "$SETUP_HOST_RECORD"
+  grep -qF 'GIT_AUTHOR_EMAIL=profile-email' "$SETUP_HOST_RECORD"
+  grep -qF 'GIT_COMMITTER_NAME=Profile User' "$SETUP_HOST_RECORD"
+  grep -qF 'GIT_COMMITTER_EMAIL=profile-email' "$SETUP_HOST_RECORD"
+  grep -qF 'PROFILE_GIT=<config><--local user.name Profile User>' "$GIT_RECORD"
+  grep -qF 'PROFILE_GIT=<config><--local user.email profile-email>' "$GIT_RECORD"
+  [[ "$output" == *"only in the private profile"* ]]
+  run grep -qF 'GLOBAL_GIT_WRITE=' "$GIT_RECORD"
+  [ "$status" -ne 0 ]
+}
+
+@test "missing identity stops non-interactive setup before cloning" {
+  SETUP_ARGS=(--new --skip-apps)
+  run_setup \
+    FAKE_GIT_IDENTITY_MISSING=1 \
+    GIT_AUTHOR_NAME= \
+    GIT_AUTHOR_EMAIL=
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"required for local profile commits"* ]]
+  [ ! -e "$GIT_RECORD" ]
 }
 
 @test "new journey writes repeatable application choices before preflight" {

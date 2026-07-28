@@ -21,6 +21,9 @@ SKIP_APPS=false
 SELECTED_CASKS=()
 SELECTED_NIX_PACKAGES=()
 SELECTED_MAS_APPS=()
+GIT_IDENTITY_NAME=""
+GIT_IDENTITY_EMAIL=""
+GIT_IDENTITY_NEEDS_LOCAL=false
 
 log_info() { printf '[INFO] %s\n' "$*"; }
 log_success() { printf '[SUCCESS] %s\n' "$*"; }
@@ -129,21 +132,34 @@ ensure_nix() {
     || fail "Nix was installed but is not available; open a new terminal and rerun setup.sh"
 }
 
-ensure_git_identity() {
+resolve_git_identity() {
   local name email
   name="$(git config --global user.name 2>/dev/null || true)"
   email="$(git config --global user.email 2>/dev/null || true)"
   if [[ -n "$name" && -n "$email" ]]; then
+    GIT_IDENTITY_NAME="$name"
+    GIT_IDENTITY_EMAIL="$email"
     return 0
   fi
 
-  has_tty || fail "Git identity is required for a new profile; configure user.name and user.email"
-  prompt_read name "Git name: " "$name"
-  prompt_read email "Git email: " "$email"
+  if [[ -n "${GIT_AUTHOR_NAME:-}" && -n "${GIT_AUTHOR_EMAIL:-}" ]]; then
+    GIT_IDENTITY_NAME="$GIT_AUTHOR_NAME"
+    GIT_IDENTITY_EMAIL="$GIT_AUTHOR_EMAIL"
+    GIT_IDENTITY_NEEDS_LOCAL=true
+    return 0
+  fi
+
+  has_tty \
+    || fail "Git identity is required for local profile commits; run interactively or set GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL"
+  log_info "Git records a name and email on the private profile's local commits."
+  log_info "These answers will be saved only in the private profile, not in global Git settings."
+  prompt_read name "Name for private-profile commits: " "$name"
+  prompt_read email "Email for private-profile commits: " "$email"
   [[ -n "$name" && -n "$email" ]] \
     || fail "both Git name and email are required"
-  git config --global user.name "$name"
-  git config --global user.email "$email"
+  GIT_IDENTITY_NAME="$name"
+  GIT_IDENTITY_EMAIL="$email"
+  GIT_IDENTITY_NEEDS_LOCAL=true
 }
 
 clone_into_absent() {
@@ -298,19 +314,29 @@ create_new_profile() {
     || fail "private profile destination already exists: $PROFILE_DIR (nothing was moved or replaced)"
 
   ensure_nix
-  ensure_git_identity
+  resolve_git_identity
   clone_into_absent "$framework_url" "$FRAMEWORK_DIR" "framework"
 
   [[ -f "$FRAMEWORK_DIR/scripts/bin/setup-private-host" ]] \
     || fail "framework checkout has no setup-private-host command"
 
   log_info "Creating a readable private profile for $HOST_NAME"
+  GIT_AUTHOR_NAME="$GIT_IDENTITY_NAME" \
+  GIT_AUTHOR_EMAIL="$GIT_IDENTITY_EMAIL" \
+  GIT_COMMITTER_NAME="$GIT_IDENTITY_NAME" \
+  GIT_COMMITTER_EMAIL="$GIT_IDENTITY_EMAIL" \
   DOTFILES_ROOT="$FRAMEWORK_DIR" \
   DOTFILES_PRIVATE_FLAKE="$PROFILE_DIR" \
     bash "$FRAMEWORK_DIR/scripts/bin/setup-private-host" \
       --host "$HOST_NAME" \
       --user "$USER_NAME" \
       --fork "$framework_url"
+
+  if [[ "$GIT_IDENTITY_NEEDS_LOCAL" == true ]]; then
+    git -C "$PROFILE_DIR" config --local user.name "$GIT_IDENTITY_NAME"
+    git -C "$PROFILE_DIR" config --local user.email "$GIT_IDENTITY_EMAIL"
+    log_info "Saved Git identity only in the private profile's local repository settings."
+  fi
 
   interactive_app_selection
   apply_selected_apps
