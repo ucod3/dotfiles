@@ -32,5 +32,10 @@
   {
     darwinConfigurations = builtins.listToAttrs
       (map (name: { inherit name; value = mkHost name; }) hostNames);
+
+    # The private profile owns the stable entry point while the pinned framework
+    # owns the implementation. Running `nix run .#restore` therefore follows this
+    # profile's flake.lock instead of a separately downloaded installer revision.
+    apps."@SYSTEM@".restore = dotfiles.apps."@SYSTEM@".restore;
   };
 }
