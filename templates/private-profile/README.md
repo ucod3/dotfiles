@@ -105,6 +105,27 @@ a new file under `hosts/`, rename the Mac, or stop and inspect the profile.
 
 The `dot rebuild` command is a convenience wrapper around the same flake.
 
+## Manage applications
+
+The optional `dot apps` helper changes the same ordinary Nix files listed above:
+
+```bash
+dot apps list
+dot apps add firefox
+dot apps add --nix ripgrep
+dot apps add --mas Notability 360593530
+git diff -- apps/
+dot rebuild
+```
+
+Each command names the file it changed and shows the equivalent manual edit.
+You may always edit `apps/homebrew-casks.nix`, `apps/nix-packages.nix`, or
+`apps/mac-app-store.nix` directly. The helper refuses to rewrite a file that no
+longer has the generated plain-list or plain-attribute-set shape.
+
+Removing a cask declaration does not uninstall the application while
+`dotfiles.homebrew.cleanup` remains `"none"`, which is the safe default.
+
 ## Adopt an existing configuration file
 
 ```bash
