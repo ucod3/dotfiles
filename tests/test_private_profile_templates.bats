@@ -26,6 +26,7 @@ run_generator() {
   [ "$status" -eq 0 ]
 
   [ -f "$PRIVATE/README.md" ]
+  [ -x "$PRIVATE/bootstrap" ]
   [ -f "$PRIVATE/flake.nix" ]
   [ -f "$PRIVATE/identity.nix" ]
   [ -f "$PRIVATE/hosts/test-mac.nix" ]
@@ -37,6 +38,7 @@ run_generator() {
   [ -f "$PRIVATE/home.nix" ]
   [ -f "$PRIVATE/home/default.nix" ]
   [ -d "$PRIVATE/home/files" ]
+  [[ "$output" == *"Restore:   ./bootstrap (non-destructive preflight)"* ]]
 }
 
 @test "ordinary users consume the upstream framework without a fork" {
@@ -52,6 +54,17 @@ run_generator() {
   [ "$status" -eq 0 ]
 
   grep -q 'dotfiles.url = "github:alice/my-framework"' "$PRIVATE/flake.nix"
+  grep -qF 'github:alice/my-framework' "$PRIVATE/README.md"
+}
+
+@test "private flake exposes the restore app from its pinned framework" {
+  run_generator
+  [ "$status" -eq 0 ]
+
+  grep -qF 'apps."aarch64-darwin".restore = dotfiles.apps."aarch64-darwin".restore;' \
+    "$PRIVATE/flake.nix"
+  run grep -R 'scripts/bin/restore-profile' "$PRIVATE"
+  [ "$status" -ne 0 ]
 }
 
 @test "host composition imports focused private modules normally" {
@@ -81,7 +94,7 @@ run_generator() {
   [ -z "$output" ]
 }
 
-@test "generated README teaches native Nix operations" {
+@test "generated README teaches native Nix and direct recovery operations" {
   run_generator
   [ "$status" -eq 0 ]
 
@@ -89,6 +102,11 @@ run_generator() {
   grep -qF 'darwin-rebuild switch --flake .#test-mac' "$PRIVATE/README.md"
   grep -qF 'git diff -- flake.lock' "$PRIVATE/README.md"
   grep -qF 'dot adopt ~/.config/example' "$PRIVATE/README.md"
+  grep -qF 'git clone <private-profile-repository> ~/dotfiles-private' "$PRIVATE/README.md"
+  grep -qF './bootstrap' "$PRIVATE/README.md"
+  grep -qF 'nix run .#restore' "$PRIVATE/README.md"
+  grep -qF 'non-destructive preflight' "$PRIVATE/README.md"
+  grep -qF 'does not activate nix-darwin yet' "$PRIVATE/README.md"
 }
 
 @test "dot adopt writes modular profiles under home files" {
@@ -126,4 +144,5 @@ run_generator() {
   [[ "$output" == *"Refusing to overwrite"* ]]
   [ "$(cat "$PRIVATE/existing.txt")" = "keep me" ]
   [ ! -e "$PRIVATE/flake.nix" ]
+  [ ! -e "$PRIVATE/bootstrap" ]
 }
