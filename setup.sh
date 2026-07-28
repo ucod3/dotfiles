@@ -195,6 +195,7 @@ create_new_profile() {
       --user "$USER_NAME" \
       --fork "$framework_url"
 
+  log_warning "The new private profile exists only on this Mac until you add and push a private remote."
   run_profile_contract
 }
 
@@ -210,6 +211,7 @@ restore_existing_profile() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --) shift ;;
     --new)
       set_mode new
       shift
