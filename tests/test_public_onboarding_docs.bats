@@ -4,6 +4,9 @@ setup() {
   REPO_ROOT="$BATS_TEST_DIRNAME/.."
   README="$REPO_ROOT/README.md"
   GETTING_STARTED="$REPO_ROOT/GETTING-STARTED.md"
+  ARCHITECTURE="$REPO_ROOT/docs/ARCHITECTURE.md"
+  PRIVATE_HOST="$REPO_ROOT/docs/PRIVATE_HOST_SETUP.md"
+  TESTING="$REPO_ROOT/docs/TESTING.md"
   SETUP="$REPO_ROOT/setup.sh"
 }
 
@@ -46,4 +49,29 @@ setup() {
   [ "$status" -ne 0 ]
 
   grep -qF 'legacy compatibility path' "$GETTING_STARTED"
+}
+
+@test "architecture documents upstream profiles and declarative Homebrew ownership" {
+  grep -qF 'inputs.dotfiles.url = "github:ucod3/dotfiles";' "$ARCHITECTURE"
+  grep -qF '`nix-homebrew` installs or adopts the Homebrew installation' \
+    "$ARCHITECTURE"
+  grep -qF 'Home Manager does not install or own Homebrew' "$ARCHITECTURE"
+  grep -qF 'Legacy `.local/` compatibility' "$ARCHITECTURE"
+}
+
+@test "host setup uses the current profile journey without requiring a fork" {
+  grep -qF 'main/setup.sh' "$PRIVATE_HOST"
+  grep -qF 'inputs.dotfiles.url = "github:ucod3/dotfiles";' "$PRIVATE_HOST"
+  grep -qF 'does not otherwise require a fork' "$PRIVATE_HOST"
+  grep -qF 'restore command currently stops' "$PRIVATE_HOST"
+
+  run grep -E -i '(must|required to) (use |create )?(your |a )?fork' \
+    "$PRIVATE_HOST"
+  [ "$status" -ne 0 ]
+}
+
+@test "testing guidance treats setup.sh as the public entry point" {
+  grep -qF '## Testing public setup' "$TESTING"
+  grep -qF '`setup.sh` supports command-double tests' "$TESTING"
+  grep -qF '`install.sh` remains a legacy compatibility entry point' "$TESTING"
 }

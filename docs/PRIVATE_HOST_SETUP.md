@@ -1,135 +1,161 @@
-# Private Host Configuration
+# Private Profile and Host Setup
 
-This repository is a shared, reusable framework. It intentionally contains
-**no hostname, no macOS username, and no per-machine identity** so it stays
-safe to publish and easy for anyone to reuse.
+The public repository is a reusable framework. A concrete Mac requires a
+hostname, username, application choices, preferences, and adopted files, so
+those values live in the separate private profile at `~/dotfiles-private`.
 
-Building an actual macOS system with `nix-darwin` requires a concrete
-username and hostname (for `system.primaryUser`, Home Manager, and
-Homebrew). That identity lives in a separate, private, local flake:
-`~/dotfiles-private`.
+For ordinary first-run instructions, use
+[`GETTING-STARTED.md`](../GETTING-STARTED.md). This document explains the host
+composition in more detail.
 
-## Architecture
+## Create the first host
 
-```
-~/dotfiles              (this repo — shared, public-ready)
-├── flake.nix           exports darwinModules.{coreSystem,homeEnvironment}
-├── hosts/default.nix   shared system config (needs `user` arg)
-└── nix/home/home.nix   shared Home Manager config
+The supported public entry point is:
 
-~/dotfiles-private       (private, local-only, not published)
-├── flake.nix           imports dotfiles as a git input; enumerates ./hosts
-├── home.nix            home.file mappings written by `dot adopt`
-└── hosts/<hostname>.nix   one file per Mac; sets `user = "<macos-username>"`
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- \
+  --new
 ```
 
-The private flake consumes the shared repo as a **published** input —
-`github:OWNER/REPO`, pinned to an exact revision in its `flake.lock`. Your live
-system therefore builds only from what you have pushed; a local branch or an
-uncommitted edit cannot reach it (ADR-009).
+It clones the public framework, generates the private repository, writes the
+current host module, creates and commits `flake.lock`, and finishes with
+non-destructive preflight unless activation was explicitly requested.
 
-**It must be your fork.** `setup-private-host` reads the owner from your own
-`origin` remote, and when that owner is the upstream framework it says so and
-asks for your fork instead — pinning upstream gives you a Mac that rebuilds from
-a repository you cannot push to (ADR-010). Override with `--fork OWNER/REPO` or
-`$DOTFILES_FORK`. It falls back to `git+file://` only when there is no GitHub
-remote at all.
-
-Use `dot rebuild --override-local` to test local work without publishing it.
-That path evaluates your working tree's **staged** changes; untracked files stay
-invisible, so `git add` first (R2).
-
-## Setting up a new machine
+The lower-level generator remains available from a framework checkout:
 
 ```bash
 cd ~/dotfiles
-./scripts/bin/setup-private-host
+./scripts/bin/setup-private-host \
+  --host "$(hostname -s)" \
+  --user "$(id -un)"
 ```
 
-This generates `~/dotfiles-private` with a host file matching your current
-`hostname -s` and `id -un`. It is safe to run once; it will not overwrite
-an existing private configuration.
+It refuses to overwrite an unrelated non-empty destination.
 
-## Rebuilding
+## Generated structure
 
-```bash
-dot rebuild
+```text
+~/dotfiles-private/
+├── README.md
+├── bootstrap
+├── flake.nix
+├── flake.lock
+├── identity.nix
+├── hosts/
+│   └── <hostname>.nix
+├── apps/
+├── macos/
+├── home/
+└── home.nix
 ```
 
-`scripts/bin/rebuild` automatically detects `~/dotfiles-private` and builds
-from it when your hostname is defined there. If no private configuration
-exists yet, it tells you to run `setup-private-host`.
+The private flake enumerates `hosts/*.nix` and produces one
+`darwinConfigurations.<hostname>` for each file. Keep supporting modules outside
+`hosts/`; every `.nix` file there represents a buildable Mac.
 
-## Adding a second machine
+## Framework selection
 
-Push `~/dotfiles-private` to a private repo (see below), clone it on the new
-Mac, and run:
-
-```bash
-cd ~/dotfiles && ./scripts/bin/setup-private-host
-```
-
-It uses the local hostname and username automatically, writes
-`hosts/<hostname>.nix`, and stages it. **There is nothing to edit**: the
-generated `flake.nix` builds `darwinConfigurations` from `builtins.readDir
-./hosts`, so a new file in that directory is a new machine (ADR-010).
-
-The same applies when macOS renames a machine on a new network and `dot rebuild`
-reports no configuration for the new hostname:
-
-```bash
-./scripts/bin/setup-private-host --host "$(hostname -s)"
-```
-
-Because `readDir` treats every `.nix` file in `hosts/` as a host, keep other
-modules out of that directory.
-
-A private flake generated before this layout existed names one host inline. The
-script detects that, still writes the host file, and prints the
-`darwinConfigurations` block for you to paste — it will not rewrite a flake it
-did not generate.
-
-## What the host file wires up
-
-The generated `hosts/<hostname>.nix` imports Home Manager modules as a **list**:
+New profiles use the shared upstream framework:
 
 ```nix
-users.${user}.imports = [
-  inputs.dotfiles.darwinModules.homeEnvironment
-  ../home.nix
-];
+inputs.dotfiles.url = "github:ucod3/dotfiles";
 ```
 
-`../home.nix` is where `dot adopt` writes the mappings for files it moves out of
-`$HOME`. `setup-private-host` creates it up front — empty but valid — so the
-first adoption deploys without you editing the host file. Add your own modules to
-that list the same way.
+The private `flake.lock` pins an exact revision. Updating the framework changes
+that lock without rewriting the user's host, app, macOS, or home files.
 
-## Manual setup & customization
-
-If you prefer to write the private flake by hand, or want per-machine
-overrides, start from the fully documented template at `hosts/_template.nix`.
-
-There are no upstream application sets to disable: applications come only from
-the `casks` / `nixPackages` / `masApps` lists in your own `.local/settings.nix`.
-
-## Backing up the private configuration
-
-`~/dotfiles-private` is a normal git repository. To back it up, create a
-**private** GitHub repository and push to it:
+An advanced maintainer can generate a profile against a compatible fork:
 
 ```bash
-gh repo create dotfiles-private --private
-cd ~/dotfiles-private
-git remote add origin git@github.com:<you>/dotfiles-private.git
-git push -u origin main
+./scripts/bin/setup-private-host --fork OWNER/REPOSITORY
 ```
 
-Do this once. After `origin` exists, `dot promote` keeps the repository pushed
-on every run — it scans it with gitleaks first and refuses to publish a finding.
-Until then nothing is backed up, and `dot scan-unmapped` reports the machine as
-**AT RISK** rather than claiming otherwise: this repository is on the same disk
-as the files it protects, so an unpushed copy is not a backup.
+Using the framework does not otherwise require a fork.
 
-Never make this repository public — it contains your macOS username and
-hostname.
+## Host composition
+
+A generated host imports the focused private modules and the framework's Home
+Manager environment:
+
+```nix
+{
+  imports = [
+    ../apps
+    ../macos
+  ];
+
+  home-manager.users.${user}.imports = [
+    inputs.dotfiles.darwinModules.homeEnvironment
+    ../home
+  ];
+}
+```
+
+The same host enables `nix-homebrew` for its user. Applications remain in the
+private `apps/` files; personal Home Manager settings remain in `home/`.
+
+## Restore a known host
+
+Through the public installer:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- \
+  --restore git@github.com:you/dotfiles-private.git
+```
+
+Or directly:
+
+```bash
+git clone git@github.com:you/dotfiles-private.git ~/dotfiles-private
+cd ~/dotfiles-private
+./bootstrap --host "$(hostname -s)"
+```
+
+Both paths use the profile-owned restore contract and its committed lock.
+Preflight does not activate.
+
+## Add another Mac deliberately
+
+The restore command currently stops when the Mac's hostname is absent. That is
+intentional: it must not silently reuse another host.
+
+The lower-level host generator can add a reviewed module to an existing modular
+or legacy profile:
+
+```bash
+cd ~/dotfiles
+./scripts/bin/setup-private-host \
+  --host "$(hostname -s)" \
+  --user "$(id -un)"
+git -C ~/dotfiles-private diff -- hosts/
+git -C ~/dotfiles-private status --short
+```
+
+It stages the new host because Nix evaluation cannot see an untracked file. The
+owner must review, commit, scan, and push the private change before relying on it
+for recovery.
+
+The roadmap includes a beginner-facing new-host restore choice. Until that phase
+is complete, adding a host is an explicit advanced operation.
+
+## Back up the profile
+
+`~/dotfiles-private` is a normal Git repository and is not a backup while it
+exists only on the Mac it protects.
+
+Connect it to a private Git remote, scan it for credentials, push every intended
+commit, and verify the local branch tracks the remote. The framework is
+provider-neutral; GitHub is not required.
+
+Never publish a private profile merely because its filename contains
+“dotfiles.” It can contain hostnames, usernames, application choices, and
+adopted personal configuration.
+
+## Existing legacy profiles
+
+Profiles created before the modular layout may still use root `settings.nix`,
+`home.nix`, and the `.local` bridge. `setup-private-host`, `dot apps`, rebuild,
+and adoption retain compatibility with that shape.
+
+No setup or restore command is permission to reorganize a live private profile.
+Migration is a separate, reviewed roadmap phase.

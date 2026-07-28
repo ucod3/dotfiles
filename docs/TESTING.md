@@ -38,7 +38,7 @@ gap by instantiating the modules against a dummy host:
 
 | Check | Asserts |
 |---|---|
-| `cold` | Framework defaults only — a fresh public fork with no `.local/`. Guards the "installs nothing opinionated" and graceful-degradation contracts. |
+| `cold` | Framework defaults only, with no private profile or legacy `.local/` settings. Guards the "installs nothing opinionated" and graceful-degradation contracts. |
 | `full` | Every app set and home module enabled. Every cask name typed, every `nixPackages` attribute resolvable in nixpkgs. |
 | `cold-is-nondestructive` | A cold fork resolves `homebrew.onActivation.cleanup` to `"none"` and `macosDefaults` to `false`. Pins ADR-007. |
 
@@ -86,7 +86,12 @@ bats tests/test_cold_clone.bats
 | `test_node_version.bats` | `detect-node-version` semver handling |
 | `test_rebuild.bats` | ADR-009: the pin is never auto-bumped, `--override-local` semantics, flag parsing |
 | `test_dot_adopt.bats` | The adoption guards — every one is the difference between a refusal and damage to a live `$HOME` |
-| `test_adoptability.bats` | ADR-010/011: fork ownership, host-plural private flakes, `dot apps` reading `.local/`, `promote`'s ordering and refusals, and that a cold-fork shell redefines nothing |
+| `test_adoptability.bats` | Legacy profile compatibility, host-plural private flakes, adoption safety, `promote` ordering and refusals, and neutral shell defaults |
+| `test_private_profile_templates.bats` | Readable modular profile generation, Nix/Homebrew ownership, direct recovery documentation |
+| `test_profile_aware_apps.bats` | Modular and legacy application ownership, discovery, safe mutation, and App Store links |
+| `test_restore_profile.bats` | Restore preflight, host selection, activation confirmation, and lock preservation |
+| `test_setup_installer.bats` | Public create/restore journeys, identity, applications, and destination safety |
+| `test_public_onboarding_docs.bats` | README and getting-started claims stay aligned with the supported installer |
 
 `tests/bats_helper.bash` provides `assert_success`, `assert_failure`,
 `assert_output`, `assert_output_contains`, `make_temp`, `cleanup_temp`. Load it
@@ -110,29 +115,30 @@ brew is absent` refuses to run as root, and `--override-local rejects a path tha
 is not a git repository` needs `nix` on `PATH` (`require_nix` runs before flag
 parsing). Both pass on the CI runner and on a Mac.
 
-The runner has no `.local/`, so the eval job exercises the cold-fork path by
-construction.
+The runner has no private profile or `.local/` settings layer, so the eval job
+exercises the neutral public-framework path by construction.
 
-## Testing `install.sh`
+## Testing public setup
 
-`install.sh` modifies the machine it runs on. Test it in a VM or a throwaway
-user account, never on your working system.
-
-It accepts `-v/--verbose` and `-h/--help`. There is **no** `--dry-run`; unknown
-options exit 1.
+`setup.sh` supports command-double tests and temporary-profile rehearsals. Its
+normal endpoint is preflight; CI must never request activation.
 
 ```bash
-# Throwaway account (safer than it sounds — a fresh home directory)
-sudo dscl . -create /Users/coldtest
-sudo dscl . -create /Users/coldtest UserShell /bin/zsh
-sudo dscl . -create /Users/coldtest NFSHomeDirectory /Users/coldtest
-sudo createhomedir -c -u coldtest
-su - coldtest
+bats tests/test_setup_installer.bats
+bats tests/test_clean_machine_acceptance.bats
 ```
 
-Then run the installer and confirm: prompts appear (not consumed by the script),
-the build completes, `git commit` works afterward, and no cask on the machine is
-uninstalled.
+The first suite doubles prerequisites, Git, profile generation, app mutation,
+and bootstrap delegation. The second creates a real temporary Git remote and
+proves a profile survives a two-machine create and restore round trip.
+
+Physical installation and activation still require a disposable clean Apple
+Silicon Mac and the checklist in
+[`CLEAN_MACHINE_ACCEPTANCE.md`](./CLEAN_MACHINE_ACCEPTANCE.md).
+
+The older `install.sh` remains a legacy compatibility entry point. Changes to it
+still require its existing Bats coverage and must be rehearsed away from a
+working system; it is not the ordinary onboarding path.
 
 ## Before you commit
 
