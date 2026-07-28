@@ -79,6 +79,12 @@ bats tests/           # all
 bats tests/test_cold_clone.bats
 ```
 
+Test count is not a quality target. Each test must protect a supported user
+journey, safety boundary, compatibility promise, or documented contract. The
+current inventory, known integrity problems, consolidation plan, and
+compatibility retirement gates are recorded in
+[`TEST_SUITE_AUDIT.md`](./TEST_SUITE_AUDIT.md).
+
 | Suite | Covers |
 |---|---|
 | `test_cold_clone.bats` | First-run behaviours that only misbehave on a machine lacking this repo's tooling: brew-absent exit codes, `NIX_CONFIG` flake enabling, the `darwin-rebuild` fallback, gitleaks without Homebrew, settings-layer detection |
