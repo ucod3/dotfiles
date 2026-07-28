@@ -15,6 +15,7 @@
 #   promote [opts]       Publish, move the private flake's pin, and rebuild
 #   update  [opts]       Update flake inputs, Homebrew, and rebuild
 #   apps    [opts]       Manage installed applications
+#   migrate [--preview]  Inspect legacy private-profile migration evidence
 #   scan-unmapped        List unmanaged $HOME files available for adoption
 #   adopt   <path>       Move a $HOME path into the private flake and declare it
 #   validate [--quick]   Run syntax and common-mistake checks
@@ -84,6 +85,10 @@ dispatch() {
 
     apps)
       exec "$BIN/apps" "$@"
+      ;;
+
+    migrate)
+      exec "$BIN/migrate-profile" "$@"
       ;;
 
     # Both adoption subcommands live in one script; the mode is forwarded as
@@ -176,6 +181,10 @@ cmd_help() {
   echo "                         into /nix/store — edit the private copy instead"
   echo "    adopt <path> --dry-run"
   echo "                         Show what would move, without touching anything"
+  echo ""
+  echo -e "  ${BLUE}Migration${NC}"
+  echo "    migrate              Preview active legacy private-profile sources"
+  echo "    migrate --preview    Same read-only inventory; no apply mode exists"
   echo ""
   echo -e "  ${BLUE}Safety${NC}"
   echo "    validate             Full syntax + common-mistake checks"

@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# migrate-profile — evidence-based, read-only private-profile migration preview.
+set -euo pipefail
+
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+PATHS_FILE="${SELF_DIR%/scripts/bin}/lib/paths.sh"
+# shellcheck source=../../lib/paths.sh
+source "$PATHS_FILE"
+
+DOTFILES_ROOT="$(dotfiles_root)"
+export DOTFILES_ROOT
+PROFILE_ROOT="$(private_flake_root)"
+
+usage() {
+  cat <<'USAGE'
+Usage: migrate-profile [--preview] [--profile PATH]
+
+Inspect an existing private profile and report migration evidence. Preview is
+the only supported mode: no file is moved, generated, staged, committed,
+published, rebuilt, or activated.
+
+Options:
+      --preview       Explicitly select the read-only preview (the default)
+      --profile PATH  Private profile to inspect (default: ~/dotfiles-private)
+  -h, --help          Show this help
+USAGE
+}
+
+fail() {
+  printf 'migration preview error: %s\n' "$*" >&2
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --preview)
+      shift
+      ;;
+    --profile)
+      [[ $# -ge 2 && -n "${2:-}" ]] || fail "--profile requires a path"
+      PROFILE_ROOT="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE_ROOT="${1#*=}"
+      [[ -n "$PROFILE_ROOT" ]] || fail "--profile requires a path"
+      shift
+      ;;
+    --apply|--write|--migrate)
+      fail "only read-only preview is implemented; no apply mode exists"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+done
+
+[[ -d "$PROFILE_ROOT" ]] || fail "profile directory does not exist: $PROFILE_ROOT"
+PROFILE_ROOT="$(cd "$PROFILE_ROOT" && pwd -P)"
+[[ -f "$PROFILE_ROOT/flake.nix" ]] \
+  || fail "profile is missing flake.nix: $PROFILE_ROOT"
+
+LOCAL_ROOT="$(local_dir)"
+LOCAL_RESOLVED=""
+if [[ -d "$LOCAL_ROOT" ]]; then
+  LOCAL_RESOLVED="$(cd "$LOCAL_ROOT" && pwd -P)"
+fi
+
+if [[ -f "$PROFILE_ROOT/home/default.nix" ]]; then
+  LAYOUT="modular"
+else
+  LAYOUT="legacy"
+fi
+
+if [[ "$LOCAL_RESOLVED" == "$PROFILE_ROOT" ]]; then
+  BRIDGE_STATUS="active: $LOCAL_ROOT resolves to this private profile"
+  BRIDGE_ACTIVE=true
+elif [[ -n "$LOCAL_RESOLVED" ]]; then
+  BRIDGE_STATUS="different target: $LOCAL_ROOT resolves to $LOCAL_RESOLVED"
+  BRIDGE_ACTIVE=false
+else
+  BRIDGE_STATUS="absent: $LOCAL_ROOT does not resolve to a directory"
+  BRIDGE_ACTIVE=false
+fi
+
+host_imports_home=false
+host_files=( "$PROFILE_ROOT"/hosts/*.nix )
+for host_file in "${host_files[@]}"; do
+  [[ -f "$host_file" ]] || continue
+  if grep -Eq '(^|[[:space:]])(\.\./|\./)?home\.nix([[:space:]]|$)' "$host_file"; then
+    host_imports_home=true
+    break
+  fi
+done
+
+flake_uses_hosts=false
+if grep -Eq 'builtins\.readDir[[:space:]]+\./hosts|\./hosts/' \
+  "$PROFILE_ROOT/flake.nix"; then
+  flake_uses_hosts=true
+fi
+
+print_item() {
+  printf '  %-28s %s\n' "$1" "$2"
+}
+
+printf 'Private-profile migration preview\n'
+printf '  Profile:        %s\n' "$PROFILE_ROOT"
+printf '  Layout:         %s\n' "$LAYOUT"
+printf '  Local bridge:   %s\n' "$BRIDGE_STATUS"
+printf '  Mode:           preview only\n'
+
+printf '\nActive legacy sources\n'
+if [[ "$BRIDGE_ACTIVE" == true && -f "$PROFILE_ROOT/settings.nix" ]]; then
+  print_item "settings.nix" "active through the .local compatibility loader"
+else
+  print_item "settings.nix" "no active .local evidence"
+fi
+if [[ "$BRIDGE_ACTIVE" == true && -f "$PROFILE_ROOT/identity.nix" ]]; then
+  print_item "identity.nix" "active through the .local compatibility loader"
+else
+  print_item "identity.nix" "no active .local evidence"
+fi
+for legacy_choice in apps.nix browsers/choices.nix editors/choices.nix; do
+  if [[ "$BRIDGE_ACTIVE" == true && -f "$PROFILE_ROOT/$legacy_choice" ]]; then
+    print_item "$legacy_choice" "active through the .local compatibility loader"
+  elif [[ -e "$PROFILE_ROOT/$legacy_choice" ]]; then
+    print_item "$legacy_choice" "present, but active use was not proven"
+  fi
+done
+if [[ -f "$PROFILE_ROOT/home.nix" && "$host_imports_home" == true ]]; then
+  print_item "home.nix" "imported by a committed host module"
+else
+  print_item "home.nix" "present use was not proven from host imports"
+fi
+if [[ -d "$PROFILE_ROOT/home" ]] \
+  && grep -qE '\./home/|dotfiles-private/home/' "$PROFILE_ROOT/home.nix" 2>/dev/null; then
+  print_item "home/" "referenced by home.nix adopted-file mappings"
+elif [[ -d "$PROFILE_ROOT/home" ]]; then
+  print_item "home/" "present, but references were not proven"
+fi
+if [[ -d "$PROFILE_ROOT/hosts" && "$flake_uses_hosts" == true ]]; then
+  print_item "hosts/" "discovered or imported by flake.nix"
+elif [[ -d "$PROFILE_ROOT/hosts" ]]; then
+  print_item "hosts/" "present, but flake discovery was not proven"
+fi
+
+printf '\nReadable modular targets\n'
+for target in apps macos home/default.nix; do
+  if [[ -e "$PROFILE_ROOT/$target" ]]; then
+    print_item "$target" "present"
+  else
+    print_item "$target" "missing"
+  fi
+done
+
+printf '\nGenerated or infrastructure state\n'
+for infrastructure in flake.nix flake.lock bootstrap README.md; do
+  if [[ -e "$PROFILE_ROOT/$infrastructure" ]]; then
+    print_item "$infrastructure" "present; preserve during migration"
+  fi
+done
+if [[ -L "$PROFILE_ROOT/result" || -e "$PROFILE_ROOT/result" ]]; then
+  print_item "result" "generated Nix build output; not a configuration source"
+fi
+
+printf '\nGit evidence\n'
+if git -C "$PROFILE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  if [[ -n "$(git -C "$PROFILE_ROOT" status --porcelain --untracked-files=all)" ]]; then
+    print_item "working tree" "has uncommitted changes; migration must not start"
+  else
+    print_item "working tree" "clean"
+  fi
+
+  remote="$(git -C "$PROFILE_ROOT" remote get-url origin 2>/dev/null || true)"
+  if [[ -n "$remote" ]]; then
+    print_item "origin" "configured"
+  else
+    print_item "origin" "missing; profile is not remotely recoverable"
+  fi
+
+  upstream="$(git -C "$PROFILE_ROOT" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
+  if [[ -n "$upstream" ]]; then
+    ahead="$(git -C "$PROFILE_ROOT" rev-list --count '@{upstream}..HEAD' 2>/dev/null || printf '?')"
+    print_item "upstream" "$upstream; local commits ahead: $ahead"
+  else
+    print_item "upstream" "not configured"
+  fi
+else
+  print_item "repository" "not a Git repository"
+fi
+
+cat <<'EOF'
+
+No changes were made.
+
+Migration sequence after review:
+  1. create a private migration branch;
+  2. move one responsibility at a time;
+  3. compare resolved values before and after;
+  4. keep the .local bridge as a fallback;
+  5. activate only after a reviewed build succeeds.
+EOF
