@@ -359,6 +359,11 @@ run_restore() {
 }
 
 @test "the framework flake exports restore with pinned darwin-rebuild" {
+  if [[ "${DOTFILES_VALIDATE_QUICK:-0}" == "1" ]]; then
+    skip "Nix evaluation is excluded from validate --quick"
+  fi
+  command -v nix >/dev/null 2>&1 || skip "nix is required for flake export evaluation"
+
   # --separate-stderr keeps Nix diagnostics out of $output. On a cold store Nix
   # writes "unpacking '...' into the Git cache..." to stderr while fetching the
   # locked inputs, and bats' default `run` would fold those lines into the

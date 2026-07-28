@@ -36,8 +36,16 @@ cd "$DOTFILES_ROOT"
 source "$DOTFILES_ROOT/lib/log.sh"
 
 QUICK_MODE=false
+export DOTFILES_VALIDATE_QUICK=0
 
-[[ "${1:-}" == "--quick" ]] && QUICK_MODE=true
+if [[ "${1:-}" == "--quick" ]]; then
+  QUICK_MODE=true
+  # The bats suite still runs in quick mode because most tests are cheap and
+  # protect destructive boundaries. Nix-evaluation tests use this explicit
+  # contract to skip themselves instead of silently making the pre-commit hook
+  # perform the slow evaluation that --quick promises to omit.
+  export DOTFILES_VALIDATE_QUICK=1
+fi
 
 # ── 1. Zsh syntax ──────────────────────────────────────────────────────────
 section "Zsh syntax"
