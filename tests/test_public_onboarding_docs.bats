@@ -6,6 +6,7 @@ setup() {
   GETTING_STARTED="$REPO_ROOT/GETTING-STARTED.md"
   ARCHITECTURE="$REPO_ROOT/docs/ARCHITECTURE.md"
   PRIVATE_HOST="$REPO_ROOT/docs/PRIVATE_HOST_SETUP.md"
+  OPERATIONS="$REPO_ROOT/docs/OPERATIONS.md"
   TESTING="$REPO_ROOT/docs/TESTING.md"
   SETUP="$REPO_ROOT/setup.sh"
 }
@@ -74,4 +75,20 @@ setup() {
   grep -qF '## Testing public setup' "$TESTING"
   grep -qF '`setup.sh` supports command-double tests' "$TESTING"
   grep -qF '`install.sh` remains a legacy compatibility entry point' "$TESTING"
+}
+
+@test "ordinary updates move the private framework pin" {
+  grep -qF '## Update the pinned framework' "$OPERATIONS"
+  grep -qF 'cd ~/dotfiles-private' "$OPERATIONS"
+  grep -qF 'nix flake update dotfiles' "$OPERATIONS"
+  grep -qF 'Restore never performs this update automatically' "$OPERATIONS"
+}
+
+@test "framework maintainer commands are not presented as ordinary profile work" {
+  grep -qF '`dot update` and `dot promote` currently operate on the public framework' \
+    "$OPERATIONS"
+  grep -qF 'ordinary upstream consumer should not use `dot promote`' "$OPERATIONS"
+
+  run grep -F 'What matters is `.local/`' "$OPERATIONS"
+  [ "$status" -ne 0 ]
 }
