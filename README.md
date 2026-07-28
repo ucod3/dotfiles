@@ -168,7 +168,6 @@ dot rebuild              # apply the private profile's pinned configuration
 dot apps list             # show application declarations and owning files
 dot scan-unmapped         # audit unmanaged configuration
 dot adopt <path>          # bring a home path under management
-dot update --dry-run      # preview framework and package updates
 dot validate              # run the full repository checks
 dot secrets <path>        # scan a repository for credential material
 dot help                  # complete command reference
@@ -180,6 +179,9 @@ Framework updates and personal changes are separate:
 - `flake.lock` records which framework revision applies those choices;
 - updating the framework changes the lock, not the private choices;
 - restoring uses the committed lock rather than silently selecting newer code.
+
+Follow the [operations guide](./docs/OPERATIONS.md#update-the-pinned-framework)
+to review and move the private profile's framework pin deliberately.
 
 ## Existing installations
 

@@ -42,7 +42,7 @@ These foundations do not yet prove the complete clean-Mac, no-AI journey.
 
 ## Path to v1
 
-### Phase 1 — Truthful public onboarding — Next
+### Phase 1 — Truthful public onboarding — Complete
 
 **Outcome:** A first-time visitor sees the current product rather than the old
 fork-first and `.local/settings.nix` architecture.
@@ -58,7 +58,7 @@ Done when:
   legacy, or removed through a compatibility-reviewed change;
 - documentation examples agree with executable help and tests.
 
-### Phase 2 — Private-profile backup journey — Queued
+### Phase 2 — Private-profile backup journey — Next
 
 **Outcome:** A user can turn a local private profile into a real recovery
 artifact without the framework assuming a Git hosting provider.

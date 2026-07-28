@@ -91,6 +91,9 @@ setup() {
     "$OPERATIONS"
   grep -qF 'ordinary upstream consumer should not use `dot promote`' "$OPERATIONS"
 
+  run grep -F 'dot update' "$README"
+  [ "$status" -ne 0 ]
+
   run grep -F 'What matters is `.local/`' "$OPERATIONS"
   [ "$status" -ne 0 ]
 }
