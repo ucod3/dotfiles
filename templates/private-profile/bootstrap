@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# bootstrap — prepare prerequisites, then invoke this profile's pinned restore app.
+#
+# Restore behavior lives in the framework selected by flake.nix and pinned by
+# flake.lock. This file intentionally contains no host selection, profile
+# migration, framework update, or nix-darwin activation logic.
+set -euo pipefail
+
+PROFILE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+EXPECTED_SYSTEM="@SYSTEM@"
+
+usage() {
+  cat <<'EOF'
+Usage: ./bootstrap [RESTORE OPTIONS]
+
+Prepare this Mac, then run the restore app supplied by the framework pinned in
+this profile's flake.lock. Restore options such as --host and --json are passed
+through unchanged.
+
+The current restore app performs a non-destructive preflight only. It does not
+activate nix-darwin or update flake.lock.
+EOF
+}
+
+fail() {
+  printf 'bootstrap error: %s\n' "$*" >&2
+  exit 1
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+[[ "$(uname -s)" == "Darwin" ]] || fail "this profile bootstrap supports macOS only"
+
+case "$(uname -m)" in
+  arm64|aarch64) CURRENT_SYSTEM="aarch64-darwin" ;;
+  x86_64) CURRENT_SYSTEM="x86_64-darwin" ;;
+  *) fail "unsupported architecture: $(uname -m)" ;;
+esac
+
+[[ "$CURRENT_SYSTEM" == "$EXPECTED_SYSTEM" ]] \
+  || fail "profile targets $EXPECTED_SYSTEM but this Mac is $CURRENT_SYSTEM"
+
+command -v xcode-select >/dev/null 2>&1 \
+  || fail "xcode-select is unavailable; install the Xcode Command Line Tools"
+
+if ! xcode-select -p >/dev/null 2>&1; then
+  printf 'Installing the Xcode Command Line Tools...\n'
+  xcode-select --install || true
+  fail "finish the Apple installer, then run ./bootstrap again"
+fi
+
+if ! command -v nix >/dev/null 2>&1; then
+  command -v curl >/dev/null 2>&1 || fail "curl is required to install Nix"
+  printf 'Installing Nix with the official multi-user installer...\n'
+  curl --proto '=https' --tlsv1.2 -fsSL https://nixos.org/nix/install \
+    | sh -s -- --daemon
+
+  if [[ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
+    # shellcheck disable=SC1091
+    . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+  fi
+fi
+
+command -v nix >/dev/null 2>&1 \
+  || fail "Nix is installed but not available; open a new terminal and rerun ./bootstrap"
+
+if [[ "${NIX_CONFIG:-}" != *"experimental-features"* ]]; then
+  export NIX_CONFIG="${NIX_CONFIG:+$NIX_CONFIG$'\n'}experimental-features = nix-command flakes"
+fi
+
+cd "$PROFILE_ROOT"
+printf 'Running the profile-owned restore entry point:\n'
+printf '  nix run .#restore -- --profile %s' "$PROFILE_ROOT"
+printf ' %q' "$@"
+printf '\n\n'
+
+exec nix run .#restore -- --profile "$PROFILE_ROOT" "$@"
