@@ -1,352 +1,333 @@
 # Operations
 
-Day-two guide: applying changes, updating, rolling back, and recovering.
-For first-run setup see [GETTING-STARTED.md](../GETTING-STARTED.md).
+Day-two guide for applying, reviewing, updating, backing up, and recovering a
+private profile. For first-run setup, see
+[`GETTING-STARTED.md`](../GETTING-STARTED.md).
 
-## Applying changes
+## Know which repository changed
+
+| Change | Owning repository |
+| --- | --- |
+| Applications, hosts, macOS preferences, Home Manager choices, adopted files | `~/dotfiles-private` |
+| Reusable modules, commands, templates, or framework documentation | `~/dotfiles` |
+| Exact framework revision used by the Mac | `~/dotfiles-private/flake.lock` |
+
+Most users change only the private profile. Updating the public checkout does
+not by itself change the revision pinned by the private profile.
+
+## Inspect the current profile
+
+```bash
+cd ~/dotfiles-private
+git status --short
+git log --oneline --decorate -5
+./bootstrap --host "$(hostname -s)"
+```
+
+Preflight reports the selected host, framework source, pinned revision, and lock
+without activating the Mac.
+
+## Apply private-profile changes
 
 ```bash
 dot rebuild
 ```
 
-Resolves your private flake first, then this repo, and switches to
-`darwinConfigurations.$(hostname -s)`. It runs with `--impure` so the gitignored
-`.local/` layer is readable (ADR-004).
+Rebuild resolves the current hostname through the private profile and applies
+the revision recorded by its lock. It does not update `flake.lock`.
 
-**`dot rebuild` builds the revision your private flake pins — not your working
-tree.** Editing files in `~/dotfiles` and rebuilding changes nothing until those
-changes are pushed and the pin is bumped. That is deliberate: an experimental
-branch must not be able to reach the live system (ADR-009). If the pin is behind
-`origin/main`, rebuild says so and carries on building the pinned revision.
-
-To test uncommitted work without publishing it:
+Before rebuilding:
 
 ```bash
-dot rebuild --override-local          # build ~/dotfiles as it is on disk
-dot rebuild --override-local=/path    # or some other checkout
+git -C ~/dotfiles-private diff
+git -C ~/dotfiles-private status --short
 ```
 
-This is a one-off. It never writes `flake.lock`, so the next plain `dot rebuild`
-is pinned again.
+An unknown hostname stops instead of selecting another host. Add a host
+deliberately using the process described in
+[`PRIVATE_HOST_SETUP.md`](./PRIVATE_HOST_SETUP.md).
 
-**Changes must be staged.** Under `--override-local`, `git+file:` evaluation
-reads a dirty working tree's *staged* changes but skips untracked files
-entirely, so a new file that is not `git add`ed is silently invisible to the
-build (R2). The same applies to `nix flake check` in this repo.
-
-## Updating
+## Manage applications
 
 ```bash
-dot update              # flake inputs + Homebrew, then rebuild
-dot update --dry-run    # preview without changing anything
-dot update --flake-only # inputs only, skip the rebuild
-dot update --auto       # no prompts (CI-friendly)
-```
-
-When you use a private host flake, its `dotfiles` input is what pins this repo,
-and `dot update` updates *this* repo's lock — which does not drive your Mac on
-its own. Promoting a change to the live system is explicit (ADR-009).
-
-## Promoting a change to the live system
-
-```bash
-dot promote                 # validate → push → bump the pin → commit → rebuild
-dot promote --dry-run       # print the plan, change nothing
-dot promote --no-rebuild    # stop after committing the pin
-dot promote --branch NAME   # promote a branch other than the default
-```
-
-`dot promote` is the steps below as one command. It refuses a dirty working
-tree, and it pushes *before* moving the pin, because the pin can only name a
-revision the remote already has.
-
-```bash
-dot validate                                             # 1. don't publish a broken tree
-git -C ~/dotfiles push -u origin main                    # 2. publish
-cd ~/dotfiles-private && nix flake update dotfiles       # 3. move the pin
-git -C ~/dotfiles-private add flake.lock && git -C ~/dotfiles-private commit -m "chore(lock): bump dotfiles pin"
-dot secrets ~/dotfiles-private                           # 4. never publish a credential
-git -C ~/dotfiles-private push -u origin main            #    publish the half that matters
-dot rebuild                                              # 5. apply
-```
-
-Step 4 is the one that used to be missing. The private flake holds your
-identity, your app selections and every file `dot adopt` has taken in — none of
-which the public repo contains — so a promote that pushed only this repo left
-all of it on a single disk. It is gated on the secret scan: a finding stops the
-push and the rebuild still runs. If that repo has no `origin` yet, promote says
-so and carries on; it will not create a remote for you (R5).
-
-Bumping the pin also moves `nixpkgs`, `nix-darwin`, `home-manager` and
-`nix-homebrew`, because the private flake `follows` all four from this repo.
-Diff `flake.lock` before committing if you want to know what is about to change.
-
-## Managing apps
-
-```bash
-dot apps list                              # declarations and their owning files
-dot apps search firefox                    # official discovery paths; no changes
-dot apps add ghostty                       # auto-detect a Homebrew cask
-dot apps add --nix ripgrep                 # add pkgs.ripgrep
-dot apps add --mas Notability 360593530    # add an App Store application
+dot apps list
+dot apps search firefox
+dot apps add ghostty
+dot apps add --nix ripgrep
+dot apps add --mas Notability 360593530
 dot apps add --mas Notability \
   "https://apps.apple.com/us/app/notability/id360593530"
 dot apps remove ghostty
 dot apps edit casks
 ```
 
-`dot apps search` is read-only. It uses the locally installed `brew` search when
-available and always points to the official Homebrew cask and Nix package
-searches. For a Mac App Store application, use **Copy Link** in the App Store;
-the helper extracts the numeric ID from the Apple URL before writing ordinary
-Nix. Numeric IDs continue to work directly.
+`dot apps search` is read-only. It points to official Homebrew and Nix package
+sources. An App Store Copy Link is normalized to the numeric ID stored in Nix.
 
-For a readable modular profile, these commands read and change the ordinary Nix
-files under `~/dotfiles-private/apps/`:
+For a modular profile, the owning files are:
 
-- `homebrew-casks.nix`
-- `nix-packages.nix`
-- `mac-app-store.nix`
+- `apps/homebrew-casks.nix`;
+- `apps/nix-packages.nix`;
+- `apps/mac-app-store.nix`.
 
-Every mutation prints the exact file changed, the equivalent manual Nix edit,
-the native Git diff command, and the rebuild command. If one of these files has
-been replaced with an advanced hand-authored Nix expression, the command refuses
-to parse or rewrite it; edit the file directly instead.
+Each mutation prints the exact file and equivalent manual Nix edit. If a file
+contains an advanced hand-authored expression, the helper refuses to parse or
+rewrite it.
 
-Existing profiles that have not migrated to the modular layout continue using
-the `.local/` compatibility layer (`settings.nix` and generated `apps.nix`).
-`dot apps` detects that layout and preserves its previous behavior rather than
-rewriting the profile.
+Removing a declaration does not necessarily uninstall the application.
+Homebrew cleanup remains `"none"` unless the owner explicitly chooses a
+destructive cleanup policy.
 
-The framework declares no GUI application. Removing a declaration does not
-necessarily uninstall an existing app: `homebrew.cleanup` defaults to `"none"`.
-This prevents an incomplete list from deleting software.
+## Adopt unmanaged configuration
 
-Homebrew ownership is split deliberately. The private flake enables
-`nix-homebrew`, which installs or adopts Homebrew during explicit activation.
-nix-darwin applies the declared formulae, casks, and App Store applications.
-Home Manager manages user packages and home configuration; it does not install
-or own Homebrew itself.
-
-### What the framework manages, and what you adopt
-
-The framework installs **applications** (casks, Nix packages, App Store apps) and
-owns a small set of **core configs**: git, Neovim, zsh, and — when you enable the
-matching `dotfiles.home.*` toggle — the Ghostty config. It does not try to
-manage every tool's dotfile, and it ships no editor settings: it used to link a
-bundled `settings.json` containing `{}` over VS Code and Cursor, which replaced
-real settings with an empty file and made it read-only. Editor settings are user
-content, so they go through `dot adopt --mutable` like anything else.
-
-Everything else is `dot adopt`: point it at a config that already exists in your
-`$HOME` and it moves into your private flake under declarative management. That
-is the intended path for personal tool configs, not adding cases to this repo.
-
-Whether removal actually uninstalls anything depends on `homebrew.cleanup`,
-which is `"none"` unless you opted in.
-
-## Adopting unmanaged files
-
-Bringing a file that already exists in `$HOME` under declarative management.
+Find portable candidates:
 
 ```bash
-dot scan-unmapped                   # what is adoptable
-dot adopt ~/.claude/CLAUDE.md --dry-run
-dot adopt ~/.claude/CLAUDE.md
+dot scan-unmapped
+```
+
+Preview and adopt:
+
+```bash
+dot adopt ~/.config/example --dry-run
+dot adopt ~/.config/example
+git -C ~/dotfiles-private diff
 dot rebuild
 ```
 
-Adoption **moves** the file to `~/dotfiles-private/home/<rel>`, appends a
-mapping to `~/dotfiles-private/home.nix`, and stages both. Nothing is written
-to this repo, and nothing is committed for you.
+The default mapping deploys a read-only Nix-store link. Edit the private copy
+and rebuild.
 
-### Read-only or writable: `--mutable`
-
-| | Default | `--mutable` |
-|---|---|---|
-| Deployed as | symlink into `/nix/store` | symlink to the real file in your private repo |
-| Writable in place | No | **Yes** |
-| To change it | edit `~/dotfiles-private/home/<rel>`, `dot rebuild` | edit it anywhere, including from the app's own UI |
-| Versioned & portable | Yes | Yes |
-
-Use `--mutable` for any file its own application rewrites — editor and CLI
-`settings.json` files are the common case. Without it the app hits a read-only
-path and silently fails to save its settings:
+Use `--mutable` when the application must keep writing the file:
 
 ```bash
 dot adopt ~/.config/zed/settings.json --mutable
-dot adopt "~/Library/Application Support/Cursor/User/settings.json" --mutable
 ```
 
-The app then writes straight through the symlink into your private repo, so
-`git -C ~/dotfiles-private diff` shows every settings change you make. Paths
-containing spaces are fine — required, since every macOS app config lives under
-`~/Library/Application Support/`.
+The application then writes through the link into the private repository.
 
-```nix
-home.file.".claude/CLAUDE.md".source = ./home/.claude/CLAUDE.md;
-```
+Adoption refuses credential paths, destinations already owned by another
+mapping, paths outside the home directory, and directories containing Home
+Manager links. Adopt the specific unmanaged file inside a partially managed
+directory instead.
 
-The source is a **path literal**, not an interpolated string. The literal is
-copied into the store as part of the flake source, so it evaluates purely and
-reproduces on another machine; an absolute-path string would make Home Manager
-call `builtins.path` on a context-free string — an impure read that only
-resolves under `--impure` and is invisible to git.
+New paths are staged because untracked files are invisible to flake evaluation.
+They are not committed or pushed automatically.
 
-Two consequences worth internalising:
+## Back up the private profile
 
-- **Between the adopt and the rebuild, the path does not exist.** The file has
-  moved and Home Manager has not yet recreated it. Rebuild promptly.
-- **The deployed file is read-only**, because it is a `/nix/store` symlink.
-  Edit the copy under `~/dotfiles-private/home/` and rebuild. Editing in place
-  is not possible, by design.
+The private repository is the recovery artifact. A Git repository on the same
+disk as the files it protects is not yet a backup.
 
-`home.nix` only applies if a host module imports it. `dot adopt` warns when
-nothing does:
-
-```nix
-users.${user}.imports = [
-  inputs.dotfiles.darwinModules.homeEnvironment
-  ../home.nix
-];
-```
-
-### What adoption refuses
-
-Credential paths (`.ssh`, `.gnupg`, `.aws`, `.config/gh`, `.claude.json`) are
-refused outright — committing them to any git repo writes them into history
-permanently.
-
-The subtler refusal is **any directory Home Manager already owns files inside**.
-HM writes per-file symlinks into real directories:
-
-```
-~/.config/nvim/          real directory
-├── init.lua        →    /nix/store/…-home-manager-files/…   managed
-└── lazy-lock.json                                           unmanaged
-```
-
-Adopting `~/.config/nvim` would move that store symlink into the private repo
-and hand the path two owners. `scan-unmapped` reports these as *partially
-managed*; adopt the individual unmanaged file instead.
-
-## Rolling back
-
-### Nix generations
-
-Every rebuild creates a generation. This is the real undo.
+Check its state:
 
 ```bash
-darwin-rebuild --list-generations              # what's available
-sudo darwin-rebuild --rollback                 # previous generation
-sudo darwin-rebuild --switch-generation 42     # a specific one
-
-home-manager generations                       # Home Manager equivalents
+git -C ~/dotfiles-private status --short --branch
+git -C ~/dotfiles-private remote -v
+dot scan-unmapped
 ```
 
-Pruning old ones:
+Before publishing:
 
 ```bash
-sudo nix-collect-garbage --delete-older-than 30d
-nix-collect-garbage --delete-older-than 30d    # user profile
+dot secrets ~/dotfiles-private
 ```
 
-### Configuration
+Then commit and push through the private Git remote you selected. Verify the
+local branch tracks the remote and has no unpushed commits.
 
-`git checkout -- <file>` reverts a file, but **does not change your running
-system** — you must `dot rebuild` afterward, or roll back the generation. The
-two are independent.
+Git does not replace a password manager or system backup. SSH keys, app logins,
+licence keys, databases, and personal documents do not belong in this profile.
+Provider-neutral remote creation guidance is tracked in roadmap Phase 2.
+
+## Update the pinned framework
+
+An ordinary profile updates the `dotfiles` input in its own lock:
 
 ```bash
+cd ~/dotfiles-private
+nix flake update dotfiles
+git diff -- flake.lock
+./bootstrap --host "$(hostname -s)"
+```
+
+The private flake follows the framework's `nixpkgs`, `nix-darwin`,
+`home-manager`, and `nix-homebrew` inputs, so review the complete lock diff.
+
+If preflight and evaluation are correct:
+
+```bash
+git add flake.lock
+git commit -m "chore: update dotfiles framework"
+git push
+```
+
+Activation remains separate:
+
+```bash
+./bootstrap --host "$(hostname -s)" --activate
+```
+
+Restore never performs this update automatically.
+
+## Update applications
+
+Nix-managed package versions move when the relevant pinned inputs move.
+Homebrew metadata and declared Homebrew applications are applied during rebuild
+and activation according to the nix-darwin Homebrew policy.
+
+Keep update and restore conceptually separate:
+
+```text
+restore  → reproduce the committed known-good profile
+update   → deliberately move reviewed dependency revisions
+rebuild  → apply the reviewed pinned configuration
+```
+
+## Test local framework work
+
+Framework contributors can evaluate a staged local checkout without changing
+the stable private lock:
+
+```bash
+cd ~/dotfiles
+git status --short
+scripts/bin/dot validate
+dot rebuild --override-local
+```
+
+`--override-local` uses `git+file:` semantics:
+
+- staged changes are visible;
+- untracked files are invisible;
+- the private lock is not written;
+- the next plain `dot rebuild` returns to the pinned revision.
+
+This is an advanced framework-development path, not an ordinary profile update.
+
+## Framework-maintainer commands
+
+`dot update` and `dot promote` currently operate on the public framework
+checkout. They are useful to the upstream maintainer or someone intentionally
+running a writable framework fork.
+
+```bash
+dot update --dry-run
+dot promote --dry-run
+```
+
+Important boundaries:
+
+- `dot update` updates the public checkout's lock; that lock does not by itself
+  drive a downstream private profile.
+- `dot promote` expects permission to push the framework remote, moves the
+  private profile's framework pin, scans and pushes the private repository when
+  possible, and can rebuild.
+- An ordinary upstream consumer should not use `dot promote` because they do not
+  own `ucod3/dotfiles`.
+
+These commands remain for compatibility and framework maintenance. The ordinary
+user workflow is to update and commit the private profile's `dotfiles` input as
+shown above.
+
+## Roll back configuration
+
+First separate the two kinds of rollback:
+
+- Git changes what future builds declare.
+- Nix generations change what is currently active.
+
+Revert a private change:
+
+```bash
+cd ~/dotfiles-private
 git log --oneline -10
-git diff HEAD~1                    # what changed last commit
-git checkout HEAD -- hosts/default.nix
-git revert <sha>                   # safe: adds a new commit
+git diff HEAD~1
+git revert <commit>
 dot rebuild
 ```
 
-Uncommitted work you want to park:
+Revert a framework update by restoring the previous private lock:
 
 ```bash
-git stash && git stash list && git stash pop
-```
-
-### Rebuilding from an older commit
-
-```bash
-git checkout <sha>
+cd ~/dotfiles-private
+git log --oneline -- flake.lock
+git checkout <known-good-commit> -- flake.lock
+git diff -- flake.lock
 dot rebuild
-git checkout main    # when you're done
 ```
 
-## Backups
+Prefer `git revert` for published history. Do not rewrite a private branch that
+another Mac already consumes.
 
-**What matters is `.local/`** — your identity, selections, and toggles. It is
-gitignored, so it is *not* covered by pushing this repo. Back it up either by
-pointing it at a private git repo or a cloud-synced folder; both are described
-in [GETTING-STARTED.md](../GETTING-STARTED.md#backing-it-up).
+## Roll back an active generation
 
-Everything else is reproducible from the flake: the repo plus `flake.lock` plus
-your private host flake fully determines the system.
-
-Home Manager writes `*.hm-backup` files when it would otherwise clobber
-something it does not manage. If activation fails complaining about an existing
-file, that is what to look for.
-
-## Customising the shell
-
-Framework modules are chosen by `dotfiles.home.zsh.*` and friends (see
-[GETTING-STARTED.md](../GETTING-STARTED.md#turning-things-on)). Your own aliases,
-exports and tool setup go in either of two **unmanaged, gitignored** files,
-sourced last so they win over everything the framework sets:
+List and switch nix-darwin generations:
 
 ```bash
-cp config/zsh/custom.local.zsh.example config/zsh/custom.local.zsh
-$EDITOR config/zsh/custom.local.zsh    # or: change
-$EDITOR ~/.zshrc.local                 # machine-specific instead of checkout-specific
+darwin-rebuild --list-generations
+sudo darwin-rebuild --rollback
 ```
 
-Neither is touched by `dot rebuild`, and neither needs one — open a new shell.
-
-### Upgrading from a pre-ADR-011 install
-
-Older versions wrote `npm`, `npx` and `yarn` shims into `~/.local/bin` from the
-shell rc. That code is gone, but a declarative config cannot retract an
-imperative write it no longer makes. Remove them by hand:
+List Home Manager generations:
 
 ```bash
-rm -f ~/.local/bin/npm ~/.local/bin/npx ~/.local/bin/yarn
+home-manager generations
 ```
 
-If your shell now feels bare — no `ll`, `cd` no longer jumping, `git pull`
-merging instead of rebasing — that is the new neutral default. Set
-`home.exampleProfile.enable = true;` in `.local/settings.nix` to get the previous
-behaviour back, or enable the individual `dotfiles.home.*` toggles you want.
+Generation rollback can restore a working machine before the Git source is
+fixed. Afterward, repair or revert the declarative source so the next rebuild
+does not reintroduce the failure.
 
-## Secrets
+## Legacy profile compatibility
+
+Existing profiles may still use:
+
+- `.local/settings.nix`;
+- `.local/identity.nix`;
+- generated `.local/apps.nix`;
+- root `home.nix` and legacy adopted-file storage.
+
+Rebuild, application management, adoption, and host generation detect and retain
+that layout. Do not reorganize a live legacy profile as part of an unrelated
+operation.
+
+The `.local` bridge requires impure evaluation and `DOTFILES_LOCAL` forwarding.
+It remains load-bearing until the roadmap migration phase proves equivalent
+modular values.
+
+## Shell customization
+
+Framework shell modules provide neutral defaults. Personal, portable shell
+configuration should live in the private profile or in an adopted file.
+
+Two machine-local escape hatches remain available and are sourced last:
+
+```text
+~/dotfiles/config/zsh/custom.local.zsh
+~/.zshrc.local
+```
+
+They are intentionally unmanaged and do not travel to another Mac unless the
+owner adopts or otherwise backs them up.
+
+## Secrets and hooks
 
 ```bash
-dot secrets      # scan the working tree
-dot hooks        # (re)install the pre-commit hook
+dot secrets
+dot secrets ~/dotfiles-private
+dot hooks
 ```
 
-Note `dot validate` now **fails** when the bats suite fails; it used to warn and
-exit 0, which let the fail-closed hook commit against a red suite.
-
-The pre-commit hook runs `dot validate --quick` plus gitleaks and fails closed.
-Do not weaken it to make a commit pass. Note that a clean gitleaks result only
-means something if rules actually loaded — `.gitleaks.toml` must carry
-`[extend] useDefault = true` (ADR-006).
-
-Emergency bypass, for genuine emergencies: `git commit --no-verify`.
+The pre-commit hook runs quick validation and gitleaks. It fails closed. Fix the
+reported problem instead of weakening or bypassing the check.
 
 ## When a rebuild fails
 
-1. Read the actual error — nix-darwin's messages name the failing option.
-2. `dot validate` for syntax and common mistakes; `nix flake check` for
-   evaluation.
-3. Files nix-darwin refuses to clobber (`/etc/nix/nix.conf`, `/etc/zshrc`, …)
-   are the most common fresh-machine failure. `scripts/bin/bootstrap` detects
-   them and prints the fix.
-4. Still broken? `sudo darwin-rebuild --rollback` puts you back on the last
-   working generation while you investigate.
+1. Read the first concrete Nix or activation error.
+2. Run `dot validate` in the repository that changed.
+3. Run private-profile preflight and confirm the intended host and pin.
+4. Inspect `git diff` and `flake.lock`.
+5. Use the previous Nix generation when the active system must be recovered.
+6. Do not rerun activation repeatedly without understanding whether the source
+   or machine state changed.
