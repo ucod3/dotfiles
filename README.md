@@ -188,6 +188,8 @@ zsh, optionally VS Code/Cursor and Ghostty). Everything else that lives in your
 
 | Doc | Covers |
 |---|---|
+| [docs/PRODUCT.md](./docs/PRODUCT.md) | Product contract and definition of success |
+| [docs/ROADMAP.md](./docs/ROADMAP.md) | Current phase, remaining work, and v1 release gates |
 | [GETTING-STARTED.md](./GETTING-STARTED.md) | Install, `.local/` schema, first-run troubleshooting |
 | [docs/OPERATIONS.md](./docs/OPERATIONS.md) | Day-to-day: updates, rollback, generations, backups |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Which layer owns which package or setting |
