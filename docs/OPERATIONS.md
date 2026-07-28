@@ -138,7 +138,9 @@ local branch tracks the remote and has no unpushed commits.
 
 Git does not replace a password manager or system backup. SSH keys, app logins,
 licence keys, databases, and personal documents do not belong in this profile.
-Provider-neutral remote creation guidance is tracked in roadmap Phase 2.
+The [private-profile backup guide](./PRIVATE_PROFILE_BACKUP.md) covers
+provider-neutral remote setup, exact commit verification, recovery credentials,
+and a non-activating restore rehearsal.
 
 ## Update the pinned framework
 
