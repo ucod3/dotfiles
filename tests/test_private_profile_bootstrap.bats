@@ -77,6 +77,19 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+@test "profile bootstrap forwards explicit activation options unchanged" {
+  generate_profile
+  write_fake_prerequisites
+
+  run env PATH="$FAKE_BIN:$PATH" \
+          BOOTSTRAP_RECORD="$RECORD" \
+          "$PRIVATE/bootstrap" --host test-mac --activate --yes
+  [ "$status" -eq 0 ]
+
+  [[ "$output" == *"--host test-mac --activate --yes"* ]]
+  grep -qF "ARGS=<run><.#restore><--><--profile><$PRIVATE><--host><test-mac><--activate><--yes>" "$RECORD"
+}
+
 @test "profile bootstrap refuses an architecture mismatch before Nix" {
   generate_profile --system x86_64-darwin
   write_fake_prerequisites
@@ -95,5 +108,7 @@ EOF
   run "$PRIVATE/bootstrap" --help
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage: ./bootstrap [RESTORE OPTIONS]"* ]]
-  [[ "$output" == *"non-destructive preflight only"* ]]
+  [[ "$output" == *"Without --activate"* ]]
+  [[ "$output" == *"--activate --yes"* ]]
+  [[ "$output" == *"Neither path updates flake.lock"* ]]
 }

@@ -44,10 +44,27 @@ The restore implementation comes from the framework revision already pinned in
 this profile's `flake.lock`. The bootstrap does not contain a copied restore
 engine, replace the framework input, or update the lock file.
 
-The current restore command is a **non-destructive preflight**. It reports the
+Without activation, restore is a **non-destructive preflight**. It reports the
 profile, remote, host, available hosts, framework source, pinned revision, and
-lock file. It refuses unsafe or incomplete states and does not activate
-nix-darwin yet.
+lock file. It refuses dirty repositories, incomplete profiles, and unknown
+hostnames.
+
+After reviewing that plan, activate deliberately:
+
+```bash
+./bootstrap --activate
+```
+
+The command prints the exact `darwin-rebuild` invocation and asks you to type the
+full confirmation phrase for the selected hostname. For deliberately unattended
+recovery only, use:
+
+```bash
+./bootstrap --activate --yes
+```
+
+Activation uses the host and framework revision already pinned by this profile,
+passes `--no-write-lock-file`, and verifies that `flake.lock` remains unchanged.
 
 ## Restore on another Mac
 
@@ -58,6 +75,7 @@ is:
 git clone <private-profile-repository> ~/dotfiles-private
 cd ~/dotfiles-private
 ./bootstrap
+./bootstrap --activate
 ```
 
 You do not need to return to the framework repository to obtain a separate
@@ -65,9 +83,9 @@ restore implementation. A public installer may provide a convenient discovery
 path, but it must invoke this same profile contract rather than make new
 framework or configuration decisions.
 
-When the new Mac has a different hostname, preflight stops instead of selecting
-another host silently. Review the available hosts, deliberately add a new file
-under `hosts/`, rename the Mac, or stop and inspect the profile.
+When the new Mac has a different hostname, preflight and activation stop instead
+of selecting another host silently. Review the available hosts, deliberately add
+a new file under `hosts/`, rename the Mac, or stop and inspect the profile.
 
 ## Normal workflow
 

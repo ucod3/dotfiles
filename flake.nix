@@ -69,17 +69,22 @@
       assert toplevel.drvPath != "";
       pkgs.runCommand "dotfiles-check-${name}" { } "touch $out";
 
-    # Framework-owned restore entry point. The first implementation slice is a
-    # non-destructive preflight: it validates a private profile and reports the
-    # repository, host, framework input, and committed lock it would use. The
-    # wrapper supplies Git and jq without copying restore logic into the profile.
+    # Framework-owned restore entry point. It validates the private profile and
+    # reports the repository, host, framework input, and committed lock before
+    # any activation. The wrapper supplies the exact darwin-rebuild package from
+    # this pinned framework closure instead of fetching an unrelated revision.
     mkRestoreProgram = system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
       in
       pkgs.writeShellApplication {
         name = "dotfiles-restore";
-        runtimeInputs = [ pkgs.git pkgs.jq ];
+        runtimeInputs = [
+          pkgs.git
+          pkgs.jq
+          pkgs.nix
+          nix-darwin.packages.${system}.darwin-rebuild
+        ];
         text = ''
           exec ${pkgs.bash}/bin/bash ${self}/scripts/bin/restore-profile "$@"
         '';

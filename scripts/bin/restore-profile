@@ -1,32 +1,36 @@
 #!/usr/bin/env bash
-# restore-profile — inspect a private profile before any restore activation.
+# restore-profile — inspect and explicitly restore a private macOS profile.
 #
-# This is the framework-owned restore contract's safe first stage. It validates
-# the profile, committed lock, selected framework, and target hostname, then
-# prints the exact restore inputs. It never changes the profile or activates a
-# macOS configuration.
+# The default mode is a non-destructive preflight. Activation is available only
+# through --activate after the profile, committed lock, framework pin, and target
+# hostname have all passed validation.
 set -euo pipefail
 
 PROFILE_ROOT="$PWD"
 RESTORE_HOST="${DOTFILES_RESTORE_HOST:-}"
 JSON_OUTPUT=false
+ACTIVATE=false
+ASSUME_YES=false
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 Usage: dotfiles-restore [OPTIONS]
 
-Validate and display the restore plan for a private profile. No system changes
-are made.
+Validate and display the restore plan for a private profile. The default mode
+makes no system changes.
 
 Options:
       --profile PATH  Private profile root (default: current directory)
       --host NAME     Host configuration to restore (default: hostname -s)
-      --json          Emit a machine-readable plan
+      --json          Emit a machine-readable preflight plan (preflight only)
+      --activate      Build and switch to the validated host configuration
+      --yes           Confirm --activate non-interactively
   -h, --help          Show this help message
 
 The profile must be a clean Git repository containing flake.nix and flake.lock.
 The committed lock is evaluated with --no-write-lock-file and verified unchanged.
-EOF
+Activation never updates the lock and is refused for an unknown hostname.
+USAGE
 }
 
 fail() {
@@ -60,6 +64,14 @@ while [[ $# -gt 0 ]]; do
       JSON_OUTPUT=true
       shift
       ;;
+    --activate)
+      ACTIVATE=true
+      shift
+      ;;
+    --yes)
+      ASSUME_YES=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -69,6 +81,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$JSON_OUTPUT" == true && "$ACTIVATE" == true ]]; then
+  fail "--json is preflight-only and cannot be combined with --activate"
+fi
+if [[ "$ASSUME_YES" == true && "$ACTIVATE" != true ]]; then
+  fail "--yes is only valid with --activate"
+fi
 
 for command_name in git jq nix; do
   command -v "$command_name" >/dev/null 2>&1 \
@@ -141,7 +160,7 @@ NIX_ERROR_FILE="$(mktemp -t dotfiles_restore.XXXXXX)"
 trap 'rm -f "$NIX_ERROR_FILE"' EXIT
 
 if ! HOSTS_JSON="$(
-  nix eval --no-write-lock-file --json \
+  DOTFILES_LOCAL="$PROFILE_ROOT" nix eval --impure --no-write-lock-file --json \
     "${PROFILE_ROOT}#darwinConfigurations" \
     --apply builtins.attrNames 2>"$NIX_ERROR_FILE"
 )"; then
@@ -190,10 +209,13 @@ if [[ "$JSON_OUTPUT" == true ]]; then
       frameworkRevision: $revision,
       lockFile: $lockFile,
       lockChanged: false,
+      activationRequested: false,
       activationPerformed: false
     }'
-else
-  cat <<EOF
+  exit "$EXIT_STATUS"
+fi
+
+cat <<EOF_PLAN
 Restore preflight
   Profile:            $PROFILE_ROOT
   Profile remote:     $PROFILE_REMOTE
@@ -202,19 +224,64 @@ Restore preflight
   Framework input:    $FRAMEWORK_SOURCE
   Pinned revision:    $FRAMEWORK_REVISION
   Lock file:          $LOCK_FILE (unchanged)
-  Activation:         not performed
-EOF
+EOF_PLAN
 
-  if [[ "$PLAN_STATUS" == "ready" ]]; then
-    printf '\nPreflight complete. The profile is ready for an explicit restore activation.\n'
-  else
-    cat >&2 <<EOF
+if [[ "$PLAN_STATUS" != "ready" ]]; then
+  printf '  Activation:         blocked (host missing)\n' >&2
+  cat >&2 <<EOF_MISSING
 
 No configuration exists for host '$RESTORE_HOST'.
 Choose deliberately: add a reviewed host file, rename the Mac to an existing
 host, or stop and inspect the profile. No host was selected automatically.
-EOF
-  fi
+EOF_MISSING
+  exit "$EXIT_STATUS"
 fi
 
-exit "$EXIT_STATUS"
+if [[ "$ACTIVATE" != true ]]; then
+  printf '  Activation:         not performed\n'
+  printf '\nPreflight complete. The profile is ready for an explicit restore activation.\n'
+  exit 0
+fi
+
+command -v sudo >/dev/null 2>&1 \
+  || fail "required command is not available for activation: sudo"
+DARWIN_REBUILD_BIN="$(command -v darwin-rebuild 2>/dev/null || true)"
+[[ -n "$DARWIN_REBUILD_BIN" ]] \
+  || fail "pinned darwin-rebuild is unavailable in the restore application"
+
+ACTIVATION_CMD=(
+  sudo env
+  "NIX_CONFIG=${NIX_CONFIG:-}"
+  "DOTFILES_LOCAL=$PROFILE_ROOT"
+  "$DARWIN_REBUILD_BIN"
+  switch
+  --flake "${PROFILE_ROOT}#${RESTORE_HOST}"
+  --impure
+  --no-write-lock-file
+)
+
+printf '  Activation:         requested (not yet performed)\n'
+printf '  Activation command: '
+printf '%q ' "${ACTIVATION_CMD[@]}"
+printf '\n'
+
+if [[ "$ASSUME_YES" != true ]]; then
+  if [[ ! -t 0 ]]; then
+    fail "activation needs an interactive terminal; rerun with --yes only after reviewing the plan"
+  fi
+  printf "\nType 'activate %s' to continue: " "$RESTORE_HOST" >&2
+  IFS= read -r confirmation
+  [[ "$confirmation" == "activate $RESTORE_HOST" ]] \
+    || fail "activation cancelled; confirmation did not match"
+fi
+
+printf '\nActivating the pinned configuration for %s...\n' "$RESTORE_HOST"
+if ! "${ACTIVATION_CMD[@]}"; then
+  fail "activation command failed; inspect the output above before retrying"
+fi
+
+LOCK_HASH_FINAL="$(git hash-object "$LOCK_FILE")"
+[[ "$LOCK_HASH_BEFORE" == "$LOCK_HASH_FINAL" ]] \
+  || fail "flake.lock changed during activation; review the profile immediately"
+
+printf 'Activation complete. flake.lock is unchanged.\n'
