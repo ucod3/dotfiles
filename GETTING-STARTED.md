@@ -271,9 +271,11 @@ git status --branch --short
 `dot scan-unmapped` also reports uncommitted private changes, unpushed commits,
 and a missing remote as **AT RISK**.
 
-Provider-neutral remote creation and verification guidance is the next roadmap
-phase. Do not put SSH private keys, access tokens, app logins, or licence keys in
-the profile.
+Follow the
+[private-profile backup guide](./docs/PRIVATE_PROFILE_BACKUP.md) to scan the
+profile, connect any private Git remote, verify the exact pushed commit, and
+rehearse a non-activating restore. Do not put SSH private keys, access tokens,
+app logins, or licence keys in the profile.
 
 ## Update the framework
 

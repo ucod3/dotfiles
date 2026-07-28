@@ -158,8 +158,9 @@ not yet a backup. Connect it to a private Git remote and verify every important
 commit has been pushed.
 
 The framework does not require GitHub; any private Git remote that can be cloned
-on the replacement Mac can hold the profile. Provider-neutral backup guidance
-is tracked as the next roadmap phase.
+on the replacement Mac can hold the profile. Follow the
+[private-profile backup guide](./docs/PRIVATE_PROFILE_BACKUP.md) to scan,
+connect, push, verify, and rehearse recovery.
 
 ## Daily use
 
@@ -213,6 +214,7 @@ transition. New installations use `setup.sh`.
 | [Getting started](./GETTING-STARTED.md) | New-profile and restore walkthroughs |
 | [Installer modes](./docs/INSTALLER_MODES.md) | Complete `setup.sh` arguments and safety behavior |
 | [Operations](./docs/OPERATIONS.md) | Applications, updates, rebuilds, adoption, backup checks, and rollback |
+| [Private-profile backup](./docs/PRIVATE_PROFILE_BACKUP.md) | Provider-neutral remote setup, verification, limits, and restore rehearsal |
 | [Architecture](./docs/ARCHITECTURE.md) | Nix, nix-darwin, Home Manager, Homebrew, and profile ownership |
 | [Clean-machine acceptance](./docs/CLEAN_MACHINE_ACCEPTANCE.md) | Automated, hardware, and human evidence |
 | [Decisions](./docs/DECISIONS.md) | Architectural decision records |

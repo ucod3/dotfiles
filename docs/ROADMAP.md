@@ -58,7 +58,7 @@ Done when:
   legacy, or removed through a compatibility-reviewed change;
 - documentation examples agree with executable help and tests.
 
-### Phase 2 — Private-profile backup journey — Next
+### Phase 2 — Private-profile backup journey — Complete
 
 **Outcome:** A user can turn a local private profile into a real recovery
 artifact without the framework assuming a Git hosting provider.
@@ -74,7 +74,7 @@ Done when:
 
 Automatic remote creation is not required for v1.
 
-### Phase 3 — Explicit new-host restore — Queued
+### Phase 3 — Explicit new-host restore — Next
 
 **Outcome:** Restoring on a Mac whose hostname is absent from the profile is
 safe and understandable.

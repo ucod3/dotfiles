@@ -30,7 +30,7 @@ status.
 | Install without Nix knowledge | The public entry point chooses `--new` or `--restore`; generated profiles contain a tiny `bootstrap` command and ordinary files. | A first-time user must complete the documented journey without editing Nix or receiving undocumented help. | Human proof required |
 | Choose applications | Generated profiles own readable `apps/homebrew-casks.nix`, `apps/nix-packages.nix`, and `apps/mac-app-store.nix`; `setup.sh --new` offers interactive selection, official read-only discovery paths, App Store URL input, and repeatable flags through the profile-aware `dot apps` implementation. The two-machine test selects applications through the public installer and proves those declarations survive backup and restore. | A first-time user must complete the interactive application workflow without undocumented help. | Human proof required |
 | Create a private configuration | The real generator creates the documented modular layout, initializes Git through `setup-private-host`, commits a lock, and enters profile-owned preflight. | Human review must confirm the generated names and choices are understandable. | Automated contract |
-| Back up the private configuration | The two-machine test publishes the profile to a real temporary bare Git remote and restores from that remote. The installer warns that an unpushed local repository is not a backup. | Public documentation still needs a provider-neutral walkthrough for creating a private remote and verifying the push. | Partial |
+| Back up the private configuration | The two-machine test publishes the profile to a real temporary bare Git remote and restores from that remote. `PRIVATE_PROFILE_BACKUP.md` documents provider-neutral scanning, remote connection, exact commit verification, recovery limits, and non-activating rehearsal. A local private-remote rehearsal completed that documented restore contract. | A clean-hardware run must prove account authentication and recovery on a replacement Mac. | Automated contract + local rehearsal |
 | Rebuild successfully | Restore activation tests prove explicit confirmation, exact host forwarding, pinned `darwin-rebuild`, and lock preservation. macOS CI evaluates the configuration. | A clean-hardware `darwin-rebuild switch` must complete, followed by a post-activation preflight and application checks. | Hardware proof required |
 | Restore the same setup on another Mac | `tests/test_clean_machine_acceptance.bats` creates a profile on simulated Mac A, commits application choices, pushes to a real bare remote, restores through `setup.sh` on simulated Mac B, and compares the exact commit, Git tree, lock, and app files. | A second physical Mac must prove credentials, host naming, Homebrew downloads, and activation behavior. | Automated contract |
 | Complete the journey without AI | Commands and generated files are standalone and documented; no runtime path calls an AI service. | A human usability rehearsal must be completed without AI assistance. | Human proof required |
@@ -74,6 +74,19 @@ no-AI proof: Nix and Git were already installed, inputs were supplied during the
 rehearsal, and no nix-darwin or Homebrew activation ran. The later discovery
 workflow addressed the identifier guidance found during this rehearsal, but
 still requires first-time-user validation.
+
+## Local private-remote restore rehearsal — 2026-07-28
+
+The public `setup.sh --restore` journey cloned an existing private profile from
+its remote into an isolated temporary directory. Profile-owned preflight
+reported the intended host, remote, framework source, and pinned revision,
+preserved `flake.lock`, performed no activation, and left the restored Git tree
+clean. The temporary directory was removed after verification.
+
+This proves that the documented remote can recover the committed profile on an
+already configured Mac. It does not replace the Phase 5 clean-hardware proof of
+account recovery, first-time authentication, or activation on a replacement
+machine.
 
 ## What passing CI does not prove
 
@@ -135,7 +148,6 @@ application selection, exact restore continuity, preflight defaults, and lock
 preservation, plus a successful isolated interactive macOS rehearsal. The
 overall product acceptance test is **not yet complete**.
 
-The project still requires first-time-user validation of package discovery,
-provider-neutral private-backup guidance, a documented clean-hardware rehearsal,
-and a no-AI usability run before the full acceptance statement can be marked
-proven.
+The project still requires first-time-user validation of package discovery, a
+documented clean-hardware rehearsal, and a no-AI usability run before the full
+acceptance statement can be marked proven.
