@@ -300,6 +300,17 @@ The `.local` bridge requires impure evaluation and `DOTFILES_LOCAL` forwarding.
 It remains load-bearing until the roadmap migration phase proves equivalent
 modular values.
 
+Preview the evidence without changing either repository:
+
+```bash
+dot migrate --preview
+```
+
+The inventory reports which legacy files are active through `.local`, which
+Home Manager mappings are imported by host modules, which modular targets are
+missing, and whether the private Git repository is clean and remotely tracked.
+There is intentionally no apply mode.
+
 ## Shell customization
 
 Framework shell modules provide neutral defaults. Personal, portable shell
