@@ -14,11 +14,13 @@ usage() {
 Usage: ./bootstrap [RESTORE OPTIONS]
 
 Prepare this Mac, then run the restore app supplied by the framework pinned in
-this profile's flake.lock. Restore options such as --host and --json are passed
-through unchanged.
+this profile's flake.lock. Restore options such as --host, --json, --activate,
+and --yes are passed through unchanged.
 
-The current restore app performs a non-destructive preflight only. It does not
-activate nix-darwin or update flake.lock.
+Without --activate, the restore app performs a non-destructive preflight. With
+--activate, it prints the validated plan and requires the exact interactive
+confirmation. Use --activate --yes only for deliberately unattended recovery.
+Neither path updates flake.lock.
 EOF
 }
 
