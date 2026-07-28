@@ -119,8 +119,19 @@ Preflight does not activate.
 The restore command currently stops when the Mac's hostname is absent. That is
 intentional: it must not silently reuse another host.
 
-The lower-level host generator can add a reviewed module to an existing modular
-or legacy profile:
+The profile-owned restore command provides the beginner-facing path:
+
+```bash
+cd ~/dotfiles-private
+./bootstrap \
+  --host "$(hostname -s)" \
+  --add-host \
+  --user "$(id -un)"
+```
+
+It delegates to the lower-level generator, stages the generated module so Nix
+can see it, prints the native review commands, and stops before evaluation or
+activation. The same generator can be run directly for advanced use:
 
 ```bash
 cd ~/dotfiles
@@ -135,8 +146,15 @@ It stages the new host because Nix evaluation cannot see an untracked file. The
 owner must review, commit, scan, and push the private change before relying on it
 for recovery.
 
-The roadmap includes a beginner-facing new-host restore choice. Until that phase
-is complete, adding a host is an explicit advanced operation.
+To retain an existing host identity instead, print a rename plan:
+
+```bash
+cd ~/dotfiles-private
+./bootstrap --host "$(hostname -s)" --rename-to EXISTING_HOST
+```
+
+The restore command never runs the privileged rename commands. The owner reviews
+and runs them separately, or stops without changing anything.
 
 ## Back up the profile
 

@@ -43,9 +43,11 @@ git -C ~/dotfiles-private diff
 git -C ~/dotfiles-private status --short
 ```
 
-An unknown hostname stops instead of selecting another host. Add a host
-deliberately using the process described in
-[`PRIVATE_HOST_SETUP.md`](./PRIVATE_HOST_SETUP.md).
+An unknown hostname stops instead of selecting another host. Use
+`./bootstrap --add-host` to generate and stage a private host module for review,
+`./bootstrap --rename-to EXISTING_HOST` to print a rename plan without running
+it, or stop and inspect the profile. Host resolution never activates the Mac.
+See [`PRIVATE_HOST_SETUP.md`](./PRIVATE_HOST_SETUP.md).
 
 ## Manage applications
 

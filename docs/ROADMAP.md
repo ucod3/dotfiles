@@ -74,7 +74,7 @@ Done when:
 
 Automatic remote creation is not required for v1.
 
-### Phase 3 — Explicit new-host restore — Next
+### Phase 3 — Explicit new-host restore — Complete
 
 **Outcome:** Restoring on a Mac whose hostname is absent from the profile is
 safe and understandable.
@@ -88,7 +88,7 @@ Done when:
 - preflight remains the default and activation remains separately confirmed;
 - tests cover known hosts, new hosts, cancellation, and lock preservation.
 
-### Phase 4 — Existing-profile migration — Queued
+### Phase 4 — Existing-profile migration — Next
 
 **Outcome:** Existing users can reach the readable modular layout without an
 automatic rewrite or a second source of truth.

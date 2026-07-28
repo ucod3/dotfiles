@@ -84,8 +84,21 @@ path, but it must invoke this same profile contract rather than make new
 framework or configuration decisions.
 
 When the new Mac has a different hostname, preflight and activation stop instead
-of selecting another host silently. Review the available hosts, deliberately add
-a new file under `hosts/`, rename the Mac, or stop and inspect the profile.
+of selecting another host silently. It offers only three deliberate paths:
+
+```bash
+# Generate and stage a new host module, then stop for review.
+./bootstrap --host "$(hostname -s)" --add-host --user "$(id -un)"
+
+# Print the privileged commands required to rename this Mac. Nothing is run.
+./bootstrap --host "$(hostname -s)" --rename-to EXISTING_HOST
+
+# Or stop and inspect hosts/ without changing anything.
+```
+
+Host generation preserves `flake.nix`, `flake.lock`, existing hosts, and the
+framework input. Review and commit the private change before rerunning preflight.
+Activation remains a separate command after the new host evaluates successfully.
 
 ## Normal workflow
 

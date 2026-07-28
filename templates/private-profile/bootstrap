@@ -15,12 +15,14 @@ Usage: ./bootstrap [RESTORE OPTIONS]
 
 Prepare this Mac, then run the restore app supplied by the framework pinned in
 this profile's flake.lock. Restore options such as --host, --json, --activate,
-and --yes are passed through unchanged.
+--yes, --add-host, and --rename-to are passed through unchanged.
 
 Without --activate, the restore app performs a non-destructive preflight. With
 --activate, it prints the validated plan and requires the exact interactive
 confirmation. Use --activate --yes only for deliberately unattended recovery.
-Neither path updates flake.lock.
+An unknown hostname remains blocked until you explicitly generate a host module
+for review or stop to rename the Mac to an existing host. None of these paths
+updates flake.lock.
 EOF
 }
 

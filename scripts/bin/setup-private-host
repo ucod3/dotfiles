@@ -189,7 +189,8 @@ add_host_to_existing_profile() {
     fi
 
     echo
-    echo "Next:  dot rebuild"
+    echo "Next: review the staged host, commit it on a private branch, then"
+    echo "      rerun restore preflight for '$HOSTNAME'."
     return 0
   fi
 

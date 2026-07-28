@@ -153,6 +153,28 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh
 For deliberately unattended recovery only, `--yes` can accompany
 `--activate`. It is rejected on its own.
 
+### A hostname that is not in the profile
+
+Restore blocks activation and offers only three explicit paths:
+
+```bash
+# Generate and stage a new host module, then stop for review.
+cd ~/dotfiles-private
+./bootstrap \
+  --host "$(hostname -s)" \
+  --add-host \
+  --user "$(id -un)"
+
+# Print, but never run, the commands for renaming to an existing host.
+./bootstrap \
+  --host "$(hostname -s)" \
+  --rename-to EXISTING_HOST
+```
+
+The third choice is to stop and inspect the cloned profile. Host resolution and
+`--activate` are mutually exclusive. Adding a host preserves the framework
+input, lock, and existing host modules; renaming is only a printed plan.
+
 ## Existing directories
 
 The installer refuses an existing framework or private-profile destination. It
