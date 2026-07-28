@@ -1,224 +1,233 @@
-# macOS Dotfiles
+# Dotfiles Framework for macOS
 
-**What this does:** you write down which apps you want and which config files
-matter to you. One command makes any Mac match that. Wipe the machine, buy a
-new one, run the command — you get your setup back.
+Rebuild your Mac from a readable private profile instead of remembering every
+application, setting, and configuration file by hand.
 
-That's it. Three ideas:
+This repository is the reusable public framework. It contains no user's
+hostname, identity, application choices, adopted files, or personal
+preferences. Each user owns a separate private profile that records those
+choices and pins the exact framework revision used to apply them.
 
-**1. A list of what you want.** One file, `settings.nix`, names your apps:
+Apple Silicon only. The project is still working toward its first fully proven
+clean-Mac, no-AI release; see the [roadmap](./docs/ROADMAP.md).
 
-```nix
-casks = [ "firefox" "ghostty" ];
+## The two repositories
+
+| Repository | Owns |
+| --- | --- |
+| `ucod3/dotfiles` | Installer, reusable Nix modules, commands, safe defaults, and documentation |
+| `~/dotfiles-private` | Hosts, applications, macOS preferences, Home Manager settings, adopted files, identity, and the pinned framework revision |
+
+Ordinary users consume this public framework directly. They do **not** need to
+fork it. A fork is an advanced option for someone intentionally maintaining a
+different framework.
+
+## Start here
+
+Run the public setup entry point:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh)
 ```
 
-Add a line, run `dot rebuild`, the app installs. Delete the line, it's removed.
-No clicking through installers, no remembering what you had.
+It offers two journeys:
 
-**2. Your config files, kept in a git repo.**
+1. Create a new private profile.
+2. Restore an existing private profile.
+
+The default result is a non-destructive preflight. Nothing activates the Mac
+until you explicitly request activation and confirm the selected hostname.
+
+Full walkthrough: [GETTING-STARTED.md](./GETTING-STARTED.md).
+
+### Create a new profile
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- \
+  --new
+```
+
+The installer:
+
+- checks macOS prerequisites and installs Nix when it is missing;
+- clones the public framework into `~/dotfiles`;
+- generates a readable Git repository at `~/dotfiles-private`;
+- optionally records applications in focused private Nix files;
+- pins the exact framework revision in the private `flake.lock`;
+- finishes with restore preflight unless activation was explicitly requested.
+
+Homebrew and the selected applications are installed during activation, not
+during preflight. `nix-homebrew` installs or adopts Homebrew, nix-darwin applies
+Homebrew and Mac App Store declarations, and Home Manager separately manages
+user packages and home configuration.
+
+### Restore an existing profile
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- \
+  --restore git@github.com:you/dotfiles-private.git
+```
+
+Restore clones only the private profile and invokes its own `./bootstrap`. It
+preserves the profile's existing framework source and committed `flake.lock`.
+It never reruns new-profile questions, chooses another hostname silently, or
+activates without an explicit request.
+
+A private profile can also restore itself without returning to this repository:
+
+```bash
+git clone git@github.com:you/dotfiles-private.git ~/dotfiles-private
+cd ~/dotfiles-private
+./bootstrap
+```
+
+## The private profile stays readable
+
+A newly generated profile has focused responsibilities:
+
+```text
+dotfiles-private/
+├── README.md
+├── bootstrap
+├── flake.nix
+├── flake.lock
+├── identity.nix
+├── hosts/
+├── apps/
+│   ├── homebrew-casks.nix
+│   ├── nix-packages.nix
+│   └── mac-app-store.nix
+├── macos/
+└── home/
+```
+
+The files contain ordinary Nix. The `dot` commands are conveniences that print
+the owning file and equivalent native operation; they do not replace Nix with a
+second configuration language.
+
+## Choose applications
+
+Applications can be selected interactively during new-profile setup or managed
+later:
+
+```bash
+dot apps list
+dot apps search firefox
+dot apps add firefox
+dot apps add --nix ripgrep
+dot apps add --mas Notability \
+  "https://apps.apple.com/us/app/notability/id360593530"
+git -C ~/dotfiles-private diff -- apps/
+```
+
+Search is read-only and points to official Homebrew and Nix package sources.
+For an App Store application, use **Copy Link** and paste the Apple URL.
+
+The framework declares no GUI application of its own. Removing an app
+declaration does not prune software while `homebrew.cleanup` remains `"none"`,
+which is the safe default.
+
+## Adopt configuration files
+
+Bring an existing file under private-profile management:
+
+```bash
+dot adopt ~/.config/example
+```
+
+Use `--mutable` when the application must continue writing to the file:
 
 ```bash
 dot adopt ~/.config/zed/settings.json --mutable
 ```
 
-That moves the real file into `~/dotfiles-private` and leaves a link behind.
-Zed still finds it and you still edit it normally — but now it has history and
-travels to your next Mac.
-
-**3. One command to apply it all:** `dot rebuild`.
-
-### Am I actually backed up?
+Before adopting more files, audit what is already covered:
 
 ```bash
 dot scan-unmapped
 ```
 
-It tells you, in plain terms, what would be lost if this Mac died — and it
-looks in `~/Library/Application Support`, where macOS apps really keep their
-settings. It will not offer you extension folders or anything holding a
-credential, and it prints its reasoning so you can disagree with it.
+The scanner excludes known credentials, caches, histories, extension payloads,
+and machine-local churn. SSH keys, app logins, licence keys, and other secrets
+belong in a password manager or system backup—not in Git.
 
-**Adopting a file is only half of it.** Adopted files live in
-`~/dotfiles-private`, which is a git repo on the same disk as the files it
-protects — so it is not a backup until it has been pushed. `dot promote` now
-publishes it for you (after scanning it for secrets), and `dot scan-unmapped`
-says **AT RISK**, with the commit count, whenever it has not happened.
+## Back up the private profile
 
-**What it will never restore:** SSH keys, app logins, licence keys. Those
-belong in a password manager or Time Machine. Anything claiming otherwise is
-setting you up to lose them.
+`~/dotfiles-private` is a Git repository, but a repository on the same disk is
+not yet a backup. Connect it to a private Git remote and verify every important
+commit has been pushed.
 
-**The framework names no application.** There is no bundled browser, editor,
-terminal or window manager anywhere in this repo — not as a default, not behind
-a toggle. Fork it and you get your choices, not the author's.
-
-Apple Silicon only.
-
----
-
-Underneath, this is Nix flakes, nix-darwin, Home Manager, nix-homebrew and
-native Homebrew. You do not need to understand any of that to use it, and the
-rest of this file is written for when you do.
-
-## Install
-
-**Fork this repository first.** Your fork is what your Mac rebuilds from, and
-it is the only place you can push changes to — the installer asks for it, and
-pinning upstream instead leaves you unable to promote your own work.
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/install.sh)
-# non-interactive:
-bash <(curl -fsSL .../install.sh) --repo YOU/dotfiles
-```
-
-The installer checks prerequisites (Xcode CLT, Nix, Rosetta), asks what you
-want, generates your private host flake pinned to *your* fork, and runs the
-first build.
-
-Already cloned by hand? Run `./scripts/bin/bootstrap` — it is idempotent and
-handles the same first-run concerns.
-
-See [GETTING-STARTED.md](./GETTING-STARTED.md) for the full walkthrough,
-including what to do when the first build fails.
-
-## The three layers
-
-Know which one owns a change before you make it.
-
-| Layer | Path | Contents |
-|---|---|---|
-| Public framework | `~/dotfiles` | This repo. Generic, safe to distribute. |
-| Private identity | `~/dotfiles-private` | Your hostname and username, as a downstream flake. Generated for you. |
-| Machine-local | `.local/` (gitignored) | Your name/email, app selections, opt-in toggles. |
-
-This repo ships `darwinConfigurations = { }` **on purpose**: a host needs a
-concrete hostname and username, which a public framework must not hardcode.
-That is what the private flake is for — see
-[docs/PRIVATE_HOST_SETUP.md](./docs/PRIVATE_HOST_SETUP.md).
+The framework does not require GitHub; any private Git remote that can be cloned
+on the replacement Mac can hold the profile. Provider-neutral backup guidance
+is tracked as the next roadmap phase.
 
 ## Daily use
 
 ```bash
-dot rebuild            # apply configuration changes
-dot promote            # ship it: validate, push, bump the pin, rebuild
-dot update             # update flake inputs + Homebrew, then rebuild
-dot apps add ghostty   # add an app to your selections
-dot apps list          # see what's declared
-dot adopt ~/.foorc     # bring an existing config under management
-dot validate           # syntax + common-mistake checks
-dot secrets            # scan for leaked secrets
-dot help               # full reference
+dot rebuild              # apply the private profile's pinned configuration
+dot apps list             # show application declarations and owning files
+dot scan-unmapped         # audit unmanaged configuration
+dot adopt <path>          # bring a home path under management
+dot update --dry-run      # preview framework and package updates
+dot validate              # run the full repository checks
+dot secrets <path>        # scan a repository for credential material
+dot help                  # complete command reference
 ```
 
-`rebuild`, `promote`, `update`, `validate` and `apps` are also available as bare
-aliases.
+Framework updates and personal changes are separate:
 
-### More than one Mac
+- the private files record what the user chose;
+- `flake.lock` records which framework revision applies those choices;
+- updating the framework changes the lock, not the private choices;
+- restoring uses the committed lock rather than silently selecting newer code.
 
-Push `~/dotfiles-private` to a private repo, clone it on the second machine, and
-run `./scripts/bin/setup-private-host`. It adds `hosts/<that-hostname>.nix` and
-the private flake picks it up automatically — there is no flake to hand-edit.
+## Existing installations
 
-## Turning things on
+Existing profiles that still use the `.local/` compatibility layout remain
+supported. They are not rewritten automatically. The planned migration is
+previewed, reviewed, and performed one responsibility at a time; see the
+[roadmap](./docs/ROADMAP.md#phase-4--existing-profile-migration--queued).
 
-Everything opinionated is off until you ask. Edit `.local/settings.nix` and run
-`dot rebuild`:
+The older `install.sh` remains a legacy compatibility entry point during this
+transition. New installations use `setup.sh`.
 
-```nix
-{
-  ai.enable = true;                     # AI editor config symlinks
+## Safety model
 
-  homebrew.cleanup = "uninstall";       # prune casks you no longer declare
-  system.macosDefaults.enable = true;   # Dock/Finder/key-repeat profile
-  home.exampleProfile.enable = true;    # the whole example home profile at once
-                                        # (oh-my-zsh, ghostty, vscode/cursor,
-                                        #  node tooling, personal aliases,
-                                        #  zoxide-as-cd, git workflow, workshop)
-
-  # Your applications. This list is the whole of what gets installed.
-  casks = [ "firefox" "ghostty" "rectangle" ];  # https://formulae.brew.sh/cask/
-  nixPackages = [ "htop" ];                     # https://search.nixos.org/packages
-  masApps = { Notability = 360593530; };        # App Store → Copy Link → number
-}
-```
-
-With `homebrew.cleanup = "uninstall"`, that cask list is authoritative:
-anything you installed by hand and did not list is removed on the next rebuild.
-
-Each home toggle can also be set individually from your private host file
-instead of all at once — see [`hosts/_template.nix`](./hosts/_template.nix),
-the complete worked example.
-
-## Where do I put things?
-
-| What | Where | Notes |
-|---|---|---|
-| Apps, packages, App Store items | `.local/settings.nix` | `casks` / `nixPackages` / `masApps` |
-| Your aliases, functions, `PATH` | `config/zsh/custom.local.zsh` | Unmanaged and untracked — yours alone |
-| Git name and email | `.local/identity.nix` | |
-| A `$HOME` config file you want versioned | `dot adopt ~/path` | Moves it into the private flake and symlinks it back |
-| …one the app rewrites itself (editor `settings.json`) | `dot adopt ~/path --mutable` | Same, but the file stays **writable** — the app keeps saving, straight into your repo |
-| What is *not* yet versioned | `dot scan-unmapped` | Lists adoption candidates |
-| Hostname / username | `.local/hosts/<host>.nix` | Written by `setup-private-host` |
-
-`.local/` is a symlink to your private repo, so everything above is versioned
-there and travels to your next Mac — while the public repo stays generic.
-
-> **Nothing here defaults to destructive, and nothing redefines your commands.**
-> `homebrew.cleanup` stays `"none"` until you opt in, and a build that would
-> prune against an empty cask list refuses to evaluate (ADR-007). A cold fork's
-> shell leaves `cd`, `npm` and `git pull` alone, and touches no project you
-> `cd` into (ADR-011).
-
-## Making it yours
-
-| You want to… | Do this |
-|---|---|
-| Add aliases, exports, tool setup | `cp config/zsh/custom.local.zsh.example config/zsh/custom.local.zsh` — gitignored, sourced last, never clobbered by a rebuild |
-| Install an app | `dot apps add <name>`, or add it to `.local/settings.nix` |
-| Bring an existing config under management | `dot adopt ~/.config/whatever` — it moves into your private flake |
-| Ship a change to your Mac | `dot promote` |
-
-The framework installs applications and owns a few core configs (git, Neovim,
-zsh, optionally VS Code/Cursor and Ghostty). Everything else that lives in your
-`$HOME` is `dot adopt`'s job, not this repo's.
+- Public code contains no user's private values.
+- Destructive Homebrew cleanup is off by default.
+- Restore and framework updates preserve the committed lock unless the owner
+  explicitly changes it.
+- Activation prints the exact host and command and requires confirmation.
+- Unknown hosts stop instead of silently selecting another configuration.
+- Existing destinations are never overwritten merely because they exist.
+- Green tests do not replace a physical clean-Mac rehearsal.
 
 ## Documentation
 
-| Doc | Covers |
-|---|---|
-| [docs/PRODUCT.md](./docs/PRODUCT.md) | Product contract and definition of success |
-| [docs/ROADMAP.md](./docs/ROADMAP.md) | Current phase, remaining work, and v1 release gates |
-| [GETTING-STARTED.md](./GETTING-STARTED.md) | Install, `.local/` schema, first-run troubleshooting |
-| [docs/OPERATIONS.md](./docs/OPERATIONS.md) | Day-to-day: updates, rollback, generations, backups |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Which layer owns which package or setting |
-| [docs/DECISIONS.md](./docs/DECISIONS.md) | ADRs — read before reversing anything deliberate |
-| [docs/TESTING.md](./docs/TESTING.md) | `dot validate`, the bats suite, CI |
-| [docs/PRIVATE_HOST_SETUP.md](./docs/PRIVATE_HOST_SETUP.md) | The downstream private flake |
-| [AGENTS.md](./AGENTS.md) | The contract for AI agents working in this repo |
+| Document | Covers |
+| --- | --- |
+| [Product contract](./docs/PRODUCT.md) | Purpose, ownership model, design principles, and definition of success |
+| [Roadmap](./docs/ROADMAP.md) | Current phase, remaining work, and v1 release gates |
+| [Getting started](./GETTING-STARTED.md) | New-profile and restore walkthroughs |
+| [Installer modes](./docs/INSTALLER_MODES.md) | Complete `setup.sh` arguments and safety behavior |
+| [Operations](./docs/OPERATIONS.md) | Applications, updates, rebuilds, adoption, backup checks, and rollback |
+| [Architecture](./docs/ARCHITECTURE.md) | Nix, nix-darwin, Home Manager, Homebrew, and profile ownership |
+| [Clean-machine acceptance](./docs/CLEAN_MACHINE_ACCEPTANCE.md) | Automated, hardware, and human evidence |
+| [Decisions](./docs/DECISIONS.md) | Architectural decision records |
+| [Testing](./docs/TESTING.md) | Validation, Bats, flake evaluation, and CI |
+| [Agent contract](./AGENTS.md) | Rules for humans and AI tools changing this repository |
 
-## Repository layout
+## Development
 
-```
-flake.nix              Inputs, exported modules, evaluation checks
-hosts/                 System-level config (default.nix) + downstream template
-nix/modules/           Opt-in app sets, Homebrew policy, macOS defaults
-nix/home/              Home Manager configuration
-lib/                   Nix helpers (local.nix, pkgs.nix) + shell helpers
-config/                Dotfiles proper: zsh, git, nvim, ghostty, editors
-scripts/bin/           The `dot` CLI and its subcommands
-tests/                 bats suite
-docs/                  Architecture, decisions, operations, testing
+Work happens on feature branches. Before declaring a change complete:
+
+```bash
+scripts/bin/dot validate
 ```
 
-## Working with AI agents
-
-The agent contract is vendor-neutral and lives in [AGENTS.md](./AGENTS.md).
-Claude, Cursor, Copilot, Devin and Windsurf each have a short pointer file that
-restates nothing, so any tool — including one with no config here at all — gets
-the same rules. See ADR-008.
+The suite checks shell and Nix syntax, linting, flake evaluation, regression
+tests, public-repository purity, and Git tracking.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+[MIT](./LICENSE)
