@@ -21,6 +21,7 @@
 #   dotfiles_root        → this repo's checkout
 #   private_flake_root   → the downstream private flake (~/dotfiles-private)
 #   local_dir            → the gitignored .local/ settings layer
+#   has_settings_layer   → whether that layer contains recognized settings
 
 # ── The public framework checkout ────────────────────────────────────────────
 # Resolution order:
@@ -83,4 +84,12 @@ local_dir() {
   fi
 
   printf '%s\n' "$(dotfiles_root)/.local"
+}
+
+# Presence is not consent (ADR-007). Keep this list exactly aligned with
+# `settingsFiles` in lib/local.nix so shell preflight reports the same layer
+# that Nix will actually load.
+has_settings_layer() {
+  local dir="$1"
+  [[ -e "$dir/settings.nix" || -e "$dir/identity.nix" || -e "$dir/apps.nix" ]]
 }

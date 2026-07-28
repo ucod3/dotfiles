@@ -134,6 +134,9 @@
           homeCfg = host.config.home-manager.users.${dummyUser};
         in
         assert host.config.homebrew.onActivation.cleanup == "none";
+        assert host.config.homebrew.brews == [ ];
+        assert host.config.homebrew.casks == [ ];
+        assert host.config.homebrew.masApps == { };
         assert !host.config.dotfiles.system.macosDefaults.enable;
 
         # ADR-011, the shell half of the same contract. A cold fork must not

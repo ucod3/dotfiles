@@ -71,30 +71,26 @@ setup() {
   # layer: ~/dotfiles-private is created with only flake.nix/hosts/, and
   # treating it as one enabled destructive Homebrew pruning (ADR-007).
   bare="$(mktemp -d)"
-  run bash -c "
-    source '$REPO_ROOT/lib/log.sh'
-    has_settings_layer() {
-      local d=\"\$1\"
-      [[ -e \"\$d/settings.nix\" || -e \"\$d/identity.nix\" || -e \"\$d/apps.nix\" \
-         || -e \"\$d/browsers/choices.nix\" || -e \"\$d/editors/choices.nix\" ]]
-    }
-    has_settings_layer '$bare'
-  "
+  run bash -c "source '$REPO_ROOT/lib/paths.sh'; has_settings_layer '$bare'"
   rm -rf "$bare"
   [ "$status" -ne 0 ]
 }
 
-@test "a directory with settings.nix is a settings layer" {
+@test "the production helper recognizes every settings file Nix loads" {
+  for file in settings.nix identity.nix apps.nix; do
+    layer="$(mktemp -d)"
+    touch "$layer/$file"
+    run bash -c "source '$REPO_ROOT/lib/paths.sh'; has_settings_layer '$layer'"
+    rm -rf "$layer"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "removed per-category choices do not masquerade as an active layer" {
   layer="$(mktemp -d)"
-  echo '{ }' > "$layer/settings.nix"
-  run bash -c "
-    has_settings_layer() {
-      local d=\"\$1\"
-      [[ -e \"\$d/settings.nix\" || -e \"\$d/identity.nix\" || -e \"\$d/apps.nix\" \
-         || -e \"\$d/browsers/choices.nix\" || -e \"\$d/editors/choices.nix\" ]]
-    }
-    has_settings_layer '$layer'
-  "
+  mkdir -p "$layer/browsers"
+  touch "$layer/browsers/choices.nix"
+  run bash -c "source '$REPO_ROOT/lib/paths.sh'; has_settings_layer '$layer'"
   rm -rf "$layer"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
 }
