@@ -57,6 +57,23 @@ of testing isolated helper functions:
 The test uses real Git storage and history. Only macOS prerequisites and Nix
 execution are doubled, because CI must never install Nix or switch a host.
 
+## Local interactive rehearsal — 2026-07-28
+
+Framework commit `a5dee71094e8392e8d0aa541cab9981540c9d113` completed a
+real interactive `setup.sh --new` rehearsal on macOS using isolated temporary
+framework, profile, and home directories.
+
+The public installer cloned the upstream framework, generated and committed a
+modular private profile, accepted one application from each supported category,
+showed the ordinary Nix diff, created a separate application commit, and
+completed profile-owned restore preflight with an unchanged lock. The generated
+private repository was clean afterward, and no activation occurred.
+
+This is useful local integration evidence, but it is not clean-hardware or
+no-AI proof: Nix and Git were already installed, inputs were supplied during the
+rehearsal, and no nix-darwin or Homebrew activation ran. It also confirmed that
+package identifiers and Mac App Store IDs still need clearer beginner guidance.
+
 ## What passing CI does not prove
 
 Passing CI does not establish that:
@@ -113,10 +130,11 @@ choices in a public evidence report.
 ## Current verdict
 
 The framework now has automated proof for profile creation, Git-backed backup,
-exact restore continuity, preflight defaults, and lock preservation. The overall
-product acceptance test is **not yet complete**.
+application selection, exact restore continuity, preflight defaults, and lock
+preservation, plus a successful isolated interactive macOS rehearsal. The
+overall product acceptance test is **not yet complete**.
 
-The next functional slice must provide a beginner, profile-aware application
-selection workflow. After that, the project still requires a documented clean
-hardware rehearsal and a no-AI usability run before the full acceptance statement
-can be marked proven.
+A later usability pass must make package identifiers easier to discover without
+AI. The project also still requires provider-neutral private-backup guidance, a
+documented clean-hardware rehearsal, and a no-AI usability run before the full
+acceptance statement can be marked proven.
