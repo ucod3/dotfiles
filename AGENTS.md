@@ -78,7 +78,8 @@ Cite these by number (`R4`) rather than restating them.
    contract. A green check does not replace a real install/update/restore journey.
 
 Cross-participant work and unexpected findings follow
-`docs/AI_COLLABORATION.md`; a chat-only finding is not a durable handoff.
+`docs/AI_COLLABORATION.md`. Interpret short task requests and resumable handoffs
+through `docs/AI_TASK_PROTOCOL.md`; a chat-only finding is not durable.
 
 ## 5. Definition of done
 
