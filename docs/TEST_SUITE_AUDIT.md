@@ -29,8 +29,8 @@ must instead be judged against the current product contract and roadmap.
 | `test_private_profile_bootstrap.bats` | 4 | Retain. It protects profile-owned recovery and prerequisite boundaries. |
 | `test_private_profile_templates.bats` | 10 | Mostly retain. Consolidate generated-document sentence checks separately from structural ownership checks. |
 | `test_private_profile_first_run.bats` | 5 | Consolidate with overlapping generator and setup-host coverage. Preserve legacy-host compatibility until its retirement gate. |
-| `test_adoptability.bats` | 47 | Split by responsibility. It currently mixes framework-source selection, host generation, path helpers, legacy apps, validation, `promote`, shell neutrality, the legacy installer, and licensing. Several cases duplicate newer suites. |
-| `test_cold_clone.bats` | 8 | Preserve the cold-machine contracts, but replace tests that recreate production logic or grep source text instead of invoking behavior. |
+| `test_adoptability.bats` | 46 | Split by responsibility. It currently mixes framework-source selection, host generation, path helpers, legacy apps, validation, `promote`, shell neutrality, the legacy installer, and licensing. Several cases duplicate newer suites. |
+| `test_cold_clone.bats` | 9 | Preserve the cold-machine contracts. Settings-layer detection now exercises production behavior; remaining source-text assertions still need stronger evidence. |
 | `test_rebuild.bats` | 13 | Preserve pin, lock, override, and privilege boundaries. Replace source-shape assertions with command-double behavior where possible. |
 | `test_node_version.bats` | 9 | Consolidate repeated semver examples into table-driven coverage. This protects an opt-in web-development workflow rather than the core restore product. |
 | `test_lib_node.bats` | 4 | Retain the path-resolution behavior; combine closely related error assertions where useful. |
@@ -46,12 +46,10 @@ release criterion.
 
 ### Recreated production logic
 
-Two cold-clone tests define their own copy of `has_settings_layer()` and then
-test that copy. The production implementation could regress while those tests
-remain green.
-
-Required correction: expose or invoke the real production helper and exercise
-it with empty and populated fixture directories.
+Resolved in the first integrity slice: the shared production
+`has_settings_layer()` helper now owns shell-side detection, `rebuild` calls it,
+and cold-clone tests exercise it with empty, recognized, and obsolete fixture
+layouts.
 
 ### Misleading success semantics
 
@@ -73,13 +71,9 @@ The test must follow the decided contract rather than silently choosing it.
 
 ### Personal-application blacklist
 
-The current “framework declares no application of its own” test checks only a
-short list of previously personal applications. Another accidental application
-could be introduced without failing the test.
-
-Required correction: assert the resolved cold configuration contains no
-private casks or App Store declarations, using Nix evaluation rather than a
-name blacklist.
+Resolved in the first integrity slice: the personal-name blacklist was removed.
+The cold Nix check now asserts that resolved Homebrew formula, cask, and App
+Store declarations are empty.
 
 ### Source-text assertions
 
@@ -110,8 +104,8 @@ assertions against the same command should have one clear owner.
 
 ### 1. Correct false or weak evidence
 
-- exercise the real settings-layer detector;
-- replace the personal-app blacklist with resolved Nix assertions;
+- [x] exercise the real settings-layer detector;
+- [x] replace the personal-app blacklist with resolved Nix assertions;
 - replace the restore-export source grep with flake evaluation;
 - decide and test truthful `promote` failure semantics.
 

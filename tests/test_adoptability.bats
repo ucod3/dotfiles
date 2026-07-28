@@ -291,21 +291,6 @@ run_sph() {
   [[ "$output" == *"360593530"* ]]
 }
 
-@test "the framework declares no application of its own" {
-  LOCAL="$TMP/local"
-  mkdir -p "$LOCAL"
-  printf '{ }\n' > "$LOCAL/settings.nix"
-
-  run env DOTFILES_ROOT="$REPO_ROOT" DOTFILES_LOCAL="$LOCAL" "$APPS" list
-  [ "$status" -eq 0 ]
-  for app in arc raycast zen amethyst insync devin-desktop Notability; do
-    [[ "$output" != *"$app"* ]] || {
-      echo "framework still ships '$app'"
-      return 1
-    }
-  done
-}
-
 # ── validate reliability ─────────────────────────────────────────────────────
 
 @test "a failing bats suite is an error, not a warning" {
