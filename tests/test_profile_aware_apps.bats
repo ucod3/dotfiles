@@ -82,6 +82,23 @@ run_legacy_apps() {
   [[ "$output" != *"# Notability"* ]]
 }
 
+@test "search is read-only and points to official package sources" {
+  casks_before="$(shasum "$PRIVATE/apps/homebrew-casks.nix")"
+  nix_before="$(shasum "$PRIVATE/apps/nix-packages.nix")"
+  mas_before="$(shasum "$PRIVATE/apps/mac-app-store.nix")"
+
+  run_modular_apps search firefox
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"https://formulae.brew.sh/cask/"* ]]
+  [[ "$output" == *"https://search.nixos.org/packages"* ]]
+  [[ "$output" == *"choose Copy Link"* ]]
+  [[ "$output" == *"Search changes nothing"* ]]
+
+  [ "$(shasum "$PRIVATE/apps/homebrew-casks.nix")" = "$casks_before" ]
+  [ "$(shasum "$PRIVATE/apps/nix-packages.nix")" = "$nix_before" ]
+  [ "$(shasum "$PRIVATE/apps/mac-app-store.nix")" = "$mas_before" ]
+}
+
 @test "explicit additions write ordinary readable Nix to one owning file" {
   run_modular_apps add --cask firefox
   [ "$status" -eq 0 ]
@@ -100,6 +117,24 @@ run_legacy_apps() {
   run grep -R -F '"firefox"' "$PRIVATE/apps/nix-packages.nix" \
     "$PRIVATE/apps/mac-app-store.nix"
   [ "$status" -ne 0 ]
+}
+
+@test "Mac App Store URLs are normalized to their numeric ID" {
+  run_modular_apps add --mas "Example App" \
+    "https://apps.apple.com/us/app/example-app/id1234567890?mt=12&source=test"
+  [ "$status" -eq 0 ]
+  grep -qF '  "Example App" = 1234567890;' \
+    "$PRIVATE/apps/mac-app-store.nix"
+  [[ "$output" == *'Add "Example App" = 1234567890;'* ]]
+}
+
+@test "invalid Mac App Store references are rejected without changing the file" {
+  before="$(shasum "$PRIVATE/apps/mac-app-store.nix")"
+
+  run_modular_apps add --mas "Example App" "https://example.com/app/123"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"numeric App Store ID or an https://apps.apple.com/ URL"* ]]
+  [ "$(shasum "$PRIVATE/apps/mac-app-store.nix")" = "$before" ]
 }
 
 @test "the ordinary add form auto-detects a Homebrew cask" {

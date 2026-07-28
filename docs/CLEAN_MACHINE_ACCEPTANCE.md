@@ -28,7 +28,7 @@ status.
 | --- | --- | --- | --- |
 | Start from a clean Apple Silicon Mac | `setup.sh` refuses non-macOS systems, checks Xcode Command Line Tools, and generated profiles carry an `aarch64-darwin` target. macOS CI evaluates the flake. | A clean-hardware run must prove the installer, Nix daemon setup, Rosetta behavior, and restart boundaries. | Partial |
 | Install without Nix knowledge | The public entry point chooses `--new` or `--restore`; generated profiles contain a tiny `bootstrap` command and ordinary files. | A first-time user must complete the documented journey without editing Nix or receiving undocumented help. | Human proof required |
-| Choose applications | Generated profiles own readable `apps/homebrew-casks.nix`, `apps/nix-packages.nix`, and `apps/mac-app-store.nix`; `setup.sh --new` offers interactive selection and repeatable flags through the profile-aware `dot apps` implementation. The two-machine test selects applications through the public installer and proves those declarations survive backup and restore. | A first-time user must complete the interactive application workflow without undocumented help. | Human proof required |
+| Choose applications | Generated profiles own readable `apps/homebrew-casks.nix`, `apps/nix-packages.nix`, and `apps/mac-app-store.nix`; `setup.sh --new` offers interactive selection, official read-only discovery paths, App Store URL input, and repeatable flags through the profile-aware `dot apps` implementation. The two-machine test selects applications through the public installer and proves those declarations survive backup and restore. | A first-time user must complete the interactive application workflow without undocumented help. | Human proof required |
 | Create a private configuration | The real generator creates the documented modular layout, initializes Git through `setup-private-host`, commits a lock, and enters profile-owned preflight. | Human review must confirm the generated names and choices are understandable. | Automated contract |
 | Back up the private configuration | The two-machine test publishes the profile to a real temporary bare Git remote and restores from that remote. The installer warns that an unpushed local repository is not a backup. | Public documentation still needs a provider-neutral walkthrough for creating a private remote and verifying the push. | Partial |
 | Rebuild successfully | Restore activation tests prove explicit confirmation, exact host forwarding, pinned `darwin-rebuild`, and lock preservation. macOS CI evaluates the configuration. | A clean-hardware `darwin-rebuild switch` must complete, followed by a post-activation preflight and application checks. | Hardware proof required |
@@ -71,8 +71,9 @@ private repository was clean afterward, and no activation occurred.
 
 This is useful local integration evidence, but it is not clean-hardware or
 no-AI proof: Nix and Git were already installed, inputs were supplied during the
-rehearsal, and no nix-darwin or Homebrew activation ran. It also confirmed that
-package identifiers and Mac App Store IDs still need clearer beginner guidance.
+rehearsal, and no nix-darwin or Homebrew activation ran. The later discovery
+workflow addressed the identifier guidance found during this rehearsal, but
+still requires first-time-user validation.
 
 ## What passing CI does not prove
 
@@ -99,8 +100,8 @@ on a production machine merely to satisfy documentation.
    `~/dotfiles-private` directory.
 2. Follow only `docs/INSTALLER_MODES.md` and choose the new-profile journey.
 3. Record every prompt that requires unexplained Nix or Git knowledge.
-4. Select applications through the supported beginner workflow once the app UX
-   gap above is resolved.
+4. Select applications through the supported beginner workflow, including its
+   read-only package discovery and App Store Copy Link path.
 5. Review the generated private profile and confirm the chosen applications and
    hostname are visible in ordinary files.
 6. Create a private remote, push the profile, and verify the local branch has an
@@ -134,7 +135,7 @@ application selection, exact restore continuity, preflight defaults, and lock
 preservation, plus a successful isolated interactive macOS rehearsal. The
 overall product acceptance test is **not yet complete**.
 
-A later usability pass must make package identifiers easier to discover without
-AI. The project also still requires provider-neutral private-backup guidance, a
-documented clean-hardware rehearsal, and a no-AI usability run before the full
-acceptance statement can be marked proven.
+The project still requires first-time-user validation of package discovery,
+provider-neutral private-backup guidance, a documented clean-hardware rehearsal,
+and a no-AI usability run before the full acceptance statement can be marked
+proven.

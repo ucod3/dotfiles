@@ -190,7 +190,7 @@ run_setup() {
   [[ "$output" == *"--activate"* ]]
   [[ "$output" == *"--cask NAME"* ]]
   [[ "$output" == *"--nix-package ATTR"* ]]
-  [[ "$output" == *"--mas-app NAME=ID"* ]]
+  [[ "$output" == *"--mas-app NAME=REF"* ]]
 }
 
 @test "restore clones only the private profile and runs preflight" {
@@ -308,6 +308,18 @@ run_setup() {
   grep -qF 'PROFILE_GIT=<commit><-m Choose applications>' "$GIT_RECORD"
   grep -qF 'ARGS=<--host><test-mac>' "$BOOTSTRAP_RECORD"
   [[ "$output" == *"Saved application choices in the private profile"* ]]
+}
+
+@test "new journey preserves a full App Store URL including query parameters" {
+  app_url="https://apps.apple.com/us/app/example/id1234567890?mt=12&source=installer"
+  SETUP_ARGS=(
+    --new
+    --mas-app "Example App=$app_url"
+  )
+  run_setup
+  [ "$status" -eq 0 ]
+
+  grep -qF "ARGS=<add><--mas><Example App><$app_url>" "$APPS_RECORD"
 }
 
 @test "skip-apps keeps a new profile application-neutral" {
