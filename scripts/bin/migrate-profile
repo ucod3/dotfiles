@@ -10,10 +10,11 @@ source "$PATHS_FILE"
 DOTFILES_ROOT="$(dotfiles_root)"
 export DOTFILES_ROOT
 PROFILE_ROOT="$(private_flake_root)"
+APPLICATIONS=false
 
 usage() {
   cat <<'USAGE'
-Usage: migrate-profile [--preview] [--profile PATH]
+Usage: migrate-profile [--preview] [--applications] [--profile PATH]
 
 Inspect an existing private profile and report migration evidence. Preview is
 the only supported mode: no file is moved, generated, staged, committed,
@@ -21,6 +22,7 @@ published, rebuilt, or activated.
 
 Options:
       --preview       Explicitly select the read-only preview (the default)
+      --applications  Add application-source and equivalence evidence
       --profile PATH  Private profile to inspect (default: ~/dotfiles-private)
   -h, --help          Show this help
 USAGE
@@ -34,6 +36,10 @@ fail() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --preview)
+      shift
+      ;;
+    --applications)
+      APPLICATIONS=true
       shift
       ;;
     --profile)
@@ -107,6 +113,70 @@ print_item() {
   printf '  %-28s %s\n' "$1" "$2"
 }
 
+print_application_evidence() {
+  local apps_tool="$SELF_DIR/apps"
+  local legacy_snapshot modular_snapshot source_names=() target
+  local cask_count nix_count mas_count fingerprint
+  local targets=(
+    apps/default.nix
+    apps/homebrew-casks.nix
+    apps/nix-packages.nix
+    apps/mac-app-store.nix
+  )
+  local missing=()
+
+  [[ -f "$PROFILE_ROOT/settings.nix" ]] && source_names+=(settings.nix)
+  [[ -f "$PROFILE_ROOT/apps.nix" ]] && source_names+=(apps.nix)
+  if [[ ${#source_names[@]} -gt 0 ]]; then
+    print_item "legacy sources" "${source_names[*]}"
+  else
+    print_item "legacy sources" "none found"
+  fi
+
+  legacy_snapshot="$(
+    DOTFILES_ROOT="${SELF_DIR%/scripts/bin}" \
+      DOTFILES_PRIVATE_FLAKE="$PROFILE_ROOT" \
+      DOTFILES_LOCAL="$PROFILE_ROOT" \
+      "$apps_tool" snapshot --legacy
+  )"
+  cask_count="$(grep -c $'^cask\t' <<<"$legacy_snapshot" || true)"
+  nix_count="$(grep -c $'^nix\t' <<<"$legacy_snapshot" || true)"
+  mas_count="$(grep -c $'^mas\t' <<<"$legacy_snapshot" || true)"
+  fingerprint="$(printf '%s\n' "$legacy_snapshot" | shasum -a 256 | awk '{print $1}')"
+  print_item "legacy declarations" \
+    "$cask_count casks; $nix_count Nix packages; $mas_count App Store apps"
+  print_item "legacy fingerprint" "$fingerprint"
+
+  for target in "${targets[@]}"; do
+    [[ -f "$PROFILE_ROOT/$target" ]] || missing+=("$target")
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    print_item "modular targets" "missing: ${missing[*]}"
+    print_item "resolved equivalence" "not comparable until targets exist"
+    return
+  fi
+
+  modular_snapshot="$(
+    DOTFILES_ROOT="${SELF_DIR%/scripts/bin}" \
+      DOTFILES_PRIVATE_FLAKE="$PROFILE_ROOT" \
+      DOTFILES_LOCAL="$PROFILE_ROOT" \
+      "$apps_tool" snapshot --modular
+  )"
+  cask_count="$(grep -c $'^cask\t' <<<"$modular_snapshot" || true)"
+  nix_count="$(grep -c $'^nix\t' <<<"$modular_snapshot" || true)"
+  mas_count="$(grep -c $'^mas\t' <<<"$modular_snapshot" || true)"
+  fingerprint="$(printf '%s\n' "$modular_snapshot" | shasum -a 256 | awk '{print $1}')"
+  print_item "modular declarations" \
+    "$cask_count casks; $nix_count Nix packages; $mas_count App Store apps"
+  print_item "modular fingerprint" "$fingerprint"
+
+  if [[ "$legacy_snapshot" == "$modular_snapshot" ]]; then
+    print_item "resolved equivalence" "exact match"
+  else
+    print_item "resolved equivalence" "mismatch; do not continue"
+  fi
+}
+
 printf 'Private-profile migration preview\n'
 printf '  Profile:        %s\n' "$PROFILE_ROOT"
 printf '  Layout:         %s\n' "$LAYOUT"
@@ -156,6 +226,11 @@ for target in apps macos home/default.nix; do
     print_item "$target" "missing"
   fi
 done
+
+if [[ "$APPLICATIONS" == true ]]; then
+  printf '\nApplication migration evidence\n'
+  print_application_evidence
+fi
 
 printf '\nGenerated or infrastructure state\n'
 for infrastructure in flake.nix flake.lock bootstrap README.md; do
