@@ -106,7 +106,8 @@ run_generator() {
   grep -qF './bootstrap' "$PRIVATE/README.md"
   grep -qF 'nix run .#restore' "$PRIVATE/README.md"
   grep -qF 'non-destructive preflight' "$PRIVATE/README.md"
-  grep -qF 'does not activate nix-darwin yet' "$PRIVATE/README.md"
+  grep -qF 'does not activate' "$PRIVATE/README.md"
+  grep -qF 'nix-darwin yet.' "$PRIVATE/README.md"
 }
 
 @test "dot adopt writes modular profiles under home files" {
