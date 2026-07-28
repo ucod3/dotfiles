@@ -79,6 +79,7 @@ render() {
 }
 
 render README.md README.md
+render bootstrap bootstrap
 render flake.nix flake.nix
 render identity.nix identity.nix
 render apps/default.nix apps/default.nix
@@ -90,6 +91,7 @@ render home.nix home.nix
 render home/default.nix home/default.nix
 render hosts/host.nix "hosts/$HOST_NAME.nix"
 
+chmod +x "$ROOT/bootstrap"
 mkdir -p "$ROOT/home/files"
 cat > "$ROOT/.gitignore" <<'EOF'
 result
@@ -100,4 +102,5 @@ EOF
 printf 'Private profile template written to %s\n' "$ROOT"
 printf '  Host:      hosts/%s.nix\n' "$HOST_NAME"
 printf '  Framework: %s\n' "$FRAMEWORK_REF"
+printf '  Restore:   ./bootstrap (non-destructive preflight)\n'
 printf 'Review README.md and the generated Nix files before creating flake.lock.\n'
