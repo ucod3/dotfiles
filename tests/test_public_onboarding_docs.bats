@@ -7,6 +7,8 @@ setup() {
   ARCHITECTURE="$REPO_ROOT/docs/ARCHITECTURE.md"
   PRIVATE_HOST="$REPO_ROOT/docs/PRIVATE_HOST_SETUP.md"
   OPERATIONS="$REPO_ROOT/docs/OPERATIONS.md"
+  ROADMAP="$REPO_ROOT/docs/ROADMAP.md"
+  DEVIN_SETUP="$REPO_ROOT/docs/ai/devin.md"
   TESTING="$REPO_ROOT/docs/TESTING.md"
   SETUP="$REPO_ROOT/setup.sh"
 }
@@ -91,4 +93,12 @@ setup() {
 
   run grep -F 'What matters is `.local/`' "$OPERATIONS"
   [ "$status" -ne 0 ]
+}
+
+@test "AI editor link documentation distinguishes legacy and modular behavior" {
+  grep -qF '### Current legacy-profile behavior' "$DEVIN_SETUP"
+  grep -qF 'does **not** enable these Home Manager' "$DEVIN_SETUP"
+  grep -qF 'links yet, because their remaining gate' "$DEVIN_SETUP"
+  grep -qF 'AI editor links move from the legacy `.local` flag' "$ROADMAP"
+  grep -qF 'Home Manager option while retaining the legacy flag' "$ROADMAP"
 }
