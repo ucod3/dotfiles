@@ -99,6 +99,9 @@ Done when:
 - migration happens on a private branch, one responsibility at a time;
 - applications, macOS preferences, Home Manager options, adopted files, and
   identity retain equivalent resolved values;
+- AI editor links move from the legacy `.local` flag to a readable modular
+  Home Manager option while retaining the legacy flag as a compatibility
+  fallback;
 - every category is evaluated before the next category moves;
 - the live host switches only after a reviewed build succeeds;
 - legacy support remains intact for profiles that have not migrated.

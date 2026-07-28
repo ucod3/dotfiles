@@ -20,17 +20,27 @@ Nothing to install.
 
 ## Global config
 
-The two files Home Manager owns are linked declaratively, gated behind
-`ai.enable = true` in `.local/settings.nix`:
+Home Manager owns these two declarative links:
 
 ```
 ~/.config/devin/config.json     -> config/devin/hooks.json
 ~/.config/windsurf/config.json  -> config/windsurf/config.json
 ```
 
-Run `dot rebuild` after setting `ai.enable`. Do not create these symlinks by
-hand — an imperative installer that claimed the same paths was removed in
-ADR-008 precisely because two owners fought over one target.
+### Current legacy-profile behavior
+
+Existing profiles using the `.local/` compatibility layer enable both links
+with `ai.enable = true` in `.local/settings.nix`, followed by `dot rebuild`.
+
+Setting `dotfiles.ai.enable = true` in a modular private host currently affects
+only the nix-darwin system option. It does **not** enable these Home Manager
+links yet, because their remaining gate still reads the legacy `.local` flag.
+Phase 4 of the [product roadmap](../ROADMAP.md) records the compatibility-tested
+migration to a readable modular Home Manager option.
+
+Do not create these links by hand as a workaround. An imperative installer that
+claimed the same paths was removed in ADR-008 precisely because two owners
+fought over one target.
 
 The remaining Windsurf/Codeium paths are not managed by Nix, because Windsurf
 rewrites them itself. Link them once:
