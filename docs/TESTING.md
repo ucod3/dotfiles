@@ -18,7 +18,7 @@ The single entry point. Checks, in order:
 
 ```bash
 dot validate           # everything (a few minutes)
-dot validate --quick   # skip the slow Nix evaluation
+dot validate --quick   # run fast checks and tests; skip Nix evaluation
 ```
 
 Exit code is non-zero only on **errors**; warnings still pass. A failing bats
@@ -29,6 +29,12 @@ pre-flight, `dot apps`' post-mutation check — inherited that false pass.
 The file lists are derived from `git ls-files`, not hand-maintained — a
 previous pair of hand-written lists here and in CI had drifted apart and left
 several scripts checked by neither.
+
+Quick mode exports `DOTFILES_VALIDATE_QUICK=1` to the Bats suite. Tests that
+perform real Nix evaluation must skip when that marker is present and must also
+skip when `nix` is unavailable. The rest of the suite still runs, preserving
+the safety checks used by the pre-commit hook without turning a quick check into
+a cold Nix fetch.
 
 ## `nix flake check`
 
@@ -98,6 +104,7 @@ compatibility retirement gates are recorded in
 | `test_restore_profile.bats` | Restore preflight, host selection, activation confirmation, and lock preservation |
 | `test_setup_installer.bats` | Public create/restore journeys, identity, applications, and destination safety |
 | `test_public_onboarding_docs.bats` | README and getting-started claims stay aligned with the supported installer |
+| `test_validate.bats` | Full/quick validation boundaries and the Nix-evaluation handoff to Bats |
 
 `tests/bats_helper.bash` provides `assert_success`, `assert_failure`,
 `assert_output`, `assert_output_contains`, `make_temp`, `cleanup_temp`. Load it

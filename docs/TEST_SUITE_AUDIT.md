@@ -36,6 +36,7 @@ must instead be judged against the current product contract and roadmap.
 | `test_lib_node.bats` | 4 | Retain the path-resolution behavior; combine closely related error assertions where useful. |
 | `test_public_onboarding_docs.bats` | 11 | Preserve truthful-onboarding coverage, but reduce dependence on exact prose and duplicated sentence assertions. |
 | `test_private_profile_backup_docs.bats` | 5 | Preserve the backup safety contract while consolidating exact-text checks. |
+| `test_validate.bats` | 2 | Retain. It proves quick validation cannot accidentally perform real Nix evaluation while full validation still does. |
 
 The expected result is a smaller, clearer suite, not a predetermined number.
 An initial estimate is roughly 150–170 Bats tests after consolidation, while
