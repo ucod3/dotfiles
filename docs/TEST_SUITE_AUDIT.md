@@ -21,7 +21,7 @@ must instead be judged against the current product contract and roadmap.
 | Suite | Tests | Current judgment |
 | --- | ---: | --- |
 | `test_dot_adopt.bats` | 28 | Retain. It exercises destructive file movement, credential refusals, Home Manager collision guards, and backup-risk reporting in sandboxes. |
-| `test_restore_profile.bats` | 16 | Retain the behavior coverage. Replace its source-text flake assertion with evaluation evidence. |
+| `test_restore_profile.bats` | 16 | Retain. Restore behavior and the framework export now use execution and flake-evaluation evidence. |
 | `test_setup_installer.bats` | 19 | Retain. Consolidate overlapping flag-validation cases only where failure boundaries remain explicit. |
 | `test_profile_aware_apps.bats` | 13 | Retain. It exercises the actual application command and both modular and legacy ownership. |
 | `test_clean_machine_acceptance.bats` | 1 | Retain. It is the strongest automated create, publish, and restore contract, while remaining distinct from the physical release gate. |
@@ -106,7 +106,7 @@ assertions against the same command should have one clear owner.
 
 - [x] exercise the real settings-layer detector;
 - [x] replace the personal-app blacklist with resolved Nix assertions;
-- replace the restore-export source grep with flake evaluation;
+- [x] replace the restore-export source grep with flake evaluation;
 - decide and test truthful `promote` failure semantics.
 
 ### 2. Give each contract one owner

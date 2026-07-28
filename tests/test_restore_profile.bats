@@ -1,5 +1,8 @@
 #!/usr/bin/env bats
 
+# `run --separate-stderr` (used by the flake-export test) needs bats 1.5+.
+bats_require_minimum_version 1.5.0
+
 setup() {
   load 'bats_helper'
   REPO_ROOT="$BATS_TEST_DIRNAME/.."
@@ -356,10 +359,33 @@ run_restore() {
 }
 
 @test "the framework flake exports restore with pinned darwin-rebuild" {
-  run grep -q 'restore = {' "$REPO_ROOT/flake.nix"
+  # --separate-stderr keeps Nix diagnostics out of $output. On a cold store Nix
+  # writes "unpacking '...' into the Git cache..." to stderr while fetching the
+  # locked inputs, and bats' default `run` would fold those lines into the
+  # evaluated store path.
+  run --separate-stderr nix --option warn-dirty false eval --raw \
+    "$REPO_ROOT#packages.aarch64-darwin.restore"
   assert_success
-  run grep -q 'dotfiles-restore' "$REPO_ROOT/flake.nix"
+  package_path="$output"
+
+  run --separate-stderr nix --option warn-dirty false eval --json \
+    "$REPO_ROOT#apps.aarch64-darwin.restore"
   assert_success
-  run grep -q 'nix-darwin.packages.${system}.darwin-rebuild' "$REPO_ROOT/flake.nix"
+  app_json="$output"
+  run --separate-stderr jq -e --arg program "$package_path/bin/dotfiles-restore" \
+    '.type == "app" and .program == $program' <<<"$app_json"
+  assert_success
+
+  run --separate-stderr nix --option warn-dirty false derivation show \
+    "$REPO_ROOT#packages.aarch64-darwin.restore"
+  assert_success
+  derivation_json="$output"
+  run --separate-stderr jq -e '
+    (if has("derivations") then .derivations else . end)
+    | to_entries[0].value
+    | (.inputs.drvs // .inputDrvs)
+    | keys
+    | any(endswith("-darwin-rebuild.drv"))
+  ' <<<"$derivation_json"
   assert_success
 }

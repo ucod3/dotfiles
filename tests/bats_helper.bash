@@ -3,11 +3,21 @@
 # Usage in test files:
 #   load 'bats_helper'
 
+# Report the separately captured stderr, when `run --separate-stderr` produced
+# any. Without this a failing Nix or jq call reports only its stdout, which is
+# usually the least informative half of the failure.
+report_stderr() {
+  if [ -n "${stderr:-}" ]; then
+    echo "Stderr: $stderr"
+  fi
+}
+
 # Assert that a command succeeds (status 0)
 assert_success() {
   if [ "$status" -ne 0 ]; then
     echo "Expected success (status 0), got status $status"
     echo "Output: $output"
+    report_stderr
     return 1
   fi
 }
@@ -17,6 +27,7 @@ assert_failure() {
   if [ "$status" -eq 0 ]; then
     echo "Expected failure (non-zero status), got status 0"
     echo "Output: $output"
+    report_stderr
     return 1
   fi
 }
