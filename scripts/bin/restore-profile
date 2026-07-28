@@ -11,6 +11,13 @@ RESTORE_HOST="${DOTFILES_RESTORE_HOST:-}"
 JSON_OUTPUT=false
 ACTIVATE=false
 ASSUME_YES=false
+ADD_HOST=false
+RENAME_TO=""
+RESTORE_USER=""
+
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+FRAMEWORK_ROOT="${SELF_DIR%/scripts/bin}"
+SETUP_PRIVATE_HOST="$FRAMEWORK_ROOT/scripts/bin/setup-private-host"
 
 usage() {
   cat <<'USAGE'
@@ -22,6 +29,11 @@ makes no system changes.
 Options:
       --profile PATH  Private profile root (default: current directory)
       --host NAME     Host configuration to restore (default: hostname -s)
+      --add-host      Generate and stage a reviewed module for a missing host
+      --user NAME     macOS user for --add-host (default: id -un)
+      --rename-to NAME
+                      Print, but never run, commands to rename this Mac to an
+                      existing profile host
       --json          Emit a machine-readable preflight plan (preflight only)
       --activate      Build and switch to the validated host configuration
       --yes           Confirm --activate non-interactively
@@ -29,7 +41,8 @@ Options:
 
 The profile must be a clean Git repository containing flake.nix and flake.lock.
 The committed lock is evaluated with --no-write-lock-file and verified unchanged.
-Activation never updates the lock and is refused for an unknown hostname.
+An unknown host stops unless --add-host or --rename-to is chosen explicitly.
+Host resolution never activates the Mac or updates the lock.
 USAGE
 }
 
@@ -60,6 +73,30 @@ while [[ $# -gt 0 ]]; do
       [[ -n "$RESTORE_HOST" ]] || fail "--host requires a name"
       shift
       ;;
+    --add-host)
+      ADD_HOST=true
+      shift
+      ;;
+    --user)
+      [[ $# -ge 2 && -n "${2:-}" ]] || fail "--user requires a name"
+      RESTORE_USER="$2"
+      shift 2
+      ;;
+    --user=*)
+      RESTORE_USER="${1#*=}"
+      [[ -n "$RESTORE_USER" ]] || fail "--user requires a name"
+      shift
+      ;;
+    --rename-to)
+      [[ $# -ge 2 && -n "${2:-}" ]] || fail "--rename-to requires an existing host"
+      RENAME_TO="$2"
+      shift 2
+      ;;
+    --rename-to=*)
+      RENAME_TO="${1#*=}"
+      [[ -n "$RENAME_TO" ]] || fail "--rename-to requires an existing host"
+      shift
+      ;;
     --json)
       JSON_OUTPUT=true
       shift
@@ -85,8 +122,22 @@ done
 if [[ "$JSON_OUTPUT" == true && "$ACTIVATE" == true ]]; then
   fail "--json is preflight-only and cannot be combined with --activate"
 fi
+if [[ "$ADD_HOST" == true && -n "$RENAME_TO" ]]; then
+  fail "--add-host and --rename-to are mutually exclusive"
+fi
+if [[ "$ACTIVATE" == true ]] \
+  && { [[ "$ADD_HOST" == true ]] || [[ -n "$RENAME_TO" ]]; }; then
+  fail "host resolution and --activate are separate steps"
+fi
+if [[ "$JSON_OUTPUT" == true ]] \
+  && { [[ "$ADD_HOST" == true ]] || [[ -n "$RENAME_TO" ]]; }; then
+  fail "--json cannot be combined with a host-resolution action"
+fi
 if [[ "$ASSUME_YES" == true && "$ACTIVATE" != true ]]; then
   fail "--yes is only valid with --activate"
+fi
+if [[ -n "$RESTORE_USER" && "$ADD_HOST" != true ]]; then
+  fail "--user is only valid with --add-host"
 fi
 
 for command_name in git jq nix; do
@@ -119,6 +170,16 @@ if [[ -z "$RESTORE_HOST" ]]; then
   RESTORE_HOST="$(hostname -s 2>/dev/null || true)"
 fi
 [[ -n "$RESTORE_HOST" ]] || fail "could not determine a hostname; pass --host NAME"
+if [[ "$ADD_HOST" == true ]]; then
+  [[ "$RESTORE_HOST" =~ ^[A-Za-z0-9_-]+$ ]] \
+    || fail "--add-host requires a hostname containing only letters, numbers, '_' or '-'"
+  [[ -n "$RESTORE_USER" ]] || RESTORE_USER="$(id -un 2>/dev/null || true)"
+  [[ "$RESTORE_USER" =~ ^[A-Za-z0-9_-]+$ ]] \
+    || fail "--add-host requires --user with only letters, numbers, '_' or '-'"
+fi
+if [[ -n "$RENAME_TO" && ! "$RENAME_TO" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  fail "--rename-to requires a host containing only letters, numbers, '_' or '-'"
+fi
 
 LOCK_INFO="$(jq -cer '
   . as $lock
@@ -156,6 +217,7 @@ PROFILE_REMOTE="$(git -C "$PROFILE_ROOT" remote get-url origin 2>/dev/null || tr
 [[ -n "$PROFILE_REMOTE" ]] || PROFILE_REMOTE="<none>"
 
 LOCK_HASH_BEFORE="$(git hash-object "$LOCK_FILE")"
+FLAKE_HASH_BEFORE="$(git hash-object "$FLAKE_FILE")"
 NIX_ERROR_FILE="$(mktemp -t dotfiles_restore.XXXXXX)"
 trap 'rm -f "$NIX_ERROR_FILE"' EXIT
 
@@ -209,6 +271,12 @@ if [[ "$JSON_OUTPUT" == true ]]; then
       frameworkRevision: $revision,
       lockFile: $lockFile,
       lockChanged: false,
+      hostResolutionChoices: (
+        if $status == "host-missing"
+        then ["add-host", "rename-to-existing", "stop"]
+        else []
+        end
+      ),
       activationRequested: false,
       activationPerformed: false
     }'
@@ -228,13 +296,82 @@ EOF_PLAN
 
 if [[ "$PLAN_STATUS" != "ready" ]]; then
   printf '  Activation:         blocked (host missing)\n' >&2
+
+  if [[ -n "$RENAME_TO" ]]; then
+    jq -e --arg host "$RENAME_TO" 'index($host) != null' \
+      <<<"$HOSTS_JSON" >/dev/null \
+      || fail "--rename-to must name an available host: $AVAILABLE_HOSTS"
+
+    cat >&2 <<EOF_RENAME
+
+Rename plan for this Mac (not performed):
+EOF_RENAME
+    printf '  sudo scutil --set ComputerName %q\n' "$RENAME_TO" >&2
+    printf '  sudo scutil --set LocalHostName %q\n' "$RENAME_TO" >&2
+    printf '  sudo scutil --set HostName %q\n' "$RENAME_TO" >&2
+    cat >&2 <<EOF_RENAME_NEXT
+
+Review and run those privileged commands yourself, then open a new terminal and
+rerun ./bootstrap. No profile file, framework input, lock, or system setting was
+changed by this restore command.
+EOF_RENAME_NEXT
+    exit "$EXIT_STATUS"
+  fi
+
+  if [[ "$ADD_HOST" == true ]]; then
+    [[ -f "$SETUP_PRIVATE_HOST" ]] \
+      || fail "framework host generator is unavailable: $SETUP_PRIVATE_HOST"
+
+    printf '\nGenerating a reviewable host module for %s (user %s)...\n' \
+      "$RESTORE_HOST" "$RESTORE_USER" >&2
+    DOTFILES_ROOT="$FRAMEWORK_ROOT" \
+    DOTFILES_PRIVATE_FLAKE="$PROFILE_ROOT" \
+      bash "$SETUP_PRIVATE_HOST" \
+        --host "$RESTORE_HOST" \
+        --user "$RESTORE_USER"
+
+    [[ "$LOCK_HASH_BEFORE" == "$(git hash-object "$LOCK_FILE")" ]] \
+      || fail "flake.lock changed while adding the host; review the profile"
+    [[ "$FLAKE_HASH_BEFORE" == "$(git hash-object "$FLAKE_FILE")" ]] \
+      || fail "flake.nix changed while adding the host; review the profile"
+
+    cat >&2 <<EOF_ADD
+
+Host addition stopped before evaluation or activation.
+Review the generated private-profile changes:
+  git -C "$PROFILE_ROOT" status --short
+  git -C "$PROFILE_ROOT" diff
+  git -C "$PROFILE_ROOT" diff --cached
+
+After review, stage any intended unstaged host files, commit them on a private
+branch, and rerun:
+  ./bootstrap --host "$RESTORE_HOST"
+
+The framework input and flake.lock remain unchanged.
+EOF_ADD
+    exit "$EXIT_STATUS"
+  fi
+
   cat >&2 <<EOF_MISSING
 
 No configuration exists for host '$RESTORE_HOST'.
-Choose deliberately: add a reviewed host file, rename the Mac to an existing
-host, or stop and inspect the profile. No host was selected automatically.
+Choose exactly one deliberate path:
+
+1. Add a reviewed host module:
+     ./bootstrap --host "$RESTORE_HOST" --add-host --user "$(id -un 2>/dev/null || printf 'YOUR_USER')"
+
+2. Stop and review commands for renaming this Mac to an existing host:
+     ./bootstrap --host "$RESTORE_HOST" --rename-to AVAILABLE_HOST
+
+3. Stop and inspect the profile without changing anything.
+
+No host was selected, generated, renamed, or activated automatically.
 EOF_MISSING
   exit "$EXIT_STATUS"
+fi
+
+if [[ "$ADD_HOST" == true || -n "$RENAME_TO" ]]; then
+  fail "host resolution was requested, but '$RESTORE_HOST' already exists"
 fi
 
 if [[ "$ACTIVATE" != true ]]; then

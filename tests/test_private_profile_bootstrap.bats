@@ -111,5 +111,8 @@ EOF
   [[ "$output" == *"Usage: ./bootstrap [RESTORE OPTIONS]"* ]]
   [[ "$output" == *"Without --activate"* ]]
   [[ "$output" == *"--activate --yes"* ]]
-  [[ "$output" == *"Neither path updates flake.lock"* ]]
+  [[ "$output" == *"--add-host"* ]]
+  [[ "$output" == *"--rename-to"* ]]
+  [[ "$output" == *"None of these paths"* ]]
+  [[ "$output" == *"updates flake.lock"* ]]
 }

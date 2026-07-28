@@ -105,3 +105,14 @@ setup() {
   grep -qF 'AI editor links move from the legacy `.local` flag' "$ROADMAP"
   grep -qF 'Home Manager option while retaining the legacy flag' "$ROADMAP"
 }
+
+@test "new-host restore guidance exposes only explicit non-activating choices" {
+  grep -qF -- '--add-host --user "$(id -un)"' "$GETTING_STARTED"
+  grep -qF -- '--rename-to EXISTING_HOST' "$GETTING_STARTED"
+  grep -qF 'It does not change `flake.nix`, `flake.lock`, another host, or' \
+    "$GETTING_STARTED"
+  grep -qF 'Host resolution never activates the Mac' "$OPERATIONS"
+
+  run grep -F 'new-host workflow is a queued roadmap phase' "$GETTING_STARTED"
+  [ "$status" -ne 0 ]
+}

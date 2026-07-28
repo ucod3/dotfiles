@@ -168,9 +168,24 @@ Restore:
 It does not rerun application or identity questions, regenerate profile files,
 update the lock, or choose another host silently.
 
-If the current hostname is not already in `hosts/`, restore stops. The explicit
-new-host workflow is a queued roadmap phase; do not copy or rename a host
-configuration without reviewing what is machine-specific.
+If the current hostname is not already in `hosts/`, restore stops and shows
+three deliberate choices:
+
+```bash
+# Add a generated host module and stop for review.
+cd ~/dotfiles-private
+./bootstrap --host "$(hostname -s)" --add-host --user "$(id -un)"
+
+# Or print, but do not run, commands to rename this Mac to an existing host.
+./bootstrap --host "$(hostname -s)" --rename-to EXISTING_HOST
+
+# Or stop and inspect hosts/ without changing anything.
+```
+
+Adding a host stages the generated private file because Nix cannot evaluate an
+untracked module. It does not change `flake.nix`, `flake.lock`, another host, or
+the live Mac. Review and commit the private change, rerun preflight, and approve
+activation separately.
 
 ### Restore directly from the private repository
 

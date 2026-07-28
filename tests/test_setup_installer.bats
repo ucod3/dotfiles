@@ -191,6 +191,8 @@ run_setup() {
   [[ "$output" == *"--cask NAME"* ]]
   [[ "$output" == *"--nix-package ATTR"* ]]
   [[ "$output" == *"--mas-app NAME=REF"* ]]
+  [[ "$output" == *"--add-host"* ]]
+  [[ "$output" == *"--rename-to NAME"* ]]
 }
 
 @test "restore clones only the private profile and runs preflight" {
@@ -213,6 +215,33 @@ run_setup() {
   [ "$status" -eq 0 ]
 
   grep -qF 'ARGS=<--host><test-mac><--activate><--yes>' "$BOOTSTRAP_RECORD"
+}
+
+@test "restore forwards explicit missing-host choices to the profile" {
+  SETUP_ARGS=(--restore owner/private-profile --add-host --user alice)
+  run_setup
+  [ "$status" -eq 0 ]
+  grep -qF 'ARGS=<--host><test-mac><--add-host><--user><alice>' "$BOOTSTRAP_RECORD"
+
+  rm -rf "$PROFILE_DIR"
+  SETUP_ARGS=(--restore owner/private-profile --rename-to existing-mac)
+  run_setup
+  [ "$status" -eq 0 ]
+  grep -qF 'ARGS=<--host><test-mac><--rename-to><existing-mac>' "$BOOTSTRAP_RECORD"
+}
+
+@test "host resolution conflicts stop before cloning" {
+  SETUP_ARGS=(--restore owner/private-profile --add-host --rename-to existing-mac)
+  run_setup
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--add-host and --rename-to are mutually exclusive"* ]]
+  [ ! -e "$GIT_RECORD" ]
+
+  SETUP_ARGS=(--restore owner/private-profile --add-host --activate)
+  run_setup
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"host resolution and --activate are separate steps"* ]]
+  [ ! -e "$GIT_RECORD" ]
 }
 
 @test "restore refuses an existing profile destination without moving it" {

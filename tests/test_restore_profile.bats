@@ -114,6 +114,16 @@ EOF_LOCK
   git -C "$PROFILE" commit -qm init
 }
 
+make_modular_profile() {
+  make_profile "$@"
+  mkdir -p "$PROFILE/home"
+  printf '{ imports = [ ../home.nix ]; }\n' > "$PROFILE/home/default.nix"
+  printf '{ config, ... }: { home.file = { }; }\n' > "$PROFILE/home.nix"
+  printf '\n# builtins.readDir ./hosts\n' >> "$PROFILE/flake.nix"
+  git -C "$PROFILE" add -A
+  git -C "$PROFILE" commit -qm "use modular host discovery"
+}
+
 run_restore() {
   run env PATH="$STUB_BIN:$PATH" \
           STUB_HOSTS_JSON="${STUB_HOSTS_JSON:-[\"mac-one\",\"mac-two\"]}" \
@@ -167,8 +177,58 @@ run_restore() {
   assert_output_contains "Available hosts:    mac-one, mac-two"
   assert_output_contains "Activation:         blocked (host missing)"
   assert_output_contains "No configuration exists for host 'new-mac'."
-  assert_output_contains "No host was selected automatically."
+  assert_output_contains "Choose exactly one deliberate path:"
+  assert_output_contains "--add-host --user"
+  assert_output_contains "--rename-to AVAILABLE_HOST"
+  assert_output_contains "No host was selected, generated, renamed, or activated automatically."
   [ ! -e "$DARWIN_CALLED_FILE" ]
+  [ ! -e "$SUDO_CALLED_FILE" ]
+}
+
+@test "an explicit add-host writes only a reviewable private host and preserves the flake contract" {
+  make_modular_profile
+  DOTFILES_RESTORE_HOST="new-mac"
+  flake_before="$(git hash-object "$PROFILE/flake.nix")"
+  lock_before="$(git hash-object "$PROFILE/flake.lock")"
+
+  run_restore --add-host --user alice
+  [ "$status" -eq 2 ]
+  [ -f "$PROFILE/hosts/new-mac.nix" ]
+  grep -qF 'user = "alice";' "$PROFILE/hosts/new-mac.nix"
+  git -C "$PROFILE" diff --cached --name-only | grep -q '^hosts/new-mac.nix$'
+  assert_output_contains "Host addition stopped before evaluation or activation."
+  assert_output_contains "The framework input and flake.lock remain unchanged."
+  [ "$flake_before" = "$(git hash-object "$PROFILE/flake.nix")" ]
+  [ "$lock_before" = "$(git hash-object "$PROFILE/flake.lock")" ]
+  [ ! -e "$DARWIN_CALLED_FILE" ]
+  [ ! -e "$SUDO_CALLED_FILE" ]
+}
+
+@test "rename-to prints a privileged plan but changes neither profile nor system" {
+  make_profile
+  DOTFILES_RESTORE_HOST="new-mac"
+  before="$(git -C "$PROFILE" rev-parse HEAD)"
+
+  run_restore --rename-to mac-one
+  [ "$status" -eq 2 ]
+  assert_output_contains "Rename plan for this Mac (not performed):"
+  assert_output_contains "sudo scutil --set ComputerName mac-one"
+  assert_output_contains "sudo scutil --set LocalHostName mac-one"
+  assert_output_contains "sudo scutil --set HostName mac-one"
+  [ "$before" = "$(git -C "$PROFILE" rev-parse HEAD)" ]
+  [ -z "$(git -C "$PROFILE" status --porcelain)" ]
+  [ ! -e "$DARWIN_CALLED_FILE" ]
+  [ ! -e "$SUDO_CALLED_FILE" ]
+}
+
+@test "rename-to refuses a name absent from the committed profile" {
+  make_profile
+  DOTFILES_RESTORE_HOST="new-mac"
+
+  run_restore --rename-to not-a-profile-host
+  assert_failure
+  assert_output_contains "--rename-to must name an available host"
+  [ -z "$(git -C "$PROFILE" status --porcelain)" ]
   [ ! -e "$SUDO_CALLED_FILE" ]
 }
 
@@ -208,6 +268,19 @@ run_restore() {
   [ "$(jq -r '.activationRequested' <<<"$output")" = "false" ]
   [ "$(jq -r '.activationPerformed' <<<"$output")" = "false" ]
   [ "$(jq -r '.availableHosts | join(",")' <<<"$output")" = "mac-one,mac-two" ]
+  [ "$(jq -r '.hostResolutionChoices | length' <<<"$output")" -eq 0 ]
+}
+
+@test "json missing-host preflight reports the three resolution choices without changing anything" {
+  make_profile
+  DOTFILES_RESTORE_HOST="new-mac"
+
+  run_restore --json
+  [ "$status" -eq 2 ]
+  [ "$(jq -r '.status' <<<"$output")" = "host-missing" ]
+  [ "$(jq -r '.hostResolutionChoices | join(",")' <<<"$output")" \
+    = "add-host,rename-to-existing,stop" ]
+  [ -z "$(git -C "$PROFILE" status --porcelain)" ]
 }
 
 @test "explicit activation runs the validated host with the unchanged lock" {
@@ -260,6 +333,18 @@ run_restore() {
   assert_failure
   assert_output_contains "--yes is only valid with --activate"
   [ ! -e "$DARWIN_CALLED_FILE" ]
+
+  run_restore --add-host --rename-to mac-one
+  assert_failure
+  assert_output_contains "--add-host and --rename-to are mutually exclusive"
+
+  run_restore --add-host --activate
+  assert_failure
+  assert_output_contains "host resolution and --activate are separate steps"
+
+  run_restore --rename-to mac-one --json
+  assert_failure
+  assert_output_contains "--json cannot be combined with a host-resolution action"
 }
 
 @test "unknown options are rejected" {

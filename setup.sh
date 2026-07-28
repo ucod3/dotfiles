@@ -17,6 +17,8 @@ USER_NAME="${DOTFILES_INSTALL_USER:-$(id -un)}"
 MODE=""
 ACTIVATE=false
 ASSUME_YES=false
+ADD_HOST=false
+RENAME_TO=""
 SKIP_APPS=false
 SELECTED_CASKS=()
 SELECTED_NIX_PACKAGES=()
@@ -47,7 +49,9 @@ Options:
       --framework-dir PATH  Framework checkout (default: ~/dotfiles)
       --profile-dir PATH    Private profile checkout (default: ~/dotfiles-private)
       --host NAME           Host configuration (default: hostname -s)
-      --user NAME           macOS user for --new (default: id -un)
+      --user NAME           macOS user for --new or --add-host (default: id -un)
+      --add-host            Generate a missing restore host for review
+      --rename-to NAME      Print commands to rename to an existing restore host
       --cask NAME           Add a Homebrew cask to a new profile (repeatable)
       --nix-package ATTR    Add pkgs.ATTR to a new profile (repeatable)
       --mas-app NAME=REF    Add a Mac App Store app by ID or URL (repeatable)
@@ -174,6 +178,12 @@ clone_into_absent() {
 
 profile_bootstrap_args() {
   PROFILE_ARGS=(--host "$HOST_NAME")
+  if [[ "$ADD_HOST" == true ]]; then
+    PROFILE_ARGS+=(--add-host --user "$USER_NAME")
+  fi
+  if [[ -n "$RENAME_TO" ]]; then
+    PROFILE_ARGS+=(--rename-to "$RENAME_TO")
+  fi
   if [[ "$ACTIVATE" == true ]]; then
     PROFILE_ARGS+=(--activate)
   fi
@@ -420,6 +430,17 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --user=*) USER_NAME="${1#*=}"; shift ;;
+    --add-host) ADD_HOST=true; shift ;;
+    --rename-to)
+      RENAME_TO="${2:-}"
+      [[ -n "$RENAME_TO" ]] || fail "--rename-to requires an existing host"
+      shift 2
+      ;;
+    --rename-to=*)
+      RENAME_TO="${1#*=}"
+      [[ -n "$RENAME_TO" ]] || fail "--rename-to requires an existing host"
+      shift
+      ;;
     --cask)
       SELECTED_CASKS+=("${2:-}")
       [[ -n "${SELECTED_CASKS[${#SELECTED_CASKS[@]}-1]}" ]] \
@@ -468,6 +489,15 @@ if [[ "$ASSUME_YES" == true && "$ACTIVATE" != true ]]; then
   fail "--yes is only valid with --activate"
 fi
 
+if [[ "$ADD_HOST" == true && -n "$RENAME_TO" ]]; then
+  fail "--add-host and --rename-to are mutually exclusive"
+fi
+
+if [[ "$ACTIVATE" == true ]] \
+  && { [[ "$ADD_HOST" == true ]] || [[ -n "$RENAME_TO" ]]; }; then
+  fail "host resolution and --activate are separate steps"
+fi
+
 if [[ "$SKIP_APPS" == true ]] && has_selected_apps; then
   fail "--skip-apps cannot be combined with application selections"
 fi
@@ -490,6 +520,10 @@ fi
 
 if [[ "$MODE" == "restore" ]] && { [[ "$SKIP_APPS" == true ]] || has_selected_apps; }; then
   fail "application selection is only valid with --new; restore preserves the profile unchanged"
+fi
+if [[ "$MODE" != "restore" ]] \
+  && { [[ "$ADD_HOST" == true ]] || [[ -n "$RENAME_TO" ]]; }; then
+  fail "--add-host and --rename-to are only valid with --restore"
 fi
 
 require_macos_and_git
