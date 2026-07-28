@@ -12,6 +12,8 @@ setup() {
   GIT_RECORD="$TMP/git-record"
   BOOTSTRAP_RECORD="$TMP/bootstrap-record"
   SETUP_HOST_RECORD="$TMP/setup-host-record"
+  APPS_RECORD="$TMP/apps-record"
+  APPS_CHANGED_FILE="$TMP/apps-changed"
   mkdir -p "$HOME_DIR" "$FAKE_BIN"
 
   cat > "$FAKE_BIN/uname" <<'EOF'
@@ -39,6 +41,32 @@ EOF
 
   cat > "$FAKE_BIN/git" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "-C" ]]; then
+  repo="${2:-}"
+  command="${3:-}"
+  shift 3
+  case "$command" in
+    status)
+      [[ -e "$APPS_CHANGED_FILE" ]] && printf ' M apps/homebrew-casks.nix\n'
+      ;;
+    add)
+      printf 'PROFILE_GIT=<add><%s>\n' "$*" >> "$GIT_RECORD"
+      ;;
+    commit)
+      printf 'PROFILE_GIT=<commit><%s>\n' "$*" >> "$GIT_RECORD"
+      rm -f "$APPS_CHANGED_FILE"
+      ;;
+    restore)
+      printf 'PROFILE_GIT=<restore><%s>\n' "$*" >> "$GIT_RECORD"
+      rm -f "$APPS_CHANGED_FILE"
+      ;;
+  esac
+  exit 0
+fi
+if [[ "${1:-}" == "--no-pager" && "${2:-}" == "-C" ]]; then
+  printf 'diff --git a/apps/example b/apps/example\n'
+  exit 0
+fi
 case "${1:-}" in
   config)
     case "${3:-}" in
@@ -94,6 +122,20 @@ cat > "$DOTFILES_PRIVATE_FLAKE/bootstrap" <<'BOOTSTRAP'
 } > "$BOOTSTRAP_RECORD"
 BOOTSTRAP
 SETUP_HOST
+      cat > "$dest/scripts/bin/apps" <<'APPS'
+#!/usr/bin/env bash
+{
+  printf 'ARGS='
+  printf '<%s>' "$@"
+  printf '\n'
+} >> "$APPS_RECORD"
+if [[ -n "${FAKE_APPS_FAIL_ON:-}" && "$*" == *"$FAKE_APPS_FAIL_ON"* ]]; then
+  exit 1
+fi
+mkdir -p "$DOTFILES_PRIVATE_FLAKE/apps"
+: > "$APPS_CHANGED_FILE"
+APPS
+      chmod +x "$dest/scripts/bin/apps"
     fi
     ;;
   *)
@@ -121,6 +163,8 @@ run_setup() {
           GIT_RECORD="$GIT_RECORD" \
           BOOTSTRAP_RECORD="$BOOTSTRAP_RECORD" \
           SETUP_HOST_RECORD="$SETUP_HOST_RECORD" \
+          APPS_RECORD="$APPS_RECORD" \
+          APPS_CHANGED_FILE="$APPS_CHANGED_FILE" \
           "$@" \
           bash "$SETUP" "${SETUP_ARGS[@]}"
 }
@@ -132,6 +176,9 @@ run_setup() {
   [[ "$output" == *"--restore REPOSITORY"* ]]
   [[ "$output" == *"never regenerates"* ]]
   [[ "$output" == *"--activate"* ]]
+  [[ "$output" == *"--cask NAME"* ]]
+  [[ "$output" == *"--nix-package ATTR"* ]]
+  [[ "$output" == *"--mas-app NAME=ID"* ]]
 }
 
 @test "restore clones only the private profile and runs preflight" {
@@ -198,6 +245,61 @@ run_setup() {
   grep -qF 'ARGS=<--host><test-mac><--activate>' "$BOOTSTRAP_RECORD"
   run grep -qF '<--yes>' "$BOOTSTRAP_RECORD"
   [ "$status" -ne 0 ]
+}
+
+@test "new journey writes repeatable application choices before preflight" {
+  SETUP_ARGS=(
+    --new
+    --cask firefox
+    --cask ghostty
+    --nix-package ripgrep
+    --mas-app "Notability=360593530"
+  )
+  run_setup
+  [ "$status" -eq 0 ]
+
+  grep -qF 'ARGS=<add><--cask><firefox>' "$APPS_RECORD"
+  grep -qF 'ARGS=<add><--cask><ghostty>' "$APPS_RECORD"
+  grep -qF 'ARGS=<add><--nix><ripgrep>' "$APPS_RECORD"
+  grep -qF 'ARGS=<add><--mas><Notability><360593530>' "$APPS_RECORD"
+  grep -qF 'PROFILE_GIT=<add><apps/>' "$GIT_RECORD"
+  grep -qF 'PROFILE_GIT=<commit><-m Choose applications>' "$GIT_RECORD"
+  grep -qF 'ARGS=<--host><test-mac>' "$BOOTSTRAP_RECORD"
+  [[ "$output" == *"Saved application choices in the private profile"* ]]
+}
+
+@test "skip-apps keeps a new profile application-neutral" {
+  SETUP_ARGS=(--new --skip-apps)
+  run_setup
+  [ "$status" -eq 0 ]
+  [ ! -e "$APPS_RECORD" ]
+  run grep -qF 'PROFILE_GIT=<commit><-m Choose applications>' "$GIT_RECORD"
+  [ "$status" -ne 0 ]
+}
+
+@test "restore rejects application options before cloning" {
+  SETUP_ARGS=(--restore owner/private-profile --cask firefox)
+  run_setup
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"application selection is only valid with --new"* ]]
+  [ ! -e "$GIT_RECORD" ]
+}
+
+@test "skip-apps cannot contradict explicit selections" {
+  SETUP_ARGS=(--new --skip-apps --nix-package jq)
+  run_setup
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--skip-apps cannot be combined"* ]]
+  [ ! -e "$GIT_RECORD" ]
+}
+
+@test "a failed application choice restores generated files and stops preflight" {
+  SETUP_ARGS=(--new --cask firefox --nix-package invalid)
+  run_setup FAKE_APPS_FAIL_ON="--nix invalid"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"generated apps/ files were restored"* ]]
+  grep -qF 'PROFILE_GIT=<restore><--worktree -- apps/>' "$GIT_RECORD"
+  [ ! -e "$BOOTSTRAP_RECORD" ]
 }
 
 @test "yes is invalid without activation" {

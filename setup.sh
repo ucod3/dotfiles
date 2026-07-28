@@ -17,6 +17,10 @@ USER_NAME="${DOTFILES_INSTALL_USER:-$(id -un)}"
 MODE=""
 ACTIVATE=false
 ASSUME_YES=false
+SKIP_APPS=false
+SELECTED_CASKS=()
+SELECTED_NIX_PACKAGES=()
+SELECTED_MAS_APPS=()
 
 log_info() { printf '[INFO] %s\n' "$*"; }
 log_success() { printf '[SUCCESS] %s\n' "$*"; }
@@ -41,6 +45,10 @@ Options:
       --profile-dir PATH    Private profile checkout (default: ~/dotfiles-private)
       --host NAME           Host configuration (default: hostname -s)
       --user NAME           macOS user for --new (default: id -un)
+      --cask NAME           Add a Homebrew cask to a new profile (repeatable)
+      --nix-package ATTR    Add pkgs.ATTR to a new profile (repeatable)
+      --mas-app NAME=ID     Add a Mac App Store app to a new profile (repeatable)
+      --skip-apps           Skip interactive application selection for --new
       --activate            Explicitly request activation after preflight
       --yes                 Confirm --activate non-interactively
   -h, --help                Show this help
@@ -48,6 +56,7 @@ Options:
 Examples:
   bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh)
   bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- --new
+  bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- --new --cask firefox --nix-package ripgrep
   bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- --restore git@github.com:you/dotfiles-private.git
 USAGE
 }
@@ -173,6 +182,111 @@ run_profile_contract() {
   )
 }
 
+has_selected_apps() {
+  (( ${#SELECTED_CASKS[@]} > 0 ||
+     ${#SELECTED_NIX_PACKAGES[@]} > 0 ||
+     ${#SELECTED_MAS_APPS[@]} > 0 ))
+}
+
+interactive_app_selection() {
+  local configure choice name app_id
+
+  [[ "$SKIP_APPS" == false ]] || return 0
+  has_selected_apps && return 0
+  if ! has_tty; then
+    log_info "No applications selected. Add them later with: dot apps"
+    return 0
+  fi
+
+  prompt_read configure "Configure applications now? [Y/n]: " "y"
+  case "$configure" in
+    n|N|no|No|NO)
+      log_info "Application selection skipped. Add them later with: dot apps"
+      return 0
+      ;;
+  esac
+
+  while true; do
+    printf '\nChoose an application type:\n'
+    printf '  1) Homebrew cask (GUI application)\n'
+    printf '  2) Nix package (command-line tool)\n'
+    printf '  3) Mac App Store application\n'
+    printf '  4) Finish application selection\n\n'
+    prompt_read choice "Selection [4]: " "4"
+
+    case "$choice" in
+      1|cask|Cask)
+        prompt_read name "Homebrew cask name: " ""
+        [[ -n "$name" ]] || fail "a Homebrew cask name is required"
+        SELECTED_CASKS+=("$name")
+        ;;
+      2|nix|Nix)
+        prompt_read name "Nixpkgs attribute (the part after pkgs.): " ""
+        [[ -n "$name" ]] || fail "a Nix package attribute is required"
+        SELECTED_NIX_PACKAGES+=("$name")
+        ;;
+      3|mas|MAS)
+        prompt_read name "Mac App Store application name: " ""
+        prompt_read app_id "Numeric App Store ID: " ""
+        [[ -n "$name" && "$app_id" =~ ^[0-9]+$ ]] \
+          || fail "a name and numeric Mac App Store ID are required"
+        SELECTED_MAS_APPS+=("$name=$app_id")
+        ;;
+      4|done|Done|"")
+        break
+        ;;
+      *)
+        log_warning "Unknown application type: $choice"
+        ;;
+    esac
+  done
+}
+
+apply_selected_apps() {
+  local apps_command="$FRAMEWORK_DIR/scripts/bin/apps"
+  local name spec app_id
+
+  has_selected_apps || return 0
+  [[ -x "$apps_command" ]] \
+    || fail "framework checkout has no executable application command: $apps_command"
+
+  log_info "Writing application choices to the private profile"
+  if ! (
+    for name in ${SELECTED_CASKS[@]+"${SELECTED_CASKS[@]}"}; do
+      DOTFILES_ROOT="$FRAMEWORK_DIR" \
+      DOTFILES_PRIVATE_FLAKE="$PROFILE_DIR" \
+        "$apps_command" add --cask "$name" || exit 1
+    done
+    for name in ${SELECTED_NIX_PACKAGES[@]+"${SELECTED_NIX_PACKAGES[@]}"}; do
+      DOTFILES_ROOT="$FRAMEWORK_DIR" \
+      DOTFILES_PRIVATE_FLAKE="$PROFILE_DIR" \
+        "$apps_command" add --nix "$name" || exit 1
+    done
+    for spec in ${SELECTED_MAS_APPS[@]+"${SELECTED_MAS_APPS[@]}"}; do
+      name="${spec%=*}"
+      app_id="${spec##*=}"
+      DOTFILES_ROOT="$FRAMEWORK_DIR" \
+      DOTFILES_PRIVATE_FLAKE="$PROFILE_DIR" \
+        "$apps_command" add --mas "$name" "$app_id" || exit 1
+    done
+  ); then
+    git -C "$PROFILE_DIR" restore --worktree -- apps/ >/dev/null 2>&1 || true
+    fail "application selection failed; the generated apps/ files were restored"
+  fi
+
+  if [[ -z "$(git -C "$PROFILE_DIR" status --short -- apps/)" ]]; then
+    log_info "Application choices already match the generated profile"
+    return 0
+  fi
+
+  log_info "Reviewing application changes before saving them locally"
+  git --no-pager -C "$PROFILE_DIR" diff -- apps/
+  git -C "$PROFILE_DIR" add apps/
+  git -C "$PROFILE_DIR" commit -m "Choose applications" >/dev/null
+  log_success "Saved application choices in the private profile"
+  log_info "Native operations: git diff -- apps/; git add apps/; git commit"
+}
+
 create_new_profile() {
   local framework_url
   framework_url="$(normalize_repo "$FRAMEWORK_REPO")" \
@@ -198,6 +312,8 @@ create_new_profile() {
       --user "$USER_NAME" \
       --fork "$framework_url"
 
+  interactive_app_selection
+  apply_selected_apps
   log_warning "The new private profile exists only on this Mac until you add and push a private remote."
   run_profile_contract
 }
@@ -261,6 +377,43 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --user=*) USER_NAME="${1#*=}"; shift ;;
+    --cask)
+      SELECTED_CASKS+=("${2:-}")
+      [[ -n "${SELECTED_CASKS[${#SELECTED_CASKS[@]}-1]}" ]] \
+        || fail "--cask requires a name"
+      shift 2
+      ;;
+    --cask=*)
+      SELECTED_CASKS+=("${1#*=}")
+      [[ -n "${SELECTED_CASKS[${#SELECTED_CASKS[@]}-1]}" ]] \
+        || fail "--cask requires a name"
+      shift
+      ;;
+    --nix-package)
+      SELECTED_NIX_PACKAGES+=("${2:-}")
+      [[ -n "${SELECTED_NIX_PACKAGES[${#SELECTED_NIX_PACKAGES[@]}-1]}" ]] \
+        || fail "--nix-package requires an attribute"
+      shift 2
+      ;;
+    --nix-package=*)
+      SELECTED_NIX_PACKAGES+=("${1#*=}")
+      [[ -n "${SELECTED_NIX_PACKAGES[${#SELECTED_NIX_PACKAGES[@]}-1]}" ]] \
+        || fail "--nix-package requires an attribute"
+      shift
+      ;;
+    --mas-app)
+      SELECTED_MAS_APPS+=("${2:-}")
+      [[ -n "${SELECTED_MAS_APPS[${#SELECTED_MAS_APPS[@]}-1]}" ]] \
+        || fail "--mas-app requires NAME=ID"
+      shift 2
+      ;;
+    --mas-app=*)
+      SELECTED_MAS_APPS+=("${1#*=}")
+      [[ -n "${SELECTED_MAS_APPS[${#SELECTED_MAS_APPS[@]}-1]}" ]] \
+        || fail "--mas-app requires NAME=ID"
+      shift
+      ;;
+    --skip-apps) SKIP_APPS=true; shift ;;
     --activate) ACTIVATE=true; shift ;;
     --yes) ASSUME_YES=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -270,6 +423,10 @@ done
 
 if [[ "$ASSUME_YES" == true && "$ACTIVATE" != true ]]; then
   fail "--yes is only valid with --activate"
+fi
+
+if [[ "$SKIP_APPS" == true ]] && has_selected_apps; then
+  fail "--skip-apps cannot be combined with application selections"
 fi
 
 if [[ -z "$MODE" ]]; then
@@ -286,6 +443,10 @@ if [[ -z "$MODE" ]]; then
       ;;
     *) fail "unknown setup journey: $choice" ;;
   esac
+fi
+
+if [[ "$MODE" == "restore" ]] && { [[ "$SKIP_APPS" == true ]] || has_selected_apps; }; then
+  fail "application selection is only valid with --new; restore preserves the profile unchanged"
 fi
 
 require_macos_and_git

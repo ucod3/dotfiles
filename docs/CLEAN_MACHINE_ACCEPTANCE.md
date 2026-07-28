@@ -28,7 +28,7 @@ status.
 | --- | --- | --- | --- |
 | Start from a clean Apple Silicon Mac | `setup.sh` refuses non-macOS systems, checks Xcode Command Line Tools, and generated profiles carry an `aarch64-darwin` target. macOS CI evaluates the flake. | A clean-hardware run must prove the installer, Nix daemon setup, Rosetta behavior, and restart boundaries. | Partial |
 | Install without Nix knowledge | The public entry point chooses `--new` or `--restore`; generated profiles contain a tiny `bootstrap` command and ordinary files. | A first-time user must complete the documented journey without editing Nix or receiving undocumented help. | Human proof required |
-| Choose applications | Generated profiles own readable `apps/homebrew-casks.nix`, `apps/nix-packages.nix`, and `apps/mac-app-store.nix`; `dot apps` detects this layout, changes the focused files, explains the equivalent manual edits, and retains legacy compatibility. The round-trip test proves declarations survive backup and restore. | `setup.sh --new` does not yet guide application selection before first activation. A first-time user must complete the documented application workflow without undocumented help. | Partial |
+| Choose applications | Generated profiles own readable `apps/homebrew-casks.nix`, `apps/nix-packages.nix`, and `apps/mac-app-store.nix`; `setup.sh --new` offers interactive selection and repeatable flags through the profile-aware `dot apps` implementation. The two-machine test selects applications through the public installer and proves those declarations survive backup and restore. | A first-time user must complete the interactive application workflow without undocumented help. | Human proof required |
 | Create a private configuration | The real generator creates the documented modular layout, initializes Git through `setup-private-host`, commits a lock, and enters profile-owned preflight. | Human review must confirm the generated names and choices are understandable. | Automated contract |
 | Back up the private configuration | The two-machine test publishes the profile to a real temporary bare Git remote and restores from that remote. The installer warns that an unpushed local repository is not a backup. | Public documentation still needs a provider-neutral walkthrough for creating a private remote and verifying the push. | Partial |
 | Rebuild successfully | Restore activation tests prove explicit confirmation, exact host forwarding, pinned `darwin-rebuild`, and lock preservation. macOS CI evaluates the configuration. | A clean-hardware `darwin-rebuild switch` must complete, followed by a post-activation preflight and application checks. | Hardware proof required |
@@ -45,7 +45,8 @@ of testing isolated helper functions:
    profile.
 3. A deterministic Nix double creates an exact committed lock and records
    profile-owned preflight without installing or activating anything.
-4. Reviewed application declarations are committed in the profile-owned `apps/`
+4. The public installer delegates reviewed application selections to the
+   profile-aware application command and commits the profile-owned `apps/`
    modules.
 5. Real Git publishes the profile to a temporary bare private remote.
 6. Simulated Mac B runs `setup.sh --restore` against that remote.

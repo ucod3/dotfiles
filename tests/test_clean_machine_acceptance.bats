@@ -142,7 +142,12 @@ run_public_setup() {
         DOTFILES_PROFILE_DIR="$PROFILE_A" \
         DOTFILES_INSTALL_HOST="mac-one" \
         DOTFILES_INSTALL_USER="alice" \
-        bash "$SETUP" --new --framework example/framework
+        bash "$SETUP" \
+          --new \
+          --framework example/framework \
+          --cask firefox \
+          --cask ghostty \
+          --nix-package jq
   [ "$status" -eq 0 ]
 
   [[ "$output" == *"Creating a readable private profile for mac-one"* ]]
@@ -157,24 +162,11 @@ run_public_setup() {
   grep -qF "<--host><mac-one>" "$NIX_RECORD"
   run grep -qF '<--activate>' "$NIX_RECORD"
   [ "$status" -ne 0 ]
-
-  # Represent reviewed user choices in the profile-owned application modules.
-  # This verifies ownership and portability, not yet the beginner selection UX.
-  cat > "$PROFILE_A/apps/homebrew-casks.nix" <<'EOF'
-# GUI applications selected by the profile owner.
-[
-  "firefox"
-  "ghostty"
-]
-EOF
-  cat > "$PROFILE_A/apps/nix-packages.nix" <<'EOF'
-{ pkgs }:
-[
-  pkgs.jq
-]
-EOF
-  "$REAL_GIT" -C "$PROFILE_A" add apps/
-  "$REAL_GIT" -C "$PROFILE_A" commit -m "Choose applications" >/dev/null
+  grep -qF '"firefox"' "$PROFILE_A/apps/homebrew-casks.nix"
+  grep -qF '"ghostty"' "$PROFILE_A/apps/homebrew-casks.nix"
+  grep -qF 'pkgs.jq' "$PROFILE_A/apps/nix-packages.nix"
+  [ "$($REAL_GIT -C "$PROFILE_A" log -1 --format=%s)" = "Choose applications" ]
+  [ -z "$($REAL_GIT -C "$PROFILE_A" status --short)" ]
 
   # Publishing the private repository is what turns the local profile into a
   # recoverable backup. Use a real bare remote and real push.

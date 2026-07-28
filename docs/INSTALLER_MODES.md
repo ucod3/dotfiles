@@ -32,10 +32,48 @@ The new journey:
 3. Uses `setup-private-host` to generate the readable modular profile at
    `~/dotfiles-private`.
 4. Creates and commits the initial `flake.lock`.
-5. Runs the generated profile's `./bootstrap` in preflight mode.
+5. Offers application selection through the focused private `apps/` files.
+6. Commits reviewed application choices locally.
+7. Runs the generated profile's `./bootstrap` in preflight mode.
 
 The generated profile is a local Git repository, not a backup. The installer
 prints a warning until the owner creates a private remote and pushes it.
+
+### Choose applications
+
+In an interactive terminal, a new-profile setup asks whether to configure
+applications. The owner can repeatedly choose:
+
+1. Homebrew cask
+2. Nix package
+3. Mac App Store application
+4. Finish
+
+The installer delegates each choice to the same profile-aware `dot apps`
+implementation used after installation. It does not maintain a separate catalog
+or application format.
+
+For a repeatable non-interactive setup, pass selections explicitly:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ucod3/dotfiles/main/setup.sh) -- \
+  --new \
+  --cask firefox \
+  --cask ghostty \
+  --nix-package ripgrep \
+  --mas-app "Notability=360593530"
+```
+
+Each flag is repeatable. `--skip-apps` explicitly keeps the generated lists
+empty and suppresses the interactive question.
+
+Application changes are shown with `git diff`, staged from `apps/`, and saved in
+a local `Choose applications` commit before profile preflight. If any selection
+fails, all `apps/` files are restored to the generated commit and preflight does
+not run.
+
+These options are rejected during `--restore`. Restoration preserves the
+profile's committed choices byte-for-byte.
 
 The default command does not activate nix-darwin. Activation must be requested
 explicitly:
