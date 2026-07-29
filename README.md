@@ -237,7 +237,6 @@ Stated plainly, as limitations rather than planned work:
 | [Operations](./docs/OPERATIONS.md) | Applications, updates, rebuilds, adoption, backup checks, and rollback |
 | [Private-profile backup](./docs/PRIVATE_PROFILE_BACKUP.md) | Provider-neutral remote setup, verification, limits, and restore rehearsal |
 | [Architecture](./docs/ARCHITECTURE.md) | Nix, nix-darwin, Home Manager, Homebrew, and profile ownership |
-| [Clean-machine acceptance](./docs/CLEAN_MACHINE_ACCEPTANCE.md) | Automated, hardware, and human evidence |
 | [Decisions](./docs/DECISIONS.md) | Architectural decision records |
 | [Testing](./docs/TESTING.md) | Validation, Bats, flake evaluation, and CI |
 | [Agent contract](./AGENTS.md) | Rules for humans and AI tools changing this repository |

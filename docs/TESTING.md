@@ -166,9 +166,8 @@ The first suite doubles prerequisites, Git, profile generation, app mutation,
 and bootstrap delegation. The second creates a real temporary Git remote and
 proves a profile survives a two-machine create and restore round trip.
 
-Physical installation and activation still require a disposable clean Apple
-Silicon Mac and the checklist in
-[`CLEAN_MACHINE_ACCEPTANCE.md`](./CLEAN_MACHINE_ACCEPTANCE.md).
+Physical installation and activation on a clean Apple Silicon Mac have never
+been rehearsed. See the known gaps in `README.md`.
 
 The older `install.sh` remains a legacy compatibility entry point. Changes to it
 still require its existing Bats coverage and must be rehearsed away from a
