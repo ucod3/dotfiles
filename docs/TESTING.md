@@ -86,10 +86,7 @@ bats tests/test_cold_clone.bats
 ```
 
 Test count is not a quality target. Each test must protect a supported user
-journey, safety boundary, compatibility promise, or documented contract. The
-current inventory, known integrity problems, consolidation plan, and
-compatibility retirement gates are recorded in
-[`TEST_SUITE_AUDIT.md`](./TEST_SUITE_AUDIT.md).
+journey, safety boundary, compatibility promise, or documented contract.
 
 | Suite | Covers |
 |---|---|

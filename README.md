@@ -8,8 +8,10 @@ hostname, identity, application choices, adopted files, or personal
 preferences. Each user owns a separate private profile that records those
 choices and pins the exact framework revision used to apply them.
 
-Apple Silicon only. The project is still working toward its first fully proven
-clean-Mac, no-AI release; see the [roadmap](./docs/ROADMAP.md).
+Apple Silicon only. This is the maintainer's working configuration, published as a
+reference for people comfortable reading and adapting Nix. It is not a supported
+installer for first-time Nix users, and it carries no support promise. Expect to read
+Nix. See [known gaps](#known-gaps) for what has and has not been proven.
 
 ## The two repositories
 
@@ -187,12 +189,11 @@ to review and move the private profile's framework pin deliberately.
 ## Existing installations
 
 Existing profiles that still use the `.local/` compatibility layout remain
-supported. They are not rewritten automatically. The planned migration is
-previewed, reviewed, and performed one responsibility at a time; see the
-[roadmap](./docs/ROADMAP.md#phase-4--existing-profile-migration--queued).
+supported and are not rewritten automatically. `dot migrate` previews what a
+migration would touch; it has no apply mode and is not scheduled to gain one.
 
-The older `install.sh` remains a legacy compatibility entry point during this
-transition. New installations use `setup.sh`.
+The older `install.sh` remains a legacy compatibility entry point. New
+installations use `setup.sh`.
 
 ## Safety model
 
@@ -205,12 +206,32 @@ transition. New installations use `setup.sh`.
 - Existing destinations are never overwritten merely because they exist.
 - Green tests do not replace a physical clean-Mac rehearsal.
 
+## Known gaps
+
+Stated plainly, as limitations rather than planned work:
+
+- **Apple Silicon only.** `x86_64-darwin` was removed as untested. Linux is not supported.
+- **Never rehearsed on clean or replacement hardware.** The create and restore paths are
+  implemented and contract-tested in CI, but no Mac has been set up from scratch with
+  them. The original motivating scenario — recovery after a factory reset — is unproven.
+- **No first-time user has completed the journey.** Documentation accuracy is checked by
+  tests and by the maintainer, not by an unaided newcomer.
+- **Two installers coexist.** `setup.sh` is canonical; `install.sh` remains as a legacy
+  compatibility entry point and is not being removed.
+- **`dot migrate` is preview-only by design.** It reports what a migration would touch
+  and refuses every write-shaped option. No apply mode exists or is planned.
+- **The `.local/` compatibility bridge remains.** It is load-bearing for existing
+  installations and is the sole permitted use of `builtins.getEnv` (ADR-004).
+- **`nix/` and `hosts/` encode the maintainer's opinions.** They are a starting point to
+  read and adapt, not a neutral default.
+- **Maintenance-only.** There is no roadmap and no release gate. Issues and pull requests
+  may go unanswered.
+
 ## Documentation
 
 | Document | Covers |
 | --- | --- |
-| [Product contract](./docs/PRODUCT.md) | Purpose, ownership model, design principles, and definition of success |
-| [Roadmap](./docs/ROADMAP.md) | Current phase, remaining work, and v1 release gates |
+| [Product contract](./docs/PRODUCT.md) | Purpose, ownership model, design principles, and what is and is not proven |
 | [Getting started](./GETTING-STARTED.md) | New-profile and restore walkthroughs |
 | [Installer modes](./docs/INSTALLER_MODES.md) | Complete `setup.sh` arguments and safety behavior |
 | [Operations](./docs/OPERATIONS.md) | Applications, updates, rebuilds, adoption, backup checks, and rollback |

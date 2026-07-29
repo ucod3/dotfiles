@@ -2,11 +2,26 @@
 
 ## Purpose
 
-This project is a public, reusable macOS configuration framework paired with a private, user-owned profile.
+This repository contains the maintainer's working Apple Silicon macOS configuration framework, paired with a private profile containing personal choices. It is published as a reference for people comfortable reading and adapting Nix. It is not presented as a supported installer for first-time Nix users.
 
-A person with a clean Apple Silicon Mac, no Nix knowledge, and no AI assistance must be able to install the framework, choose their own applications, create and back up their private configuration, rebuild successfully, and later restore the same setup on another Mac.
+The generated configuration is ordinary, readable Nix. Someone with basic Nix, Git, and terminal knowledge can understand and edit it without learning a second proprietary configuration system. That is a design property of the code, not a promise of support.
 
-The generated configuration must remain ordinary, readable Nix. A person with basic Nix, Git, and terminal knowledge should be able to understand and edit it without learning a second proprietary configuration system.
+## Status
+
+What is demonstrated:
+
+- The maintainer's Apple Silicon Mac is reproducibly configured by this framework through a private profile that pins a specific framework revision.
+- That private profile is a normal Git repository, backed up to a private remote.
+- Create, restore, activation, and rebuild paths are implemented, and their contracts are covered by automated tests and macOS flake evaluation in CI.
+
+What is **not** demonstrated:
+
+- Restoration onto a clean Mac.
+- Restoration onto a second or replacement Mac.
+- Completion of any journey by a first-time user without help.
+- Recovery after a real factory reset — the event that originally motivated the project.
+
+The clean-machine and replacement-machine paths are implemented and contract-tested, but have never been physically rehearsed. Green checks are evidence about code, not about hardware.
 
 ## Ownership model
 
@@ -14,13 +29,13 @@ The generated configuration must remain ordinary, readable Nix. A person with ba
 
 `ucod3/dotfiles` contains reusable modules, safe defaults, installation tools, documentation, and thin convenience commands. It contains no user's hostname, username, application choices, adopted files, or personal preferences.
 
-Ordinary users consume the upstream framework directly. They do not need to fork it merely to use it.
+The framework is consumed as an upstream flake input. Using it does not require forking it. A fork is an option for someone intentionally maintaining a different engine.
 
-The public installer is a convenient discovery and first-run entrance, not the only recovery path. A user who already owns a private profile must be able to restore from that profile without returning to this repository for a separate restore implementation.
+The public installer is intended as a discovery and first-run entrance rather than the only recovery path. A user who already owns a private profile should be able to restore from that profile without returning to this repository for a separate restore implementation.
 
 ### Private profile
 
-`~/dotfiles-private` is a complete, portable, user-owned definition of the user's Mac. It contains the user's hosts, application choices, macOS preferences, Home Manager configuration, adopted files, identity, and restore instructions. It is a normal, private Git repository and the source of truth for everything personal.
+`~/dotfiles-private` is intended to be a portable, user-owned definition of a Mac. It holds hosts, application choices, macOS preferences, Home Manager configuration, adopted files, identity, and restore instructions. It is a normal, private Git repository and the source of truth for everything personal.
 
 Its flake selects the reusable framework, conceptually:
 
@@ -30,26 +45,18 @@ inputs.dotfiles.url = "github:ucod3/dotfiles";
 
 Its `flake.lock` records the exact framework revision used to apply those choices. Updating that input changes the framework implementation without rewriting the user's private choices.
 
-The private profile must be independently usable as a recovery artifact. A small profile-owned bootstrap may install or hand off prerequisites, but restore behavior has one implementation supplied through the framework the profile already pins.
+The profile is designed to work as a standalone recovery artifact: a small profile-owned bootstrap installs or hands off prerequisites, and restore behaviour has one implementation supplied through the framework the profile already pins. Whether that design holds up against real replacement hardware is untested — see Status.
 
-A framework fork is an advanced option for contributors or people intentionally maintaining a different engine. It is not an installation prerequisite.
+## Working with the configuration
 
-## User experience
-
-The project supports three levels without forcing one level to understand the next.
-
-1. **Beginner:** installs, selects applications, rebuilds, updates, backs up, and restores through documented commands.
-2. **Intermediate:** edits clearly named, focused Nix files in the private profile.
-3. **Advanced:** uses native Nix, nix-darwin, Home Manager, and Git commands, adds modules, or points the private profile at a framework fork.
-
-Convenience commands must reveal the files and native operations they use. They are learning aids, not a replacement platform layered over Nix.
+The generated profile is ordinary Nix in clearly named files. The `dot` commands are conveniences that print the owning file and the equivalent native Nix or Git operation; they are learning aids, not a replacement platform layered over Nix. Anyone using this repository should expect to read and edit Nix directly. There is no supported beginner path.
 
 Creation and restoration are separate journeys:
 
 - **Create:** generate a readable local private profile, optionally connect a remote later, then rebuild.
 - **Restore:** clone an existing private profile, preserve its framework input and lock, and rebuild through the profile's restore contract.
 
-A user may decline to publish a private profile, but personal choices must still live in a readable source of truth rather than hidden machine-local state.
+A user may decline to publish a private profile, but personal choices still live in a readable source of truth rather than hidden machine-local state.
 
 ## Design principles
 
@@ -59,34 +66,11 @@ A user may decline to publish a private profile, but personal choices must still
 - **Cohesive modules.** Split by responsibility and reason to change, not by a target file count.
 - **Thin commands.** Prefer standard Nix and Git operations over custom parsers, generators, and hidden state.
 - **Safe defaults.** Destructive, opinionated, or publishing behaviour requires explicit consent.
-- **Progressive disclosure.** Beginners see the common path; advanced users can inspect and override the underlying system.
+- **Progressive disclosure.** Show the common path; let advanced users inspect and override the underlying system.
 - **No abstraction without evidence.** Ordinary Nix remains the default until a demonstrated usability problem justifies more machinery.
 - **Test user contracts.** Installation, framework updates, private-profile preservation, backup, restore, and destructive boundaries matter more than internal implementation details.
 - **One restore engine.** Public installation and direct private-profile recovery converge on the same implementation.
 
-## Definition of success
+## Project status
 
-The clean-machine journey is the product:
-
-1. Install the public framework without creating a framework fork.
-2. Generate a private profile whose folders and filenames explain their roles.
-3. Choose applications and preferences without editing the public framework.
-4. Rebuild successfully.
-5. Push the private profile to a private remote and verify it is backed up, or clearly understand that a local-only profile is not yet backed up.
-6. Update the public framework while preserving all private choices.
-7. Restore the profile on a second or replacement Mac through the public installer.
-8. Restore the same profile directly from its own repository using its profile-owned entry point.
-9. Preserve the profile's existing framework source and committed lock during restoration.
-10. Understand and manually modify the generated Nix with basic Nix knowledge.
-
-Green checks do not substitute for completing these journeys on a clean Mac.
-
-## Migration direction
-
-Preserve the public/private separation. Simplify the private profile so it imports the public framework normally and groups user-owned configuration into clear areas such as `hosts/`, `apps/`, `macos/`, and `home/`.
-
-Existing installations must continue to work during migration. New structure and self-restore entry points should be introduced without rewriting or endangering a live private profile.
-
-The detailed portability and restore design is documented in [`PORTABLE_PRIVATE_PROFILE.md`](./PORTABLE_PRIVATE_PROFILE.md).
-Implementation sequence and release gates are tracked in
-[`ROADMAP.md`](./ROADMAP.md).
+This project is maintenance-only. It is not working toward a further release, and there is no roadmap obligating future work. Known gaps are listed in [`README.md`](../README.md#known-gaps) and are recorded as limitations, not as planned work.

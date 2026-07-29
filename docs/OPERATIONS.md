@@ -297,8 +297,7 @@ that layout. Do not reorganize a live legacy profile as part of an unrelated
 operation.
 
 The `.local` bridge requires impure evaluation and `DOTFILES_LOCAL` forwarding.
-It remains load-bearing until the roadmap migration phase proves equivalent
-modular values.
+It remains load-bearing and is not scheduled for replacement.
 
 Preview the evidence without changing either repository:
 

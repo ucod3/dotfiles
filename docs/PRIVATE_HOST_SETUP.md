@@ -176,4 +176,3 @@ Profiles created before the modular layout may still use root `settings.nix`,
 and adoption retain compatibility with that shape.
 
 No setup or restore command is permission to reorganize a live private profile.
-Migration is a separate, reviewed roadmap phase.

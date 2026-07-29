@@ -361,4 +361,3 @@ to use. Presence is never treated as consent to move or replace it.
 - [Day-two operations](./docs/OPERATIONS.md)
 - [Architecture](./docs/ARCHITECTURE.md)
 - [Clean-machine acceptance](./docs/CLEAN_MACHINE_ACCEPTANCE.md)
-- [Product roadmap](./docs/ROADMAP.md)
