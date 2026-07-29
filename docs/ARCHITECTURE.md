@@ -153,8 +153,8 @@ The bridge has verified constraints:
   flake already owns hosts.
 - Both single-line and multiline legacy app lists remain supported.
 
-Do not remove or simplify this bridge until the roadmap's migration phase proves
-equivalence for existing profiles (R4).
+Do not remove or simplify this bridge. It is load-bearing for existing profiles
+and is not scheduled for replacement (R4).
 
 ## Architectural safety rules
 

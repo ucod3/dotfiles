@@ -35,8 +35,7 @@ with `ai.enable = true` in `.local/settings.nix`, followed by `dot rebuild`.
 Setting `dotfiles.ai.enable = true` in a modular private host currently affects
 only the nix-darwin system option. It does **not** enable these Home Manager
 links yet, because their remaining gate still reads the legacy `.local` flag.
-Phase 4 of the [product roadmap](../ROADMAP.md) records the compatibility-tested
-migration to a readable modular Home Manager option.
+This is a known gap, not scheduled work.
 
 Do not create these links by hand as a workaround. An imperative installer that
 claimed the same paths was removed in ADR-008 precisely because two owners

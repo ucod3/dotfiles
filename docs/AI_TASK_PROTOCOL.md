@@ -8,7 +8,6 @@ This document lets a human give a short, natural-language task such as:
 Review PR #42
 Continue issue #39
 Fix PR #42
-Resume the roadmap
 Prepare a handoff
 ```
 
@@ -26,7 +25,7 @@ Before acting, read the project's canonical agent contract and the sources it
 identifies. At minimum, discover:
 
 - the product or requirements authority;
-- the current roadmap or tracking issue;
+- the current tracking issue;
 - architecture and decision records relevant to the target;
 - the primary validation command;
 - branch and workspace ownership;
@@ -63,7 +62,6 @@ durable evidence supports and report the gap. Do not invent approval or scope.
 | `Implement issue #N` | Implement the issue's accepted scope using the project workflow. For tracked changes, create or update a linked PR and put the implementation handoff there. | Yes |
 | `Explore <topic>` | Gather evidence, compare options, record conclusions, and recommend a next step. | No implementation |
 | `Prepare a handoff` | Reconstruct and record the current outcome, workspace, validation, findings, decisions, and exact next action. | Only the durable handoff record |
-| `Resume the roadmap` | Locate the current roadmap phase and its tracking record, then continue the next already-approved slice. | Only within existing authority |
 
 Words such as `review`, `inspect`, `audit`, `assess`, and `explain` are read-only
 unless the same request separately authorizes changes.
@@ -78,7 +76,6 @@ live data, or broaden a product decision.
 - `issue #N` means that issue in the current repository.
 - A named document means the tracked file with that name or path.
 - `current PR` means the pull request for the checked-out branch.
-- `roadmap` means the project's canonical roadmap and its linked active record.
 
 Use read-only discovery to resolve a missing repository name, current branch, or
 linked record. If multiple destructive or writable targets remain plausible,

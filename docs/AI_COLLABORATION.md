@@ -24,7 +24,7 @@ validation rules. Before working, identify:
 
 - the canonical project contract, usually `AGENTS.md`;
 - the product or requirements authority;
-- the roadmap or current tracking issue;
+- the current tracking issue;
 - the architecture and decision records;
 - the primary validation command;
 - the repository's branch, publication, and approval rules.
@@ -118,7 +118,6 @@ fact.
 | Specific to the current change | Pull-request comment or review thread |
 | Follow-up within an existing workstream | Existing tracking issue |
 | Independent defect or feature | New issue |
-| Long-term product sequence | Roadmap, after acceptance |
 | Architectural decision and trade-off | Decision record, after approval |
 | Temporary status or raw investigation | Task notes or chat; not durable memory |
 
@@ -225,7 +224,7 @@ When adopting this document in another project:
 1. copy it without adding vendor-specific role names;
 2. add a short pointer from that project's canonical agent contract;
 3. keep project commands and safety rules in the project adapter sources;
-4. choose the durable issue, review, roadmap, and decision systems;
+4. choose the durable issue, review, and decision systems;
 5. define publication and approval authority; and
 6. rehearse the handoff with a small, reversible task before relying on it for
    consequential work.
