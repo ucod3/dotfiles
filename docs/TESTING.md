@@ -131,6 +131,30 @@ parsing). Both pass on the CI runner and on a Mac.
 The runner has no private profile or `.local/` settings layer, so the eval job
 exercises the neutral public-framework path by construction.
 
+### Agent workflows
+
+`.github/workflows/claude-code-review.yml` reviews every pull request and needs
+no invocation. It skips its model review on pull requests that modify the agent
+workflows themselves, so those changes need an independent review recorded by a
+human or a second agent.
+
+`.github/workflows/claude.yml` runs only when a comment or review body **begins
+with** `@claude`; the rest of the body is the request. Mentioning the trigger
+anywhere else — prose, blockquotes, handoff examples, this paragraph — invokes
+nothing, which is the point. Three consequences:
+
+- leading whitespace breaks invocation; the prefix match cannot trim, so start
+  typing at the first character;
+- case does not matter, because GitHub compares expression strings
+  case-insensitively;
+- issues are invoked by commenting on them, not by opening them; the `issues`
+  event is deliberately unwired because issue bodies quote commands.
+
+A non-invoking comment still lists a run with conclusion `skipped`. GitHub
+queues the workflow for every comment and the job condition decides whether
+anything executes; a `skipped` run consumes no agent usage.
+`tests/test_agent_workflow_trigger.bats` holds this rule to the workflow file.
+
 ## Testing public setup
 
 `setup.sh` supports command-double tests and temporary-profile rehearsals. Its
