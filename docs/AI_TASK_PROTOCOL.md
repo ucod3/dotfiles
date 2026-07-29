@@ -54,12 +54,13 @@ durable evidence supports and report the gap. Do not invent approval or scope.
 | Request | Default meaning | May edit? |
 | --- | --- | --- |
 | `Review PR #N` | Review the change, checks, unresolved threads, and stated scope. Record findings on the PR and leave a structured handoff. | No |
+| `Audit PR #N` | Independently evaluate the completed implementation against its issue, accepted decisions, diff, validation, safety boundaries, and product contract. Record the verdict and findings on the PR. | No |
 | `Review issue #N` | Review whether the issue is clear, correctly scoped, supported by evidence, and ready for its proposed next action. Record findings on the issue and leave a structured handoff. | No |
 | `Review <document>` | Review the named document against its authorities and current project state. Report findings without rewriting it. | No |
 | `Continue PR #N` | Resume the PR's already-approved objective from its latest durable handoff. | Yes, only within existing authority |
 | `Continue issue #N` | Resume the issue's next approved implementation slice. If the issue is exploratory or lacks implementation approval, remain read-only. | Only when already authorized |
 | `Fix PR #N` | Address actionable findings within the PR's approved scope, validate, and update the handoff. | Yes |
-| `Implement issue #N` | Implement the issue's accepted scope using the project workflow. | Yes |
+| `Implement issue #N` | Implement the issue's accepted scope using the project workflow. For tracked changes, create or update a linked PR and put the implementation handoff there. | Yes |
 | `Explore <topic>` | Gather evidence, compare options, record conclusions, and recommend a next step. | No implementation |
 | `Prepare a handoff` | Reconstruct and record the current outcome, workspace, validation, findings, decisions, and exact next action. | Only the durable handoff record |
 | `Resume the roadmap` | Locate the current roadmap phase and its tracking record, then continue the next already-approved slice. | Only within existing authority |
@@ -82,6 +83,36 @@ live data, or broaden a product decision.
 Use read-only discovery to resolve a missing repository name, current branch, or
 linked record. If multiple destructive or writable targets remain plausible,
 stop and ask rather than choosing one.
+
+## Choose the durable work record
+
+Use the record that matches the work performed:
+
+| Work performed | Primary durable record |
+| --- | --- |
+| Explore, refine, or review a proposed task | Issue comment |
+| Implement tracked code or documentation | Pull request linked to the issue |
+| Review or audit an implementation | Pull-request review or comment |
+| Find unrelated follow-up work | Separate issue |
+| Accept a lasting architecture trade-off | Project decision record |
+
+A read-only issue review does not need an empty pull request. If implementation
+produces a diff, the pull request becomes the implementation and handoff record;
+the issue remains the objective, accepted scope, and decision record.
+
+Link the issue and pull request in both directions when the collaboration system
+does not do so automatically. The human should be able to transfer work by
+providing only the identifier:
+
+```text
+Implement issue #41
+Audit PR #42
+Fix PR #42
+Re-review PR #42
+```
+
+Do not require copied chat output when the participant can read the durable
+record directly.
 
 ## Review protocol
 
@@ -124,6 +155,28 @@ Before continuing implementation:
 A receiving participant should not need a transcript from the previous
 participant. The branch, commits, pull request or issue, checks, and handoff are
 the transfer mechanism.
+
+## Implementation and independent audit
+
+For a scoped implementation:
+
+1. the implementer reads the issue and accepted decisions;
+2. the implementer creates or owns one branch, makes the change, validates it,
+   and opens or updates the linked pull request;
+3. the implementer posts the structured handoff on that pull request;
+4. an independent reviewer receives `Audit PR #N` and reads the linked issue,
+   diff, checks, review history, and handoff;
+5. the reviewer records one verdict from `docs/AI_COLLABORATION.md` on the pull
+   request without editing the implementation;
+6. when revision is required, an implementer receives `Fix PR #N`; and
+7. merge, deployment, or activation follows only after the required review and
+   authority are present.
+
+Roles are independent of product, model, vendor, or cost. A project may assign
+routine, well-bounded implementation to one participant and reserve ambiguous,
+architectural, security-sensitive, or final acceptance work for another. Every
+participant still follows the same evidence, validation, safety, and handoff
+rules.
 
 ## Authorization boundaries
 
