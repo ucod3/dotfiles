@@ -1,114 +1,244 @@
-# npm-compat.zsh — npm/npx compatibility wrappers for pnpm-first environments
+# npm-compat.zsh — npm/pnpm interop for pnpm-first environments
 # Part of: config/zsh/modules/
 #
 # Provides:
-#   real-npm          — bypass pnpm alias and run real npm directly
-#   workshop-npx      — bypass pnpx alias and run real npx directly
-#   setup-pnpm-workspace — auto-generate pnpm-workspace.yaml from package.json
+#   real-npm              — run the real npm binary, bypassing the pnpm alias
+#   workshop-npx          — run the real npx binary, bypassing the pnpm alias
+#   setup-pnpm-workspace  — write pnpm workspace config for an npm-authored repo
+#
+# Nothing here runs on directory change. Every function in this file is called
+# explicitly, by `workshop` or by the user.
+#
+# Sourced by bats under bash as well as by zsh, so shell-specific syntax stays
+# behind a ZSH_VERSION guard.
 
-# Shared node-path resolution (sources lib/node.sh from DOTFILES_ROOT)
-_npm_compat_find_node() {
-  local dotfiles="${DOTFILES_ROOT:-$HOME/dotfiles}"
-  if [[ -f "$dotfiles/lib/node.sh" ]]; then
-    # shellcheck source=../../../lib/node.sh
-    source "$dotfiles/lib/node.sh"
-    _find_node
+# ── real npm / npx resolution ────────────────────────────────────────────────
+
+# Look a command up on PATH only, ignoring aliases and shell functions.
+# zsh spells this `whence -p`; bash spells it `type -P`.
+_npm_compat_path_lookup() {
+  local name="$1" bin
+  if [[ -n "${ZSH_VERSION:-}" ]]; then
+    bin=$(whence -p "$name" 2>/dev/null)
   else
-    # Inline fallback if lib is unavailable (should not happen after install)
-    command -v node 2>/dev/null \
-      || { echo "Node.js not found. Run: pnpm env use --global node@lts" >&2; return 1; }
+    bin=$(type -P "$name" 2>/dev/null)
   fi
+  [[ -n "$bin" && -x "$bin" ]] || return 1
+  printf '%s\n' "$bin"
 }
 
-# real-npm — use the real npm binary, bypassing the pnpm alias
+# real-npm — run the genuine npm binary.
+#
+# Deliberately NOT `pnpm exec npm`. `pnpm exec` exports
+# npm_config_user_agent=pnpm/<version>, and npm *inherits* that variable rather
+# than overwriting it when it runs a package script. Anything downstream that
+# sniffs the user agent to pick a package manager — pkgmgr and pkgmgrx, which
+# Epic Web workshops use — then still resolves to pnpm. Routing through pnpm to
+# "escape" pnpm cannot work.
+#
+# Resolution is PATH-based, so pnpm-managed global npm
+# (~/.local/share/pnpm/bin/npm) and Homebrew/system npm all work. The previous
+# implementation probed only /usr/local/bin, /opt/homebrew/bin and /usr/bin,
+# none of which exist on a Nix-managed machine.
 real-npm() {
-  echo "Using real npm directly (bypassing pnpm redirection)..."
-
-  # pnpm exec is the safest route when pnpm is present
-  if command -v pnpm >/dev/null 2>&1; then
-    echo "📦 Using npm through pnpm exec..."
-    command pnpm exec npm "$@"
-    return $?
+  local bin
+  if ! bin=$(_npm_compat_path_lookup npm); then
+    echo "real-npm: no npm executable found on PATH." >&2
+    echo "  Install one with: pnpm add -g npm" >&2
+    return 1
   fi
-
-  # Try to find a real npm binary in standard locations
-  local npm_bin
-  npm_bin=$(
-    for p in /usr/local/bin/npm /opt/homebrew/bin/npm /usr/bin/npm; do
-      [[ -x "$p" ]] && echo "$p" && break
-    done
-  )
-
-  if [[ -n "$npm_bin" ]]; then
-    echo "📦 Using npm from: $npm_bin"
-    "$npm_bin" "$@"
-    return $?
-  fi
-
-  # Last resort: find node, then use pnpm's npm-cli.js
-  local node_bin
-  node_bin=$(_npm_compat_find_node) || return 1
-
-  local npm_cli
-  npm_cli="$(command pnpm root -g 2>/dev/null)/npm/bin/npm-cli.js"
-  if [[ -f "$npm_cli" ]]; then
-    echo "📦 Using npm-cli.js with Node.js"
-    "$node_bin" "$npm_cli" "$@"
-    return $?
-  fi
-
-  echo "❌ Failed to locate npm. Installing it with pnpm..."
-  command pnpm add -g npm
-  command pnpm exec npm "$@"
+  "$bin" "$@"
 }
 
-# workshop-npx — use the real npx binary, bypassing the pnpx alias
+# workshop-npx — run the genuine npx binary. Same reasoning as real-npm.
 workshop-npx() {
-  echo "Running npx command with original npm..."
-
-  # pnpm exec is the safest route when pnpm is present
-  if command -v pnpm >/dev/null 2>&1; then
-    echo "📦 Using npx through pnpm exec..."
-    command pnpm exec npx "$@"
-    return $?
+  local bin
+  if ! bin=$(_npm_compat_path_lookup npx); then
+    echo "workshop-npx: no npx executable found on PATH." >&2
+    echo "  Install one with: pnpm add -g npm" >&2
+    return 1
   fi
-
-  # Try to find a real npx binary in standard locations
-  local npx_bin
-  npx_bin=$(
-    for p in /usr/local/bin/npx /opt/homebrew/bin/npx /usr/bin/npx; do
-      [[ -x "$p" ]] && echo "$p" && break
-    done
-  )
-
-  if [[ -n "$npx_bin" ]]; then
-    echo "📦 Using npx from: $npx_bin"
-    "$npx_bin" "$@"
-    return $?
-  fi
-
-  echo "❌ Failed to locate npx. Installing npm with pnpm..."
-  command pnpm add -g npm
-  command pnpm exec npx "$@"
+  "$bin" "$@"
 }
 
-# setup-pnpm-workspace — auto-generate pnpm-workspace.yaml from npm workspaces
+# ── pnpm workspace generation ────────────────────────────────────────────────
+
+# Packages in an Epic Web workshop that genuinely need their install scripts.
+#
+# pnpm blocks dependency lifecycle scripts by default and exits non-zero when it
+# had to block one. This list was not guessed: it is every package under the
+# workshop's node_modules trees (root, epicshop, all 128 exercise apps and the
+# playground) declaring an install, preinstall or postinstall script.
+#
+# esbuild and the prisma packages fetch or generate platform binaries, msw
+# writes its service worker, @sentry/* and unrs-resolver pull native artifacts.
+# Keeping this explicit rather than using dangerouslyAllowAllBuilds means a new
+# script-bearing transitive dependency is surfaced instead of silently trusted.
+_epic_built_dependencies() {
+  cat <<'EOF'
+@prisma/client
+@prisma/engines
+@sentry/cli
+@sentry/node-cpu-profiler
+esbuild
+msw
+prisma
+unrs-resolver
+EOF
+}
+
+# Read the npm `workspaces` field with a real JSON parser.
+#
+# The previous implementation scraped quoted strings out of package.json with
+# grep, which captured the literal key `workspaces` as a package pattern. pnpm
+# then treated `workspaces` as a workspace glob and the generated file was
+# malformed. Prints one pattern per line; fails loudly rather than guessing.
+_epic_workspace_patterns() {
+  local pkg_json="$1"
+  node -e '
+    const fs = require("fs");
+    const file = process.argv[1];
+    let pkg;
+    try {
+      pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (err) {
+      console.error("cannot parse " + file + ": " + err.message);
+      process.exit(1);
+    }
+    const field = pkg.workspaces;
+    let patterns;
+    if (Array.isArray(field)) {
+      patterns = field;
+    } else if (field && Array.isArray(field.packages)) {
+      patterns = field.packages;
+    } else if (field === undefined) {
+      console.error("no \"workspaces\" field in " + file);
+      process.exit(2);
+    } else {
+      console.error("unsupported \"workspaces\" format in " + file);
+      process.exit(2);
+    }
+    for (const p of patterns) {
+      if (typeof p !== "string" || p.trim() === "") {
+        console.error("invalid workspace pattern in " + file + ": " + JSON.stringify(p));
+        process.exit(3);
+      }
+    }
+    for (const p of patterns) console.log(p);
+  ' "$pkg_json"
+}
+
+# Emit the shared tail of both generated files.
+_epic_workspace_settings() {
+  echo ""
+  echo "# Exercise apps were authored against npm's flat node_modules and rely on"
+  echo "# undeclared transitive dependencies. \"hoisted\" reproduces that layout"
+  echo "# while still hardlinking every file from pnpm's store, so disk stays small."
+  echo "nodeLinker: hoisted"
+  echo ""
+  echo "# Scoped to this workshop. See _epic_built_dependencies in npm-compat.zsh."
+  echo "#"
+  echo "# pnpm 11 spells this 'allowBuilds' and takes a map. The pnpm 10 spelling"
+  echo "# 'onlyBuiltDependencies' is silently inert here: pnpm still reports"
+  echo "# ERR_PNPM_IGNORED_BUILDS and exits 1."
+  echo "allowBuilds:"
+  _epic_built_dependencies | while IFS= read -r dep; do
+    [[ -n "$dep" ]] && echo "  '$dep': true"
+  done
+}
+
+# Add paths to a repository's .git/info/exclude.
+#
+# Local-only ignores: the tracked .gitignore is never modified, so `git pull`
+# for workshop updates stays clean. Idempotent — an entry is appended only when
+# an exact line match is absent.
+_epic_git_exclude() {
+  local root="$1"
+  shift
+
+  local git_dir
+  git_dir=$(git -C "$root" rev-parse --git-dir 2>/dev/null) || return 0
+  case "$git_dir" in
+    /*) ;;
+    *) git_dir="$root/$git_dir" ;;
+  esac
+
+  local exclude_file="$git_dir/info"
+  mkdir -p "$exclude_file" 2>/dev/null || return 0
+  exclude_file="$exclude_file/exclude"
+
+  local entry
+  for entry in "$@"; do
+    if ! grep -qxF "$entry" "$exclude_file" 2>/dev/null; then
+      printf '%s\n' "$entry" >> "$exclude_file"
+    fi
+  done
+}
+
+# setup-pnpm-workspace — write both pnpm workspace files for a workshop.
+#
+# Idempotent: the generated content is a pure function of package.json, so
+# re-running rewrites identical bytes.
+#
+# The nested epicshop/pnpm-workspace.yaml is a mandatory recursion guard, not a
+# nicety. The workshop root's package.json declares
+#   "postinstall": "cd ./epicshop && pkgmgr install"
+# and without a workspace boundary inside ./epicshop, pnpm walks up to the
+# workshop root, decides the root is the install target, and re-fires that same
+# postinstall — recursing until the machine dies.
 setup-pnpm-workspace() {
-  if [[ -f "./package.json" ]] && grep -q '"workspaces":' "./package.json" && [[ ! -f "./pnpm-workspace.yaml" ]]; then
-    echo "Creating pnpm-workspace.yaml for npm workspace compatibility..."
+  local root="${1:-.}"
 
-    local workspace_patterns
-    workspace_patterns=$(grep -A 20 '"workspaces":' "./package.json" | grep -m 1 -A 10 '\[' | grep -B 10 '\]' | grep -o '"[^"]*"' | sed 's/"//g' | grep -v '^\s*$')
-    workspace_patterns=$(echo "$workspace_patterns" | grep -v "^\[" | grep -v "^\]")
+  if [[ ! -f "$root/package.json" ]]; then
+    echo "setup-pnpm-workspace: no package.json in $root" >&2
+    return 1
+  fi
 
-    echo "packages:" > pnpm-workspace.yaml
-    echo "$workspace_patterns" | while read -r pattern; do
-      if [[ -n "$pattern" ]]; then
-        echo "  - '$pattern'" >> pnpm-workspace.yaml
-      fi
-    done
+  local patterns
+  if ! patterns=$(_epic_workspace_patterns "$root/package.json"); then
+    echo "setup-pnpm-workspace: could not read workspace patterns; refusing to" >&2
+    echo "  write a pnpm-workspace.yaml that would be wrong." >&2
+    return 1
+  fi
 
-    echo "Created pnpm-workspace.yaml with the following patterns:"
-    cat pnpm-workspace.yaml
+  {
+    echo "# Generated by 'workshop setup' (dotfiles: config/zsh/modules/npm-compat.zsh)."
+    echo "# Local-only: registered in .git/info/exclude, never committed."
+    echo "#"
+    echo "# Mirrors the npm \"workspaces\" field in package.json, which pnpm does"
+    echo "# not read. Without it pnpm installs the root dependencies only and"
+    echo "# silently skips every exercise app."
+    echo "packages:"
+    if [[ -n "$patterns" ]]; then
+      printf '%s\n' "$patterns" | while IFS= read -r pattern; do
+        [[ -n "$pattern" ]] && echo "  - '$pattern'"
+      done
+    else
+      echo "  []"
+    fi
+    _epic_workspace_settings
+  } > "$root/pnpm-workspace.yaml"
+
+  if [[ -d "$root/epicshop" ]]; then
+    {
+      echo "# Generated by 'workshop setup'. LOAD-BEARING — do not delete."
+      echo "#"
+      echo "# The workshop root runs 'cd ./epicshop && pkgmgr install' as its"
+      echo "# postinstall. Without a workspace boundary here, pnpm climbs to the"
+      echo "# workshop root, installs that instead, and re-fires the same"
+      echo "# postinstall in an unbounded fork bomb. An empty package list makes"
+      echo "# ./epicshop its own workspace root so the install terminates."
+      echo "packages: []"
+      _epic_workspace_settings
+    } > "$root/epicshop/pnpm-workspace.yaml"
+
+    # Explicit arguments, not an accumulated string: zsh does not word-split
+    # unquoted parameters, so a "a b" accumulator arrives as one argument and
+    # writes a single malformed exclude line. bash splits it and hides the bug.
+    _epic_git_exclude "$root" "pnpm-workspace.yaml" "epicshop/pnpm-workspace.yaml"
+    echo "Wrote: pnpm-workspace.yaml epicshop/pnpm-workspace.yaml"
+  else
+    _epic_git_exclude "$root" "pnpm-workspace.yaml"
+    echo "Wrote: pnpm-workspace.yaml"
   fi
 }
