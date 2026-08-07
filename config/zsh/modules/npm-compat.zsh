@@ -152,6 +152,12 @@ _epic_workspace_settings() {
 # Local-only ignores: the tracked .gitignore is never modified, so `git pull`
 # for workshop updates stays clean. Idempotent — an entry is appended only when
 # an exact line match is absent.
+#
+# This mechanism can only ADD ignores. It cannot remove one the tracked
+# .gitignore declares, because .gitignore outranks info/exclude in git's
+# precedence order — a "!playground" written here is inert. See
+# _epic_unignore_playground for the one case that needs the tracked file
+# edited, and why that is unavoidable rather than a shortcut.
 _epic_git_exclude() {
   local root="$1"
   shift
@@ -173,6 +179,61 @@ _epic_git_exclude() {
       printf '%s\n' "$entry" >> "$exclude_file"
     fi
   done
+}
+
+# Un-ignore a workshop's playground/ directory.
+#
+# Epic workshops gitignore /playground, and epicshop rewrites that directory on
+# every "Set to Playground". Editors and code indexers that build their view
+# from tracked files therefore see nothing in the one directory the exercises
+# are actually done in: no autocomplete, no go-to-definition, no references.
+#
+# This is the sole place the tracked .gitignore is edited, and it has to be.
+# Git's ignore precedence puts .gitignore ABOVE .git/info/exclude, so the
+# negation _epic_git_exclude would otherwise write is inert:
+#   .gitignore:/playground + info/exclude:!playground  ->  still ignored
+# A nested playground/.gitignore cannot help either — git never descends into
+# an excluded directory to read one.
+#
+# skip-worktree keeps the edit out of `git status`, preserving the clean-worktree
+# guarantee the rest of this module maintains. The cost is that `git pull`
+# aborts if upstream ever touches .gitignore. Recovery:
+#   git update-index --no-skip-worktree .gitignore
+#   git checkout -- .gitignore && git pull && workshop setup
+#
+# Idempotent: the rewrite fires only while an uncommented playground rule
+# remains, and the marker makes the already-done case a no-op.
+_epic_unignore_playground() {
+  local root="$1"
+  local gitignore="$root/.gitignore"
+  local marker="unignored by 'workshop setup'"
+  local rule='^[[:space:]]*/?playground/?[[:space:]]*$'
+
+  [[ -f "$gitignore" ]] || return 0
+  git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+  # Already rewritten. Re-assert the bit anyway: it lives in the index, not the
+  # worktree, so a fresh clone or a reset index drops it while the edit survives.
+  if grep -qF "$marker" "$gitignore" 2>/dev/null; then
+    git -C "$root" update-index --skip-worktree .gitignore 2>/dev/null
+    return 0
+  fi
+
+  # No playground rule to neutralise — leave the file untouched.
+  grep -qE "$rule" "$gitignore" 2>/dev/null || return 0
+
+  local tmp="$gitignore.epic.$$"
+  awk -v marker="$marker" '
+    /^[[:space:]]*\/?playground\/?[[:space:]]*$/ {
+      print "# " $0 "  <- " marker " (dotfiles: config/zsh/modules/npm-compat.zsh)"
+      next
+    }
+    { print }
+  ' "$gitignore" > "$tmp" || { rm -f "$tmp"; return 1; }
+
+  mv "$tmp" "$gitignore" || { rm -f "$tmp"; return 1; }
+  git -C "$root" update-index --skip-worktree .gitignore 2>/dev/null
+  echo "Unignored: playground/ (.gitignore edit hidden with skip-worktree)"
 }
 
 # setup-pnpm-workspace — write both pnpm workspace files for a workshop.

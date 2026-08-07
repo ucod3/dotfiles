@@ -38,6 +38,12 @@ make_workshop() {
 EOF
   echo '{"name":"epicshop-deps"}' > "$dir/epicshop/package.json"
   git -C "$dir" init -q 2>/dev/null
+  # core.fsmonitor is on for this user. Any `git status` in a test repo would
+  # spawn a detached git-fsmonitor--daemon that inherits bats' file descriptor 3
+  # and never closes it, so bats blocks forever after the last test reports.
+  # Disabling it per test repo keeps the suite exit-clean and leaves no stray
+  # daemons watching temp directories.
+  git -C "$dir" config core.fsmonitor false 2>/dev/null
   echo "$dir"
 }
 
@@ -204,13 +210,81 @@ require_node() {
   ! grep -q 'pnpm-workspace.yaml epicshop/' "$dir/.git/info/exclude"
 }
 
-@test "the tracked .gitignore is never modified" {
+@test "setup-pnpm-workspace never modifies the tracked .gitignore" {
   require_node
   local dir; dir=$(make_workshop)
   echo "node_modules" > "$dir/.gitignore"
   local before; before=$(cksum < "$dir/.gitignore")
 
   setup-pnpm-workspace "$dir" >/dev/null
+
+  [ "$(cksum < "$dir/.gitignore")" = "$before" ]
+}
+
+# ── 6b. playground visibility ────────────────────────────────────────────────
+#
+# The exception to the rule above. Editors and code indexers build their view
+# from tracked files, so a gitignored playground/ is invisible in the one
+# directory the exercises are done in.
+
+# Why the exception exists at all: info/exclude cannot undo a .gitignore rule.
+# If this ever starts passing, _epic_unignore_playground can be deleted in
+# favour of the cheaper _epic_git_exclude.
+@test "a negation in info/exclude cannot undo a tracked .gitignore rule" {
+  local dir; dir=$(make_workshop)
+  printf '/playground\n' > "$dir/.gitignore"
+  mkdir -p "$dir/playground/app"
+  echo 'x' > "$dir/playground/app/root.tsx"
+  git -C "$dir" add -f .gitignore >/dev/null
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+
+  _epic_git_exclude "$dir" '!playground' '!playground/**'
+
+  # Still ignored — the negation is inert.
+  ! git -C "$dir" status --short --untracked-files=all | grep -q playground
+}
+
+@test "the playground is unignored and the edit is hidden from git status" {
+  local dir; dir=$(make_workshop)
+  printf 'node_modules\n/playground\nsaved-playgrounds\n' > "$dir/.gitignore"
+  mkdir -p "$dir/playground/app"
+  echo 'x' > "$dir/playground/app/root.tsx"
+  git -C "$dir" add -f .gitignore >/dev/null
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+
+  _epic_unignore_playground "$dir" >/dev/null
+
+  # The rule is commented out, and the marker records who did it.
+  grep -q "^# /playground .*unignored by 'workshop setup'" "$dir/.gitignore"
+  # Unrelated rules survive.
+  grep -qx 'saved-playgrounds' "$dir/.gitignore"
+  # The playground is now visible to anything that reads git.
+  git -C "$dir" status --short --untracked-files=all | grep -q playground
+  # ...but the .gitignore edit itself is not.
+  ! git -C "$dir" status --short | grep -q '\.gitignore'
+}
+
+@test "re-running the playground unignore rewrites identical bytes" {
+  local dir; dir=$(make_workshop)
+  printf 'node_modules\n/playground\n' > "$dir/.gitignore"
+  git -C "$dir" add -f .gitignore >/dev/null
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+
+  _epic_unignore_playground "$dir" >/dev/null
+  local once; once=$(cksum < "$dir/.gitignore")
+  _epic_unignore_playground "$dir" >/dev/null
+
+  [ "$(cksum < "$dir/.gitignore")" = "$once" ]
+}
+
+@test "a .gitignore with no playground rule is left untouched" {
+  local dir; dir=$(make_workshop)
+  printf 'node_modules\n' > "$dir/.gitignore"
+  git -C "$dir" add -f .gitignore >/dev/null
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm init >/dev/null
+  local before; before=$(cksum < "$dir/.gitignore")
+
+  _epic_unignore_playground "$dir" >/dev/null
 
   [ "$(cksum < "$dir/.gitignore")" = "$before" ]
 }

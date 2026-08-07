@@ -329,6 +329,13 @@ _workshop_setup() {
   echo "Configuring pnpm workspace..."
   setup-pnpm-workspace . || return 1
 
+  # Deliberately not inside setup-pnpm-workspace: that function's contract is
+  # "write the two workspace files", and it is the one place proven not to touch
+  # the tracked .gitignore. Playground visibility is a separate concern, so it
+  # hangs off the user-facing entry point instead. Never fatal — a workshop that
+  # installs correctly should not fail setup over editor tooling.
+  _epic_unignore_playground . || true
+
   # Plain pnpm: PKGMGR stays unset so the root postinstall
   # ("cd ./epicshop && pkgmgr install") also resolves to pnpm. This single
   # install covers the root, every exercise workspace, and the epicshop app.
