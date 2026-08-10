@@ -569,6 +569,86 @@ promote_sandbox() {
   [[ "$output" == *"HAS_EPIC"* ]]
 }
 
+#
+# ssh-tmux.zsh — auto-attach interactive SSH logins to one tmux session.
+#
+# These drive the module directly rather than through custom.zsh, because the
+# thing under test is an `exec`: it replaces the shell, so it has to be watched
+# from a process that is allowed to die.
+#
+
+# A fake tmux that reports its arguments instead of starting a server. The
+# module execs it, so seeing this output at all proves the exec fired.
+_fake_tmux() {
+  mkdir -p "$TMP/tmuxbin"
+  printf '#!/bin/sh\necho "TMUX_CALLED $*"\n' > "$TMP/tmuxbin/tmux"
+  chmod +x "$TMP/tmuxbin/tmux"
+  echo "$TMP/tmuxbin"
+}
+
+@test "the cold default module set does not auto-attach tmux" {
+  run grep -F 'DOTFILES_ZSH_MODULES:-' "$REPO_ROOT/config/zsh/custom.zsh"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"ssh-tmux"* ]]
+}
+
+@test "an interactive SSH login attaches to the persistent remote session" {
+  command -v zsh >/dev/null || skip "zsh not installed"
+  fakebin="$(_fake_tmux)"
+  run env -u TMUX HOME="$TMP" PATH="$fakebin:$PATH" \
+      SSH_TTY=/dev/ttys000 SSH_CONNECTION="10.0.0.2 51000 10.0.0.1 22" \
+      zsh -i -c "source '$REPO_ROOT/config/zsh/modules/ssh-tmux.zsh'; echo NOT_REACHED"
+  [[ "$output" == *"TMUX_CALLED new-session -A -s remote"* ]]
+  # exec, not a subshell: nothing after the module may run.
+  [[ "$output" != *"NOT_REACHED"* ]]
+}
+
+@test "a local interactive shell is left alone" {
+  command -v zsh >/dev/null || skip "zsh not installed"
+  fakebin="$(_fake_tmux)"
+  # No SSH_TTY, no SSH_CONNECTION — this is Ghostty on the Mac itself.
+  run env -u TMUX -u SSH_TTY -u SSH_CONNECTION -u SSH_CLIENT \
+      HOME="$TMP" PATH="$fakebin:$PATH" \
+      zsh -i -c "source '$REPO_ROOT/config/zsh/modules/ssh-tmux.zsh'; echo REACHED"
+  [[ "$output" != *"TMUX_CALLED"* ]]
+  [[ "$output" == *"REACHED"* ]]
+}
+
+@test "a non-interactive SSH command never attaches" {
+  command -v zsh >/dev/null || skip "zsh not installed"
+  # `ssh host command` runs a non-interactive shell, which zsh never reads
+  # .zshrc for. The module's own guard has to hold regardless, because a
+  # hijacked scp or rsync is silent breakage rather than a visible annoyance.
+  fakebin="$(_fake_tmux)"
+  run env -u TMUX HOME="$TMP" PATH="$fakebin:$PATH" \
+      SSH_TTY=/dev/ttys000 SSH_CONNECTION="10.0.0.2 51000 10.0.0.1 22" \
+      zsh -c "source '$REPO_ROOT/config/zsh/modules/ssh-tmux.zsh'; echo REACHED"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"TMUX_CALLED"* ]]
+  [[ "$output" == *"REACHED"* ]]
+}
+
+@test "an SSH shell already inside tmux does not nest" {
+  command -v zsh >/dev/null || skip "zsh not installed"
+  fakebin="$(_fake_tmux)"
+  run env HOME="$TMP" PATH="$fakebin:$PATH" \
+      SSH_TTY=/dev/ttys000 SSH_CONNECTION="10.0.0.2 51000 10.0.0.1 22" \
+      TMUX="/tmp/tmux-501/default,12345,0" \
+      zsh -i -c "source '$REPO_ROOT/config/zsh/modules/ssh-tmux.zsh'; echo REACHED"
+  [[ "$output" != *"TMUX_CALLED"* ]]
+  [[ "$output" == *"REACHED"* ]]
+}
+
+@test "an SSH login without tmux installed keeps its shell" {
+  command -v zsh >/dev/null || skip "zsh not installed"
+  # A cold remote box, or one where tmux was removed. Losing the shell here
+  # would mean losing the session you need in order to fix it.
+  run env -u TMUX HOME="$TMP" PATH="/usr/bin:/bin" \
+      SSH_TTY=/dev/ttys000 SSH_CONNECTION="10.0.0.2 51000 10.0.0.1 22" \
+      zsh -i -c "source '$REPO_ROOT/config/zsh/modules/ssh-tmux.zsh'; echo REACHED"
+  [[ "$output" == *"REACHED"* ]]
+}
+
 @test "no shell start writes npm shims into ~/.local/bin" {
   command -v zsh >/dev/null || skip "zsh not installed"
   shimhome="$TMP/shimhome"

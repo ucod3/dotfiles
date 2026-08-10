@@ -168,6 +168,7 @@
         assert !homeCfg.dotfiles.home.zsh.workshop.enable;
         assert !homeCfg.dotfiles.home.zsh.personalAliases.enable;
         assert !homeCfg.dotfiles.home.zsh.nodeWorkflow.enable;
+        assert !homeCfg.dotfiles.home.zsh.sshTmux.enable;
         assert !homeCfg.dotfiles.home.git.opinionatedDefaults.enable;
         pkgs.runCommand "dotfiles-check-cold-nondestructive-${system}" { } "touch $out";
 
@@ -212,6 +213,7 @@
               # asserts that, so enabling both here also exercises the assertion
               # against its satisfied case.
               workshop.enable = true;
+              sshTmux.enable = true;
             };
           };
         }];

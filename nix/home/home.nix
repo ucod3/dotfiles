@@ -58,7 +58,11 @@ let
   # The rest are gated (ADR-011). Order matters — aliases-personal references
   # helpers defined in node.zsh/npm-compat.zsh.
   zshModules =
-    [ "init" ]
+    # First deliberately: when it fires it `exec`s tmux over this shell, and
+    # tmux starts a fresh login shell that loads the whole set anyway. Sourcing
+    # the rest ahead of that exec would only do the work twice.
+    lib.optionals cfg.zsh.sshTmux.enable [ "ssh-tmux" ]
+    ++ [ "init" ]
     ++ lib.optionals cfg.zsh.nodeWorkflow.enable [ "node" ]
     ++ [ "utils" ]
     ++ lib.optionals cfg.zsh.nodeWorkflow.enable [ "npm-compat" ]
@@ -171,6 +175,26 @@ in
           .workshop.env and appends a line to that project's .gitignore, in any
           repository, without being asked. Requires nodeWorkflow for the
           helpers it calls.
+        '';
+      };
+
+      sshTmux.enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Load config/zsh/modules/ssh-tmux.zsh: every interactive SSH login
+          attaches to one persistent tmux session named `remote`, creating it
+          on first use, so work survives a dropped connection.
+
+          Local terminals are untouched — the module only fires when sshd set
+          SSH_TTY or SSH_CONNECTION, and never when already inside tmux or when
+          tmux is not installed.
+
+          The only toggle here that is hard-false rather than following
+          `home.exampleProfile.enable`. Its siblings add commands to a shell;
+          this one `exec`s tmux over the login shell, changing what an SSH
+          session *is*. Opting into the example profile is not consent to that,
+          so this asks to be named explicitly.
         '';
       };
     };
