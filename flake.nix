@@ -45,6 +45,13 @@
         specialArgs = { inherit self user inputs; };
         modules = [
           ./hosts/default.nix
+          # This flake owns the `nix-homebrew` input but never referenced it,
+          # so `nix flake check` type-checked everything *except* the module
+          # whose revision this repo pins for every downstream profile — a
+          # broken bump passed cold/full/nondestructive untouched. Downstream
+          # composes it exactly here (templates/private-profile/flake.nix), so
+          # the dummy host does too. It stays disabled unless a check opts in.
+          nix-homebrew.darwinModules.nix-homebrew
           home-manager.darwinModules.home-manager
           {
             home-manager = {
@@ -139,6 +146,12 @@
         assert host.config.homebrew.masApps == { };
         assert !host.config.dotfiles.system.macosDefaults.enable;
 
+        # The dummy host now imports nix-homebrew (see mkDummyHost). Importing
+        # a module must not switch it on: a cold fork that silently started
+        # managing /opt/homebrew would be exactly the ADR-007 class of surprise
+        # the assertions above exist to prevent.
+        assert !host.config.nix-homebrew.enable;
+
         # ADR-011, the shell half of the same contract. A cold fork must not
         # get a shell that redefines commands the user already has, and these
         # are the three that actually reached outside this repo:
@@ -171,6 +184,18 @@
           # Applications now come only from `.local/`, which is absent under
           # pure evaluation — so this check declares one directly.
           homebrew.casks = [ "ghostty" ];
+
+          # Importing the module only type-checks its options; its `config` is
+          # behind `mkIf cfg.enable`, so the brew derivation and the activation
+          # scripts stay unevaluated until something turns it on. Mirror
+          # templates/private-profile/hosts/host.nix so the fully-enabled check
+          # exercises the same composition a real private host uses.
+          nix-homebrew = {
+            enable = true;
+            enableRosetta = true;
+            user = dummyUser;
+            autoMigrate = true;
+          };
         }];
         extraHomeModules = [{
           dotfiles.home = {
