@@ -99,10 +99,8 @@ require("lazy").setup({
   {
     "neovim/nvim-lspconfig",
     config = function()
-      local lspconfig = require("lspconfig")
-
       -- Lua LSP
-      lspconfig.lua_ls.setup({
+      vim.lsp.config("lua_ls", {
         settings = {
           Lua = {
             diagnostics = { globals = { "vim" } },
@@ -110,11 +108,9 @@ require("lazy").setup({
         },
       })
 
-      -- Python LSP
-      lspconfig.pyright.setup({})
-
-      -- TypeScript LSP
-      lspconfig.ts_ls.setup({})
+      vim.lsp.enable("lua_ls")
+      vim.lsp.enable("pyright")
+      vim.lsp.enable("ts_ls")
     end,
   },
 })
