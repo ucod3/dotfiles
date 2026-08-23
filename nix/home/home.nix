@@ -367,6 +367,7 @@ in
       extraPackages = with pkgs; [
         ripgrep # Required for Telescope live_grep
         fd      # Required for Telescope file finder
+        tree-sitter # Required for nvim-treesitter parser updates
       ];
     };
 
